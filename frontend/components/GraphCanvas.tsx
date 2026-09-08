@@ -1192,7 +1192,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             </div>
 
             <div className="pt-3 border-t border-forensic-border text-[10px] text-forensic-textDim font-mono text-center">
-              CRYPTOTRACE Financial Intelligence Core
+              SUDARSHAN Financial Intelligence Core
             </div>
           </div>
         )}

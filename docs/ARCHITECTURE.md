@@ -5,14 +5,14 @@
 > **Target Problem Statement:** Automated Attribution of Unlabeled Cryptocurrency Wallets to Virtual Asset Service Providers (VASPs)  
 > **Supported Networks:** Ethereum Mainnet ($ETH$, $USDT$, $USDC$), Tron Network ($TRX$, $TRC\text{-}20\text{ }USDT$)  
 > **Master VASP Database Size:** 1,595+ On-Chain Cluster Addresses across 14 Top Global Exchanges  
-> **Production Frontend:** `https://cryptotrace-sand.vercel.app`  
-> **Production Backend:** `https://cryptotrace-backend.onrender.com`  
+> **Production Frontend:** `https://sudarshan-sand.vercel.app`  
+> **Production Backend:** `https://sudarshan-backend.onrender.com`  
 
 ---
 
 ## 1. System Overview & Core Philosophy
 
-The SIH CryptoTrace platform is an institutional-grade, multi-chain blockchain forensics engine designed specifically for cybercrime investigators, financial intelligence units (FIUs), and law enforcement agencies (LEAs). 
+The SIH Sudarshan platform is an institutional-grade, multi-chain blockchain forensics engine designed specifically for cybercrime investigators, financial intelligence units (FIUs), and law enforcement agencies (LEAs). 
 
 Its objective is to take an **arbitrary, unlabelled target cryptocurrency address** and deterministically establish its topological, volumetric, and temporal attribution to known **Virtual Asset Service Providers (VASPs)** (e.g., Binance, OKX, Huobi, WazirX, Coinbase, Kraken, KuCoin, Gate.io, Bybit, Bitfinex, MEXC, CoinDCX, Indodax, and Poloniex).
 
@@ -110,7 +110,7 @@ sequenceDiagram
 ## 3. Directory Layout & Module Structure
 
 ```
-SIH CryptoTrace/
+SIH Sudarshan/
 ├── backend/
 │   ├── app/
 │   │   ├── api/
@@ -337,7 +337,7 @@ Automated performance and stress-testing harness verifying system latency, throu
 
 ## 14. Deployment & CI/CD Architecture
 
-Continuous deployment linked to GitHub repository **[NINJA981/cryptotrace](https://github.com/NINJA981/cryptotrace)**:
-- **Frontend**: Vercel Edge (`https://cryptotrace-sand.vercel.app`)
-- **Backend**: Render Python 3.12 Web Service (`https://cryptotrace-backend.onrender.com`)
+Continuous deployment linked to GitHub repository **[NINJA981/sudarshan](https://github.com/NINJA981/sudarshan)**:
+- **Frontend**: Vercel Edge (`https://sudarshan-sand.vercel.app`)
+- **Backend**: Render Python 3.12 Web Service (`https://sudarshan-backend.onrender.com`)
 - **Containerized**: `docker-compose.yml` for self-hosted / air-gapped LEA on-prem deployments.

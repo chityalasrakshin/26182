@@ -47,7 +47,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   useEffect(() => {
     // Check initial preference from localStorage or default dark
-    const stored = localStorage.getItem('cryptotrace_theme');
+    const stored = localStorage.getItem('sudarshan_theme');
     if (stored === 'light') {
       setTheme('light');
       document.documentElement.classList.remove('dark');
@@ -60,11 +60,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   const toggleTheme = () => {
     if (theme === 'dark') {
       setTheme('light');
-      localStorage.setItem('cryptotrace_theme', 'light');
+      localStorage.setItem('sudarshan_theme', 'light');
       document.documentElement.classList.remove('dark');
     } else {
       setTheme('dark');
-      localStorage.setItem('cryptotrace_theme', 'dark');
+      localStorage.setItem('sudarshan_theme', 'dark');
       document.documentElement.classList.add('dark');
     }
   };

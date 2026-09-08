@@ -819,7 +819,7 @@ async def test_phase_10():
 
 async def main():
     print("================================================================")
-    print("CRYPTOTRACE ADVERSARIAL STRESS TEST SUITE EXECUTION")
+    print("SUDARSHAN ADVERSARIAL STRESS TEST SUITE EXECUTION")
     print("================================================================")
     
     test_phase_2()

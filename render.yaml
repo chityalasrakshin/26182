@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: cryptotrace-backend
+    name: sudarshan-backend
     env: python
     region: oregon
     plan: free

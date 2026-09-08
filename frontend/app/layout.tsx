@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'SIH CryptoTrace - Automated Wallet to VASP Attribution Engine',
+  title: 'SIH Sudarshan - Automated Wallet to VASP Attribution Engine',
   description: 'Automated attribution of unknown cryptocurrency wallets to nearest Virtual Asset Service Providers (VASPs) through real blockchain intelligence APIs.',
 };
 

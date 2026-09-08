@@ -59,7 +59,7 @@ def update_presentation():
                     p1.space_before = Pt(8)
 
                     p2 = tf.add_paragraph()
-                    p2.text = "CRYPTOTRACE"
+                    p2.text = "SUDARSHAN"
                     p2.font.bold = True
                     p2.font.size = Pt(24)
                     p2.font.color.rgb = RGBColor(255, 255, 255)

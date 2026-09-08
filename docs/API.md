@@ -1,9 +1,9 @@
-﻿# CRYPTOTRACE REST API Reference
+﻿# SUDARSHAN REST API Reference
 
 Base URLs:
-- **Production Backend**: `https://cryptotrace-backend.onrender.com/api/v1`
+- **Production Backend**: `https://sudarshan-backend.onrender.com/api/v1`
 - **Local Development**: `http://localhost:8000/api/v1`
-- **Interactive Documentation**: `https://cryptotrace-sand.vercel.app/docs.html`
+- **Interactive Documentation**: `https://sudarshan-sand.vercel.app/docs.html`
 
 ---
 

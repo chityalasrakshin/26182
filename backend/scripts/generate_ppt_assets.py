@@ -22,7 +22,7 @@ def generate_architecture_diagram():
     ax.axis('off')
 
     # Title
-    ax.text(6, 6.1, "CRYPTOTRACE: END-TO-END TECHNICAL ARCHITECTURE", 
+    ax.text(6, 6.1, "SUDARSHAN: END-TO-END TECHNICAL ARCHITECTURE", 
             ha='center', va='center', color='#38bdf8', fontsize=14, weight='bold', fontfamily='monospace')
     ax.text(6, 5.7, "Multi-Chain Ingestion  •  5-Pillar Scoring  •  Graph Studio  •  Legal Notice Engine", 
             ha='center', va='center', color='#94a3b8', fontsize=9)

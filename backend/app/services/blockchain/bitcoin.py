@@ -3,7 +3,7 @@ Bitcoin blockchain provider using Blockstream.info public API.
 
 Queries Blockstream for confirmed Bitcoin transactions and normalizes
 UTXO-based inputs/outputs into account-model NormalizedTransaction records
-compatible with the rest of the cryptotrace pipeline.
+compatible with the rest of the sudarshan pipeline.
 
 No API key required — Blockstream is a free public API.
 """
