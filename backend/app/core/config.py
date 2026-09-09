@@ -15,6 +15,24 @@ class Settings(BaseSettings):
     TRONGRID_API_KEY: str = Field(default="", description="TronGrid API Key for Tron/TRC-20 tracing")
     CHAIN_ID: str = Field(default="1", description="EVM Chain ID (1 for Ethereum Mainnet)")
     
+    # Optional / Fallback Blockchain Providers
+    BLOCKCHAIR_API_KEY: str = Field(default="", description="Blockchair API Key (optional)")
+    BITQUERY_API_KEY: str = Field(default="", description="Bitquery GraphQL API Key (optional)")
+    
+    # Graph Database (Neo4j)
+    NEO4J_URI: str = Field(default="bolt://localhost:7687", description="Neo4j Bolt connection URI")
+    NEO4J_USER: str = Field(default="neo4j", description="Neo4j username")
+    NEO4J_PASSWORD: str = Field(default="password", description="Neo4j password")
+
+    # LLM Intelligence / Narrative Generation (Claude)
+    ANTHROPIC_API_KEY: str = Field(default="", description="Claude API key for report narratives")
+    CLAUDE_API_KEY: str = Field(default="", description="Claude API key alias")
+
+    # Authentication & Security
+    JWT_SECRET_KEY: str = Field(default="dev-secret-key-change-in-production", description="JWT secret key")
+    JWT_ALGORITHM: str = Field(default="HS256", description="JWT algorithm")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=1440, description="JWT token expiry in minutes")
+
     # Database
     DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./crypto_trace.db", description="Database connection URL")
     

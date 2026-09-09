@@ -41,6 +41,7 @@ class NormalizedTransaction(BaseModel):
     is_error: bool = False
     hop: Optional[int] = None
     direction: Optional[str] = None  # INCOMING or OUTGOING relative to wallet
+    source_api: Optional[str] = "blockchain_explorer"
 
 
 # ==============================================================================
