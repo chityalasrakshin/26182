@@ -18,12 +18,24 @@ Source: Adapted from SIH26182/backend/report.py and CRYPTO-TRACE-/backend/servic
 """
 
 import io
+import re
 import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _md_to_reportlab(text: str) -> str:
+    """Safely converts markdown formatting to valid ReportLab XML."""
+    if not text:
+        return ""
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = re.sub(r"`([^`]+)`", r"<font face='Courier'>\1</font>", text)
+    text = re.sub(r"\*\*([^*]+)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<i>\1</i>", text)
+    return text
 
 try:
     from reportlab.lib import colors
@@ -33,7 +45,7 @@ try:
     from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        PageBreak, HRFlowable, KeepTogether
+        PageBreak, HRFlowable, KeepTogether, Image as RLImage
     )
     from reportlab.platypus.flowables import Flowable
     REPORTLAB_AVAILABLE = True
@@ -43,6 +55,8 @@ except ImportError:
         "ReportLab is not installed. PDF generation will be unavailable. "
         "Install with: pip install reportlab"
     )
+
+from backend.app.services.reporting.graph_visualizer import trace_graph_visualizer
 
 
 # Color scheme for forensic documents
@@ -109,11 +123,14 @@ class PDFDossierGenerator:
         risk_assessment: Optional[Dict[str, Any]] = None,
         transactions: Optional[List[Dict[str, Any]]] = None,
         summary_stats: Optional[Dict[str, Any]] = None,
+        narrative: Optional[str] = None,
+        draft_notice: Optional[Dict[str, Any]] = None,
+        graph_image_bytes: Optional[bytes] = None,
         officer_name: str = "Investigating Officer",
         police_station: str = "Cyber Crime Police Station",
     ) -> bytes:
         """
-        Generate a complete PDF investigation dossier.
+        Generate a complete, court-admissible PDF investigation dossier.
 
         Returns:
             bytes: PDF file content
@@ -147,46 +164,74 @@ class PDFDossierGenerator:
 
         # 1. Official Header
         elements.extend(self._build_header(ref_no, date_str, case_id, wallet_address, chain, styles))
-        elements.append(Spacer(1, 8 * mm))
+        elements.append(Spacer(1, 6 * mm))
 
         # 2. Risk Assessment Badge
         if risk_assessment:
             elements.extend(self._build_risk_section(risk_assessment, styles))
-            elements.append(Spacer(1, 6 * mm))
+            elements.append(Spacer(1, 5 * mm))
 
-        # 3. VASP Attribution Table
+        # 3. Visual Trace Flow Diagram Subgraph
+        top_attr = attributions[0] if attributions else {}
+        top_vasp_name = top_attr.get("vasp_name") if top_attr else None
+        attr_score = float(top_attr.get("score", 0.0)) if top_attr else 0.0
+        risk_lvl = risk_assessment.get("risk_level", "MEDIUM") if risk_assessment else "MEDIUM"
+        elements.extend(self._build_graph_section(
+            wallet_address=wallet_address,
+            chain=chain,
+            top_vasp_name=top_vasp_name,
+            attribution_score=attr_score,
+            risk_level=risk_lvl,
+            transactions=transactions,
+            case_id=case_id,
+            graph_image_bytes=graph_image_bytes,
+            styles=styles
+        ))
+        elements.append(Spacer(1, 5 * mm))
+
+        # 4. Executive Intelligence Narrative (write-the-intel-brief)
+        if narrative:
+            elements.extend(self._build_narrative_section(narrative, styles))
+            elements.append(Spacer(1, 5 * mm))
+
+        # 5. VASP Attribution Table
         if attributions:
             elements.extend(self._build_attribution_section(attributions, styles))
-            elements.append(Spacer(1, 6 * mm))
+            elements.append(Spacer(1, 5 * mm))
 
-        # 4. Graph Topology Metrics
+        # 6. Graph Topology Metrics
         elements.extend(self._build_metrics_section(summary_stats, styles))
-        elements.append(Spacer(1, 6 * mm))
+        elements.append(Spacer(1, 5 * mm))
 
-        # 5. Transaction Evidence Table
+        # 7. Transaction Evidence Table
         if evidence:
             elements.extend(self._build_evidence_section(evidence, styles))
-            elements.append(Spacer(1, 6 * mm))
+            elements.append(Spacer(1, 5 * mm))
 
-        # 6. Critical Transactions
+        # 8. Critical Transactions
         if transactions:
             elements.extend(self._build_transaction_section(transactions[:15], styles))
-            elements.append(Spacer(1, 6 * mm))
+            elements.append(Spacer(1, 5 * mm))
 
-        # 7. Chain-of-Custody Checksum
+        # 9. Draft Statutory Preservation Notice (Section 94 BNSS / Section 91 CrPC)
+        if draft_notice:
+            elements.extend(self._build_statutory_notice_section(draft_notice, styles))
+            elements.append(Spacer(1, 5 * mm))
+
+        # 10. Chain-of-Custody Checksum
         content_hash = self._compute_chain_of_custody_hash(
             case_id, wallet_address, attributions, transactions
         )
         elements.extend(self._build_checksum_section(content_hash, date_str, styles))
-        elements.append(Spacer(1, 6 * mm))
+        elements.append(Spacer(1, 5 * mm))
 
-        # 8. Section 65B Indian Evidence Act Certificate
+        # 11. Section 65B Indian Evidence Act Certificate
         elements.extend(
             self._build_section_65b_certificate(ref_no, chain, date_str, officer_name, styles)
         )
-        elements.append(Spacer(1, 6 * mm))
+        elements.append(Spacer(1, 5 * mm))
 
-        # 9. Statutory Compliance Footer
+        # 12. Statutory Compliance Footer
         elements.extend(
             self._build_statutory_footer(officer_name, police_station, ref_no, styles)
         )
@@ -247,6 +292,15 @@ class PDFDossierGenerator:
             leading=9,
             textColor=colors.gray,
             alignment=TA_CENTER,
+        ))
+        styles.add(ParagraphStyle(
+            name="IntelHeading",
+            parent=styles["Heading3"],
+            fontSize=9.5,
+            textColor=HEADER_BG,
+            spaceBefore=2.5 * mm,
+            spaceAfter=1.5 * mm,
+            fontName="Helvetica-Bold",
         ))
 
     def _build_header(self, ref_no, date_str, case_id, wallet_address, chain, styles):
@@ -344,6 +398,73 @@ class PDFDossierGenerator:
         # Indicators
         for ind in indicators[:8]:
             elements.append(Paragraph(f"⚠ {ind}", styles["BodyJustified"]))
+
+        return elements
+
+    def _build_graph_section(
+        self, wallet_address, chain, top_vasp_name, attribution_score, risk_level, transactions, case_id, graph_image_bytes, styles
+    ):
+        """Build visual trace flow diagram section."""
+        elements = []
+        elements.append(Paragraph("MULTI-HOP TRANSACTION FLOW SUBGRAPH", styles["SectionHeading"]))
+        try:
+            if not graph_image_bytes:
+                graph_image_bytes = trace_graph_visualizer.render_flow_diagram(
+                    wallet_address=wallet_address,
+                    chain=chain,
+                    top_vasp_name=top_vasp_name,
+                    attribution_score=attribution_score,
+                    risk_level=risk_level,
+                    transactions=transactions,
+                    case_id=case_id
+                )
+            img_buf = io.BytesIO(graph_image_bytes)
+            img_flowable = RLImage(img_buf, width=170 * mm, height=71.4 * mm)
+            elements.append(img_flowable)
+        except Exception as e:
+            logger.warning(f"Could not render graph flow diagram image in PDF: {e}")
+            elements.append(Paragraph("<i>[Visual flow graph generation unavailable]</i>", styles["BodyJustified"]))
+        return elements
+
+    def _build_narrative_section(self, narrative: str, styles):
+        """Build executive forensic intelligence brief section adhering to write-the-intel-brief."""
+        elements = []
+        elements.append(Paragraph("EXECUTIVE FORENSIC INTELLIGENCE BRIEF", styles["SectionHeading"]))
+
+        lines = narrative.split("\n")
+        in_bluf = False
+
+        for line in lines:
+            line_s = line.strip()
+            if not line_s:
+                continue
+            if line_s.startswith("### "):
+                header_text = line_s[4:].strip()
+                elements.append(Paragraph(f"<b>{header_text}</b>", styles["IntelHeading"]))
+                if "BLUF" in header_text or "BOTTOM LINE UP FRONT" in header_text:
+                    in_bluf = True
+                else:
+                    in_bluf = False
+            elif line_s.startswith("- "):
+                clean_text = _md_to_reportlab(line_s[2:].strip())
+                elements.append(Paragraph(f"• {clean_text}", styles["BodyJustified"]))
+            else:
+                clean_text = _md_to_reportlab(line_s)
+                if in_bluf:
+                    bluf_table = Table([[Paragraph(clean_text, styles["BodyJustified"])]], colWidths=[170 * mm])
+                    bluf_table.setStyle(TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f1f5f9")),
+                        ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#94a3b8")),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                        ("TOPPADDING", (0, 0), (-1, -1), 6),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ]))
+                    elements.append(bluf_table)
+                    elements.append(Spacer(1, 2 * mm))
+                    in_bluf = False
+                else:
+                    elements.append(Paragraph(clean_text, styles["BodyJustified"]))
 
         return elements
 
@@ -494,6 +615,47 @@ class PDFDossierGenerator:
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, TABLE_ALT_ROW]),
         ]))
         elements.append(table)
+
+        return elements
+
+    def _build_statutory_notice_section(self, draft_notice: Dict[str, Any], styles):
+        """Build draft statutory preservation requisition notice section (Section 94 BNSS / 91 CrPC)."""
+        elements = []
+        elements.append(Paragraph(
+            "DRAFT ASSET PRESERVATION REQUISITION (SECTION 94 BNSS / 91 CrPC)",
+            styles["SectionHeading"]
+        ))
+        vasp_name = draft_notice.get("vasp_name", "Target VASP")
+        ref_no = draft_notice.get("ref_number", "-")
+        lea_email = draft_notice.get("designated_lea_email", "-")
+        sahyog_code = draft_notice.get("sahyog_routing_code", "N/A")
+
+        summary_box = [
+            ["Destination Entity", str(vasp_name)],
+            ["Statutory Authority", "Section 94 BNSS, 2023 / Section 91 Cr.P.C., 1973"],
+            ["Requisition Ref No", str(ref_no)],
+            ["Designated LEA Desk", str(lea_email)],
+            ["Sahyog Routing Code", str(sahyog_code)],
+        ]
+        t = Table(summary_box, colWidths=[50 * mm, 120 * mm])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#fef2f2")),
+            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#fca5a5")),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(t)
+        elements.append(Spacer(1, 3 * mm))
+
+        notice_md = draft_notice.get("notice_markdown", "")
+        if notice_md:
+            elements.append(Paragraph(
+                notice_md[:1400].replace("\n", "<br/>") + "<br/><b>[Exhibit A: Full Statutory Notice Dispatched via Sahyog Portal]</b>",
+                styles["CertificateText"]
+            ))
 
         return elements
 

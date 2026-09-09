@@ -184,6 +184,9 @@ class InvestigationReportSchema(BaseModel):
     methodology_summary: str
     limitations: List[str]
     legal_disclaimer: str
+    narrative: Optional[str] = None
+    narrative_metadata: Optional[Dict[str, Any]] = None
+    draft_disclosure_notice: Optional[Dict[str, Any]] = None
 
 
 # ==============================================================================

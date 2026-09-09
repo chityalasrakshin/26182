@@ -51,6 +51,8 @@ from backend.app.workers.analysis_worker import AnalysisWorker, active_analyses_
 from backend.app.services.vasp.matcher import vasp_matcher
 from backend.app.services.reporting.generator import ReportGenerator
 from backend.app.services.reporting.legal_notice_generator import LegalNoticeGenerator
+from backend.app.services.reporting.narrative_service import narrative_service
+from backend.app.services.reporting.graph_visualizer import trace_graph_visualizer
 from backend.app.services.trace.job_manager import trace_job_manager
 
 api_router = APIRouter(prefix="/api/v1", tags=["Investigation API"])
@@ -418,6 +420,41 @@ async def get_analysis_report(
     chain = detect_blockchain(cached["wallet_address"])
     chain_name = "Ethereum Mainnet" if chain == "ethereum" else "Tron Network"
 
+    # Convert objects for narrative service
+    attr_dicts = [
+        a.model_dump() if hasattr(a, "model_dump") else a
+        for a in cached.get("attributions", [])
+    ]
+    risk_dict = cached.get("risk_assessment")
+    if risk_dict and hasattr(risk_dict, "model_dump"):
+        risk_dict = risk_dict.model_dump()
+
+    evidence_dicts = [
+        e.model_dump() if hasattr(e, "model_dump") else e
+        for e in cached.get("evidence", [])
+    ]
+    tx_dicts = [
+        t.model_dump() if hasattr(t, "model_dump") else t
+        for t in cached.get("transactions", [])
+    ]
+
+    # Generate synthesized intelligence brief
+    narrative_data = await narrative_service.generate_narrative(
+        case_id=analysis_id,
+        wallet_address=cached["wallet_address"],
+        chain=chain_name,
+        attributions=attr_dicts,
+        risk_assessment=risk_dict,
+        evidence=evidence_dicts,
+        transactions=tx_dicts,
+        summary_stats={
+            "total_nodes": cached.get("num_nodes", 0),
+            "total_edges": cached.get("num_edges", 0),
+            "vasp_nodes_found": len(attr_dicts),
+            "max_hop_reached": cached.get("max_hops", 3)
+        }
+    )
+
     report = ReportGenerator.generate_report(
         case_id=analysis_id,
         wallet_address=cached["wallet_address"],
@@ -432,15 +469,17 @@ async def get_analysis_report(
         },
         critical_txs=[
             {
-                "tx_hash": t.tx_hash,
-                "from": t.from_address,
-                "to": t.to_address,
-                "amount": t.amount,
-                "asset": t.token_symbol,
-                "hop": t.hop
+                "tx_hash": t.tx_hash if hasattr(t, "tx_hash") else t.get("tx_hash", "N/A"),
+                "from": t.from_address if hasattr(t, "from_address") else t.get("from", t.get("from_address", "N/A")),
+                "to": t.to_address if hasattr(t, "to_address") else t.get("to", t.get("to_address", "N/A")),
+                "amount": t.amount if hasattr(t, "amount") else t.get("amount", 0.0),
+                "asset": t.token_symbol if hasattr(t, "token_symbol") else t.get("token_symbol", t.get("asset", "ETH")),
+                "hop": t.hop if hasattr(t, "hop") else t.get("hop", 1)
             }
             for t in cached.get("transactions", [])[:10]
-        ]
+        ],
+        narrative=narrative_data.get("narrative"),
+        narrative_metadata=narrative_data
     )
     report.chain = chain_name
 
@@ -449,6 +488,122 @@ async def get_analysis_report(
         return {"report_markdown": md_text, "case_id": analysis_id}
 
     return report
+
+
+@api_router.get("/analysis/{analysis_id}/narrative")
+async def get_analysis_narrative(
+    analysis_id: str,
+    request: Request = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Generates plain-English investigation narrative using Claude LLM /
+    deterministic intelligence brief fallback adhering to write-the-intel-brief.
+    """
+    if analysis_id not in active_analyses_cache:
+        raise HTTPException(status_code=404, detail="Analysis case not found.")
+
+    cached = active_analyses_cache[analysis_id]
+    if cached["status"] != "COMPLETED":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Analysis is in state '{cached['status']}'. Narrative requires COMPLETED status."
+        )
+
+    ip_addr = request.client.host if request and request.client else None
+    await audit_logger.log_event(
+        action=AuditAction.REPORT_VIEW,
+        resource_type=AuditResourceType.REPORT,
+        resource_id=analysis_id,
+        user_id=current_user.id if current_user else None,
+        username=current_user.username if current_user else "anonymous_investigator",
+        details={"case_id": analysis_id, "view": "narrative"},
+        ip_address=ip_addr,
+        db=db
+    )
+
+    chain = detect_blockchain(cached["wallet_address"])
+    chain_name = "Ethereum Mainnet" if chain == "ethereum" else "Tron Network"
+
+    attr_dicts = [
+        a.model_dump() if hasattr(a, "model_dump") else a
+        for a in cached.get("attributions", [])
+    ]
+    risk_dict = cached.get("risk_assessment")
+    if risk_dict and hasattr(risk_dict, "model_dump"):
+        risk_dict = risk_dict.model_dump()
+
+    evidence_dicts = [
+        e.model_dump() if hasattr(e, "model_dump") else e
+        for e in cached.get("evidence", [])
+    ]
+    tx_dicts = [
+        t.model_dump() if hasattr(t, "model_dump") else t
+        for t in cached.get("transactions", [])
+    ]
+
+    return await narrative_service.generate_narrative(
+        case_id=analysis_id,
+        wallet_address=cached["wallet_address"],
+        chain=chain_name,
+        attributions=attr_dicts,
+        risk_assessment=risk_dict,
+        evidence=evidence_dicts,
+        transactions=tx_dicts,
+        summary_stats={
+            "total_nodes": cached.get("num_nodes", 0),
+            "total_edges": cached.get("num_edges", 0),
+            "vasp_nodes_found": len(attr_dicts),
+            "max_hop_reached": cached.get("max_hops", 3),
+        }
+    )
+
+
+@api_router.get("/analysis/{analysis_id}/graph-image")
+async def get_analysis_graph_image(
+    analysis_id: str,
+    request: Request = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Renders and downloads a server-side high-resolution PNG diagram of the trace graph.
+    """
+    if analysis_id not in active_analyses_cache:
+        raise HTTPException(status_code=404, detail="Analysis case not found.")
+
+    cached = active_analyses_cache[analysis_id]
+    chain = detect_blockchain(cached["wallet_address"])
+    top_attr = cached.get("attributions", [None])[0] if cached.get("attributions") else None
+    top_vasp = getattr(top_attr, "vasp_name", None) or (top_attr.get("vasp_name") if isinstance(top_attr, dict) else None)
+    attr_score = getattr(top_attr, "score", 0.0) or (top_attr.get("score", 0.0) if isinstance(top_attr, dict) else 0.0)
+    risk_obj = cached.get("risk_assessment")
+    risk_lvl = getattr(risk_obj, "risk_level", "MEDIUM") if risk_obj else (risk_obj.get("risk_level", "MEDIUM") if isinstance(risk_obj, dict) else "MEDIUM")
+
+    txs = [
+        t.model_dump() if hasattr(t, "model_dump") else t
+        for t in cached.get("transactions", [])
+    ]
+
+    png_bytes = trace_graph_visualizer.render_flow_diagram(
+        wallet_address=cached["wallet_address"],
+        chain=chain,
+        top_vasp_name=top_vasp,
+        attribution_score=float(attr_score),
+        risk_level=str(risk_lvl),
+        transactions=txs,
+        case_id=analysis_id
+    )
+
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'inline; filename="trace_graph_{analysis_id[:8].upper()}.png"',
+            "Content-Length": str(len(png_bytes))
+        }
+    )
 
 
 @api_router.get("/analysis/{analysis_id}/freeze-notice")
@@ -500,6 +655,7 @@ async def get_freeze_notice(
 
 
 @api_router.get("/analysis/{analysis_id}/pdf")
+@api_router.get("/analysis/{analysis_id}/export/pdf")
 async def download_pdf_dossier(
     analysis_id: str,
     officer_name: str = Query(default="Investigating Officer"),
@@ -566,6 +722,40 @@ async def download_pdf_dossier(
     if risk_assessment and hasattr(risk_assessment, "model_dump"):
         risk_assessment = risk_assessment.model_dump()
 
+    tx_dicts = [
+        t.model_dump() if hasattr(t, "model_dump") else t
+        for t in cached.get("transactions", [])
+    ]
+
+    # Generate narrative & statutory preservation notice
+    narrative_res = await narrative_service.generate_narrative(
+        case_id=analysis_id,
+        wallet_address=cached["wallet_address"],
+        chain=chain_name,
+        attributions=attributions,
+        risk_assessment=risk_assessment,
+        evidence=evidence,
+        transactions=tx_dicts,
+        summary_stats={
+            "total_nodes": cached.get("num_nodes", 0),
+            "total_edges": cached.get("num_edges", 0),
+            "vasp_nodes_found": len(attributions),
+            "max_hop_reached": cached.get("max_hops", 3),
+        }
+    )
+
+    top_attr_obj = cached.get("attributions", [None])[0] if cached.get("attributions") else None
+    draft_notice = LegalNoticeGenerator.generate_freeze_notice(
+        case_id=analysis_id,
+        wallet_address=cached["wallet_address"],
+        chain=chain,
+        attribution=top_attr_obj,
+        evidence=cached.get("evidence", []),
+        transactions=cached.get("transactions", []),
+        officer_name=officer_name,
+        police_station=police_station
+    )
+
     try:
         generator = PDFDossierGenerator()
         pdf_bytes = generator.generate(
@@ -575,13 +765,15 @@ async def download_pdf_dossier(
             attributions=attributions,
             evidence=evidence,
             risk_assessment=risk_assessment,
-            transactions=cached.get("transactions", []),
+            transactions=tx_dicts,
             summary_stats={
                 "total_nodes": cached.get("num_nodes", 0),
                 "total_edges": cached.get("num_edges", 0),
                 "vasp_nodes_found": len(attributions),
                 "max_hop_reached": cached.get("max_hops", 3),
             },
+            narrative=narrative_res.get("narrative"),
+            draft_notice=draft_notice,
             officer_name=officer_name,
             police_station=police_station,
         )

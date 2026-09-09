@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query, BackgroundTasks, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, or_
 from sqlalchemy.orm import selectinload
@@ -27,6 +27,9 @@ from backend.app.schemas.trace import TraceJobResponse
 from backend.app.services.audit.logger import audit_logger, AuditAction, AuditResourceType
 from backend.app.services.trace.job_manager import trace_job_manager
 from backend.app.workers.analysis_worker import active_analyses_cache
+from backend.app.services.reporting.generator import ReportGenerator
+from backend.app.services.reporting.narrative_service import narrative_service
+from backend.app.services.reporting.legal_notice_generator import LegalNoticeGenerator
 
 logger = logging.getLogger("app.api.cases")
 cases_router = APIRouter(prefix="/cases", tags=["Case Management"])
@@ -510,3 +513,271 @@ async def get_case_audit_trail(
             )
         )
     return output
+
+
+@cases_router.get("/{case_id}/report")
+async def get_case_report(
+    case_id: str,
+    format: str = "json",
+    request: Request = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns the investigation report for a case (JSON or publication-ready markdown).
+    Enforces RBAC and records an immutable audit log.
+    """
+    stmt = select(Case).where(Case.id == case_id)
+    case = (await db.execute(stmt)).scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Case '{case_id}' not found.")
+
+    if current_user.role != "supervisor":
+        if case.created_by_id != current_user.id and case.assigned_to_id != current_user.id:
+            raise HTTPException(status_code=403, detail="You do not have permission to access reports for this case.")
+
+    # Find cached analysis data
+    cached = None
+    try:
+        a_ids = json.loads(case.analysis_ids_json or "[]")
+    except Exception:
+        a_ids = []
+
+    for aid in a_ids:
+        if aid in active_analyses_cache:
+            cached = active_analyses_cache[aid]
+            break
+
+    if not cached:
+        for aid, data in active_analyses_cache.items():
+            if data.get("wallet_address", "").lower() == case.suspect_address.lower():
+                cached = data
+                break
+
+    if not cached or cached.get("status") != "COMPLETED":
+        raise HTTPException(
+            status_code=400,
+            detail="Investigation report requires a COMPLETED trace analysis. Please run or wait for trace completion."
+        )
+
+    # Log audit event
+    ip_addr = request.client.host if request and request.client else None
+    await audit_logger.log_event(
+        action=AuditAction.REPORT_VIEW,
+        resource_type=AuditResourceType.REPORT,
+        resource_id=case_id,
+        user_id=current_user.id,
+        username=current_user.username,
+        case_id=case_id,
+        details={"case_id": case_id, "format": format},
+        ip_address=ip_addr,
+        db=db
+    )
+
+    chain_name = (
+        "Ethereum Mainnet" if case.chain == "ethereum"
+        else "Tron Network" if case.chain == "tron"
+        else "Bitcoin Network" if case.chain == "bitcoin"
+        else "Multi-Chain Blockchain"
+    )
+
+    attr_dicts = [
+        a.model_dump() if hasattr(a, "model_dump") else a
+        for a in cached.get("attributions", [])
+    ]
+    risk_dict = cached.get("risk_assessment")
+    if risk_dict and hasattr(risk_dict, "model_dump"):
+        risk_dict = risk_dict.model_dump()
+
+    evidence_dicts = [
+        e.model_dump() if hasattr(e, "model_dump") else e
+        for e in cached.get("evidence", [])
+    ]
+    tx_dicts = [
+        t.model_dump() if hasattr(t, "model_dump") else t
+        for t in cached.get("transactions", [])
+    ]
+
+    narrative_data = await narrative_service.generate_narrative(
+        case_id=case_id,
+        wallet_address=case.suspect_address,
+        chain=chain_name,
+        attributions=attr_dicts,
+        risk_assessment=risk_dict,
+        evidence=evidence_dicts,
+        transactions=tx_dicts,
+        summary_stats={
+            "total_nodes": cached.get("num_nodes", 0),
+            "total_edges": cached.get("num_edges", 0),
+            "vasp_nodes_found": len(attr_dicts),
+            "max_hop_reached": cached.get("max_hops", 3)
+        }
+    )
+
+    report = ReportGenerator.generate_report(
+        case_id=case_id,
+        wallet_address=case.suspect_address,
+        attributions=cached.get("attributions", []),
+        evidence=cached.get("evidence", []),
+        risk_assessment=cached.get("risk_assessment"),
+        summary_stats={
+            "total_nodes": cached.get("num_nodes", 0),
+            "total_edges": cached.get("num_edges", 0),
+            "vasp_nodes_found": len(attr_dicts),
+            "max_hop_reached": cached.get("max_hops", 3)
+        },
+        critical_txs=tx_dicts[:10],
+        narrative=narrative_data.get("narrative"),
+        narrative_metadata=narrative_data
+    )
+    report.chain = chain_name
+
+    if format.lower() == "markdown":
+        md_text = ReportGenerator.format_as_markdown(report)
+        return {"report_markdown": md_text, "case_id": case_id}
+
+    return report
+
+
+@cases_router.get("/{case_id}/export/pdf")
+async def export_case_pdf(
+    case_id: str,
+    officer_name: str = Query(default="Investigating Officer"),
+    police_station: str = Query(default="Cyber Crime Police Station"),
+    request: Request = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Exports a court-admissible PDF investigation dossier for a case.
+    Enforces RBAC and logs an immutable audit event.
+    """
+    stmt = select(Case).where(Case.id == case_id)
+    case = (await db.execute(stmt)).scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Case '{case_id}' not found.")
+
+    if current_user.role != "supervisor":
+        if case.created_by_id != current_user.id and case.assigned_to_id != current_user.id:
+            raise HTTPException(status_code=403, detail="You do not have permission to export dossiers for this case.")
+
+    cached = None
+    try:
+        a_ids = json.loads(case.analysis_ids_json or "[]")
+    except Exception:
+        a_ids = []
+
+    for aid in a_ids:
+        if aid in active_analyses_cache:
+            cached = active_analyses_cache[aid]
+            break
+
+    if not cached:
+        for aid, data in active_analyses_cache.items():
+            if data.get("wallet_address", "").lower() == case.suspect_address.lower():
+                cached = data
+                break
+
+    if not cached or cached.get("status") != "COMPLETED":
+        raise HTTPException(
+            status_code=400,
+            detail="PDF export requires a COMPLETED trace analysis."
+        )
+
+    ip_addr = request.client.host if request and request.client else None
+    await audit_logger.log_event(
+        action=AuditAction.REPORT_EXPORT_PDF,
+        resource_type=AuditResourceType.EXPORT,
+        resource_id=case_id,
+        user_id=current_user.id,
+        username=current_user.username,
+        case_id=case_id,
+        details={"case_id": case_id, "officer_name": officer_name},
+        ip_address=ip_addr,
+        db=db
+    )
+
+    from backend.app.services.reporting.pdf_generator import PDFDossierGenerator
+
+    chain_name = (
+        "Ethereum Mainnet" if case.chain == "ethereum"
+        else "Tron Network" if case.chain == "tron"
+        else "Bitcoin Network" if case.chain == "bitcoin"
+        else "Multi-Chain Blockchain"
+    )
+
+    attr_dicts = [
+        a.model_dump() if hasattr(a, "model_dump") else a
+        for a in cached.get("attributions", [])
+    ]
+    risk_dict = cached.get("risk_assessment")
+    if risk_dict and hasattr(risk_dict, "model_dump"):
+        risk_dict = risk_dict.model_dump()
+
+    evidence_dicts = [
+        e.model_dump() if hasattr(e, "model_dump") else e
+        for e in cached.get("evidence", [])
+    ]
+    tx_dicts = [
+        t.model_dump() if hasattr(t, "model_dump") else t
+        for t in cached.get("transactions", [])
+    ]
+
+    narrative_res = await narrative_service.generate_narrative(
+        case_id=case_id,
+        wallet_address=case.suspect_address,
+        chain=chain_name,
+        attributions=attr_dicts,
+        risk_assessment=risk_dict,
+        evidence=evidence_dicts,
+        transactions=tx_dicts,
+        summary_stats={
+            "total_nodes": cached.get("num_nodes", 0),
+            "total_edges": cached.get("num_edges", 0),
+            "vasp_nodes_found": len(attr_dicts),
+            "max_hop_reached": cached.get("max_hops", 3)
+        }
+    )
+
+    top_attr_obj = cached.get("attributions", [None])[0] if cached.get("attributions") else None
+    draft_notice = LegalNoticeGenerator.generate_freeze_notice(
+        case_id=case_id,
+        wallet_address=case.suspect_address,
+        chain=case.chain,
+        attribution=top_attr_obj,
+        evidence=cached.get("evidence", []),
+        transactions=cached.get("transactions", []),
+        officer_name=officer_name,
+        police_station=police_station
+    )
+
+    generator = PDFDossierGenerator()
+    pdf_bytes = generator.generate(
+        case_id=case_id,
+        wallet_address=case.suspect_address,
+        chain=chain_name,
+        attributions=attr_dicts,
+        evidence=evidence_dicts,
+        risk_assessment=risk_dict,
+        transactions=tx_dicts,
+        summary_stats={
+            "total_nodes": cached.get("num_nodes", 0),
+            "total_edges": cached.get("num_edges", 0),
+            "vasp_nodes_found": len(attr_dicts),
+            "max_hop_reached": cached.get("max_hops", 3)
+        },
+        narrative=narrative_res.get("narrative"),
+        draft_notice=draft_notice,
+        officer_name=officer_name,
+        police_station=police_station
+    )
+
+    filename = f"case_dossier_{case_id[:8].upper()}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(pdf_bytes))
+        }
+    )

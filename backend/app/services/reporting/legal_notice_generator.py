@@ -191,12 +191,30 @@ Sir/Madam,
 """
 
         for i, tx in enumerate(vasp_txs, 1):
+            if hasattr(tx, "tx_hash"):
+                tx_hash = tx.tx_hash
+                ts = tx.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if hasattr(tx.timestamp, "strftime") else str(tx.timestamp)
+                amount = tx.amount
+                symbol = tx.token_symbol or "CRYPTO"
+                from_addr = tx.from_address
+                to_addr = tx.to_address
+            elif isinstance(tx, dict):
+                tx_hash = tx.get("tx_hash", "N/A")
+                raw_ts = tx.get("timestamp")
+                ts = raw_ts.strftime('%Y-%m-%d %H:%M:%S UTC') if hasattr(raw_ts, "strftime") else str(raw_ts or "Recent")
+                amount = tx.get("amount", 0.0)
+                symbol = tx.get("token_symbol") or tx.get("asset", "CRYPTO")
+                from_addr = tx.get("from") or tx.get("from_address", "N/A")
+                to_addr = tx.get("to") or tx.get("to_address", "N/A")
+            else:
+                continue
+
             notice_text += f"""
-   [{i}] Transaction Hash: {tx.tx_hash}
-       - Timestamp: {tx.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}
-       - Amount: {tx.amount} {tx.token_symbol}
-       - From Address: {tx.from_address}
-       - Destination VASP Deposit Address: {tx.to_address}
+   [{i}] Transaction Hash: {tx_hash}
+       - Timestamp: {ts}
+       - Amount: {amount} {symbol}
+       - From Address: {from_addr}
+       - Destination VASP Deposit Address: {to_addr}
 """
 
         notice_text += f"""

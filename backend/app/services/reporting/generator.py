@@ -5,14 +5,18 @@ from backend.app.schemas.analysis import (
     InvestigationReportSchema,
     AttributionSchema,
     EvidenceSchema,
-    RiskAssessmentSchema
+    RiskAssessmentSchema,
+    NormalizedTransaction
 )
+from backend.app.services.reporting.narrative_service import narrative_service, map_score_to_estimative_term
+from backend.app.services.reporting.legal_notice_generator import LegalNoticeGenerator
 
 
 class ReportGenerator:
     """
     Generates standardized, court/investigation-ready intelligence reports
     with explicit analytical boundaries, multi-chain provenance citations,
+    executive intelligence briefs, draft statutory preservation notices,
     and Section 65B Indian Evidence Act certificates.
     """
 
@@ -24,7 +28,10 @@ class ReportGenerator:
         evidence: List[EvidenceSchema],
         risk_assessment: Optional[RiskAssessmentSchema],
         summary_stats: Dict[str, Any],
-        critical_txs: List[Dict[str, Any]]
+        critical_txs: List[Dict[str, Any]],
+        narrative: Optional[str] = None,
+        narrative_metadata: Optional[Dict[str, Any]] = None,
+        draft_disclosure_notice: Optional[Dict[str, Any]] = None
     ) -> InvestigationReportSchema:
         top_attr = attributions[0] if attributions else None
         chain_type = detect_blockchain(wallet_address)
@@ -62,11 +69,48 @@ class ReportGenerator:
             "Treaties (MLAT) directed to relevant VASP compliance divisions."
         )
 
+        # Generate narrative if not provided
+        if not narrative:
+            payload = {
+                "case_id": case_id,
+                "target_wallet": wallet_address,
+                "blockchain": chain_name,
+                "graph_metrics": summary_stats,
+                "top_attribution": top_attr.model_dump() if top_attr and hasattr(top_attr, "model_dump") else (top_attr if isinstance(top_attr, dict) else None),
+                "risk_assessment": risk_assessment.model_dump() if risk_assessment and hasattr(risk_assessment, "model_dump") else (risk_assessment if isinstance(risk_assessment, dict) else None),
+                "evidence_samples": [e.model_dump() if hasattr(e, "model_dump") else e for e in evidence[:5]],
+                "critical_transactions_summary": critical_txs[:8],
+                "estimative_mapping": {
+                    "probability_term": map_score_to_estimative_term(top_attr.score if top_attr else 0.0),
+                    "confidence_level": top_attr.evidence_strength if top_attr else "Low"
+                }
+            }
+            narrative = narrative_service._generate_deterministic_brief(payload)
+            narrative_metadata = {
+                "model": "deterministic-intel-brief-v1",
+                "confidence": top_attr.evidence_strength if top_attr else "Low",
+                "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+            }
+
+        # Generate draft disclosure notice if not provided
+        if not draft_disclosure_notice:
+            try:
+                draft_disclosure_notice = LegalNoticeGenerator.generate_freeze_notice(
+                    case_id=case_id,
+                    wallet_address=wallet_address,
+                    chain=chain_type,
+                    attribution=top_attr,
+                    evidence=evidence,
+                    transactions=critical_txs[:5]
+                )
+            except Exception as e:
+                draft_disclosure_notice = None
+
         return InvestigationReportSchema(
             case_id=case_id,
             input_wallet=wallet_address,
             chain=chain_name,
-            analysis_timestamp=datetime.datetime.utcnow(),
+            analysis_timestamp=datetime.datetime.now(datetime.timezone.utc),
             data_sources=data_sources,
             summary_metrics=summary_stats,
             top_attribution=top_attr,
@@ -76,7 +120,10 @@ class ReportGenerator:
             critical_transactions=critical_txs,
             methodology_summary=methodology,
             limitations=limitations,
-            legal_disclaimer=disclaimer
+            legal_disclaimer=disclaimer,
+            narrative=narrative,
+            narrative_metadata=narrative_metadata,
+            draft_disclosure_notice=draft_disclosure_notice
         )
 
     @staticmethod
@@ -190,11 +237,44 @@ class ReportGenerator:
         for lim in report.limitations:
             lines.append(f"- ℹ️ {lim}")
 
+        if report.narrative:
+            lines.extend([
+                f"",
+                f"---",
+                f"",
+                f"## 7. EXECUTIVE FORENSIC INTELLIGENCE BRIEF (BLUF & ESTIMATIVE REASONING)",
+                f"",
+                report.narrative,
+            ])
+
+        if report.draft_disclosure_notice:
+            notice = report.draft_disclosure_notice
+            lines.extend([
+                f"",
+                f"---",
+                f"",
+                f"## 8. DRAFT STATUTORY ASSET PRESERVATION REQUISITION (SECTION 94 BNSS / SECTION 91 CrPC)",
+                f"",
+                f"| Preservation Requisition Field | Detail |",
+                f"| :--- | :--- |",
+                f"| **Identified VASP Entity** | **{notice.get('vasp_name', 'N/A')}** |",
+                f"| **Statutory Authority** | `Section 94 BNSS, 2023 / Section 91 CrPC, 1973` |",
+                f"| **Requisition Reference** | `{notice.get('ref_number', 'N/A')}` |",
+                f"| **Designated Compliance Email** | `{notice.get('designated_lea_email', 'N/A')}` |",
+                f"| **Sahyog Routing Code** | `{notice.get('sahyog_routing_code', 'N/A')}` |",
+                f"| **Nodal Officer** | `{notice.get('nodal_officer', 'N/A')}` |",
+                f"",
+                f"```text",
+                f"{notice.get('notice_markdown', '')[:1200]}",
+                f"[... Full Section 94 BNSS Legal Directive Attached in Annexure ...]",
+                f"```"
+            ])
+
         lines.extend([
             f"",
             f"---",
             f"",
-            f"## 7. SECTION 65B INDIAN EVIDENCE ACT CERTIFICATE",
+            f"## 9. SECTION 65B INDIAN EVIDENCE ACT CERTIFICATE",
             f"",
             f"```text",
             f"CERTIFICATE UNDER SECTION 65B OF THE INDIAN EVIDENCE ACT, 1872",
@@ -210,7 +290,7 @@ class ReportGenerator:
             f"",
             f"---",
             f"",
-            f"## 8. STATUTORY DISCLAIMER",
+            f"## 10. STATUTORY DISCLAIMER",
             f"",
             report.legal_disclaimer,
             f"",
