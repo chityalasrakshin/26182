@@ -1,0 +1,44 @@
+[
+  {
+    "tx_hash": "0x8f3c71a9b40d8692751351be1e84df9491a27e80d48cb927f918e7e29b168f01",
+    "chain": "ethereum",
+    "block_number": 20491820,
+    "timestamp": "2026-09-07T12:35:14.729015+00:00",
+    "from_address": "0x742d35cc6634c0532925a3b844bc454e4438f44e",
+    "to_address": "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b",
+    "asset_type": "ETH",
+    "token_symbol": "ETH",
+    "token_decimals": 18,
+    "amount": 100.0,
+    "gas_used": 150000,
+    "is_error": false
+  },
+  {
+    "tx_hash": "0x9a4d82b0c51e9703862462cf2f95ea0502b38f91e59dc038a029f8f30c279a02",
+    "chain": "ethereum",
+    "block_number": 20491825,
+    "timestamp": "2026-09-07T13:35:14.729015+00:00",
+    "from_address": "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b",
+    "to_address": "0x28c6c06298d514db089934071355e5743bf21d60",
+    "asset_type": "ETH",
+    "token_symbol": "ETH",
+    "token_decimals": 18,
+    "amount": 95.5,
+    "gas_used": 180000,
+    "is_error": false
+  },
+  {
+    "tx_hash": "0xab5e93c1d62fa814973573d030a6fb1613c490a2f60ed149b130a9041d38ab03",
+    "chain": "ethereum",
+    "block_number": 20491830,
+    "timestamp": "2026-09-07T14:35:14.729015+00:00",
+    "from_address": "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b",
+    "to_address": "0xa090e606e30bd747d4e6245a1517ebe430f0057e",
+    "asset_type": "ETH",
+    "token_symbol": "ETH",
+    "token_decimals": 18,
+    "amount": 4.2,
+    "gas_used": 120000,
+    "is_error": false
+  }
+]

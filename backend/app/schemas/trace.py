@@ -13,6 +13,7 @@ class TraceRequest(BaseModel):
     chain: Optional[str] = Field(default=None, description="Blockchain network (ethereum, tron, bitcoin) - auto-detected if omitted")
     max_depth: int = Field(default=6, ge=1, le=10, description="Maximum traversal depth from root wallet (default: 6)")
     direction: str = Field(default="outgoing", description="Traversal direction: 'outgoing', 'incoming', or 'both'")
+    demo_mode: bool = Field(default=False, description="Demo Mode: forces prioritized offline pre-warmed cache with 0ms rate-limit reliance")
 
 
 class TraceJobResponse(BaseModel):
@@ -22,6 +23,7 @@ class TraceJobResponse(BaseModel):
     chain: str = Field(..., description="Identified blockchain rail")
     max_depth: int = Field(..., description="Configured maximum hop depth")
     started_at: datetime.datetime = Field(..., description="Job initialization timestamp")
+    demo_mode: bool = Field(default=False, description="Whether trace runs in offline Demo Mode")
 
 
 class TraceEvent(BaseModel):
@@ -48,5 +50,7 @@ class TraceStatusResponse(BaseModel):
     matched_vasps: List[Dict[str, Any]] = Field(default_factory=list)
     shortest_path: Optional[Dict[str, Any]] = None
     leaf_nodes: List[Dict[str, Any]] = Field(default_factory=list)
+    demo_mode: bool = False
+    is_cached: bool = False
     error_message: Optional[str] = None
     summary: Optional[str] = None

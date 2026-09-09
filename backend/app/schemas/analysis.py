@@ -9,15 +9,17 @@ from backend.app.core.address_validator import is_valid_eth_address, normalize_e
 # ==============================================================================
 
 class AnalyzeRequest(BaseModel):
-    wallet_address: str = Field(..., description="Ethereum wallet address (0x...)")
+    wallet_address: str = Field(..., description="Ethereum or Tron wallet address")
     max_hops: int = Field(default=3, ge=1, le=3, description="Maximum traversal depth (1 to 3)")
+    demo_mode: bool = Field(default=False, description="Whether to prioritize offline demo pre-warmed cache")
 
     @field_validator("wallet_address")
     @classmethod
     def validate_address(cls, v: str) -> str:
-        if not is_valid_eth_address(v):
-            raise ValueError(f"Invalid Ethereum address: {v}. Must be a 42-character hex address starting with 0x.")
-        return normalize_eth_address(v)
+        from backend.app.core.address_validator import is_valid_crypto_address, normalize_address
+        if not is_valid_crypto_address(v):
+            raise ValueError(f"Invalid cryptocurrency address: {v}. Must be Ethereum (0x...) or Tron (T...).")
+        return normalize_address(v)
 
 
 # ==============================================================================
@@ -146,6 +148,7 @@ class AnalysisStatusResponse(BaseModel):
     num_transactions: int = 0
     num_nodes: int = 0
     num_edges: int = 0
+    demo_mode: bool = False
     top_attribution: Optional[AttributionSchema] = None
     risk_assessment: Optional[RiskAssessmentSchema] = None
 

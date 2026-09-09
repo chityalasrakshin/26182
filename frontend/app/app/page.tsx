@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import Link from 'next/link';
 import { Navbar, ActiveTabType } from '../../components/Navbar';
 import { WalletSearch } from '../../components/WalletSearch';
 import { LiveProgress } from '../../components/LiveProgress';
@@ -14,10 +13,6 @@ import { ReportModal } from '../../components/ReportModal';
 import { FreezeNoticeModal } from '../../components/FreezeNoticeModal';
 import { NCRPTriageView } from '../../components/NCRPTriageView';
 import { VASPRegistryModal } from '../../components/VASPRegistryModal';
-import { CandidateDiscoveryView } from '../../components/CandidateDiscoveryView';
-import { ProvenanceSection } from '../../components/ProvenanceSection';
-import { MLEvaluationModal } from '../../components/MLEvaluationModal';
-import { DatasetStatusModal } from '../../components/DatasetStatusModal';
 import { CaseIntakeModal } from '../../components/CaseIntakeModal';
 import { CaseManagementView } from '../../components/CaseManagementView';
 import { api } from '../../lib/api';
@@ -39,11 +34,6 @@ import {
   Scale,
   FolderOpen,
   Network,
-  ArrowLeft,
-  BrainCircuit,
-  Database,
-  BookOpen,
-  Send,
 } from 'lucide-react';
 
 export default function InvestigationAppPage() {
@@ -63,14 +53,13 @@ export default function InvestigationAppPage() {
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [streamingHop, setStreamingHop] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [demoMode, setDemoMode] = useState<boolean>(true);
 
   // Modals state
   const [showCaseIntakeModal, setShowCaseIntakeModal] = useState<boolean>(false);
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
   const [showFreezeModal, setShowFreezeModal] = useState<boolean>(false);
   const [showRegistryModal, setShowRegistryModal] = useState<boolean>(false);
-  const [showMLEvalModal, setShowMLEvalModal] = useState<boolean>(false);
-  const [showDatasetModal, setShowDatasetModal] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -177,7 +166,7 @@ export default function InvestigationAppPage() {
       if (!traceJobId) {
         try {
           const detectedChain = walletAddress.startsWith('0x') ? 'ethereum' : walletAddress.startsWith('T') ? 'tron' : 'bitcoin';
-          const traceJob = await api.startTrace(walletAddress, detectedChain, maxHops);
+          const traceJob = await api.startTrace(walletAddress, detectedChain, maxHops, demoMode);
           traceJobId = traceJob.job_id;
         } catch (e) {
           console.warn('Direct trace launch notice:', e);
@@ -191,7 +180,7 @@ export default function InvestigationAppPage() {
       }
 
       // 2. Start Full Ingestion Analysis
-      const initialStatus = await api.startAnalysis(walletAddress, maxHops);
+      const initialStatus = await api.startAnalysis(walletAddress, maxHops, demoMode);
       setAnalysisStatus(initialStatus);
 
       const analysisId = initialStatus.analysis_id;
@@ -408,48 +397,8 @@ export default function InvestigationAppPage() {
         hasActiveTarget={!!analysisStatus || isStreaming}
       />
 
-      {/* Top Banner with links */}
-      <div className="bg-forensic-surfaceRaised border-b border-forensic-border px-4 py-1.5 text-xs font-mono flex items-center justify-between text-forensic-textDim">
-        <div className="flex items-center space-x-3">
-          <Link
-            href="/"
-            className="flex items-center space-x-1 text-blue-500 hover:underline font-semibold"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            <span>Landing Page</span>
-          </Link>
-          <span>•</span>
-          <Link
-            href="/docs"
-            className="flex items-center space-x-1 text-amber-400 hover:underline font-semibold"
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            <span>Judge Docs (/docs)</span>
-          </Link>
-          <span>•</span>
-          <span>Live Investigation Console</span>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setShowMLEvalModal(true)}
-            className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 transition-colors flex items-center space-x-1"
-          >
-            <BrainCircuit className="h-3 w-3" />
-            <span>ML Benchmarks</span>
-          </button>
-          <button
-            onClick={() => setShowDatasetModal(true)}
-            className="px-2 py-0.5 rounded bg-teal-500/10 text-teal-400 border border-teal-500/20 hover:bg-teal-500/20 transition-colors flex items-center space-x-1"
-          >
-            <Database className="h-3 w-3" />
-            <span>Data Ingestion</span>
-          </button>
-        </div>
-      </div>
-
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 space-y-4">
-        {/* TAB: CASES & AUDIT TRAIL (Supervisor View & Case Register) */}
+        {/* TAB: CASES & AUDIT TRAIL */}
         {activeTab === 'CASES_AUDIT' && (
           <CaseManagementView
             currentUser={currentUser}
@@ -459,10 +408,15 @@ export default function InvestigationAppPage() {
           />
         )}
 
-        {/* TAB 1: TARGET CASE WORKSPACE */}
+        {/* TAB: TARGET CASE WORKSPACE */}
         {activeTab === 'WORKSPACE' && (
           <>
-            <WalletSearch onAnalyze={handleStartAnalysis} isLoading={isLoading || isStreaming} />
+            <WalletSearch
+              onAnalyze={handleStartAnalysis}
+              isLoading={isLoading || isStreaming}
+              demoMode={demoMode}
+              onToggleDemoMode={() => setDemoMode(!demoMode)}
+            />
 
             {analysisStatus && <LiveProgress status={analysisStatus} />}
 
@@ -475,7 +429,7 @@ export default function InvestigationAppPage() {
                       <span>•</span>
                       <span>STATUS: <strong className="text-forensic-teal">{isStreaming ? 'STREAMING VIA WEBSOCKET' : 'ACTIVE INVESTIGATION'}</strong></span>
                       <span>•</span>
-                      <span>CHAIN: <strong className="text-blue-500">{analysisStatus.wallet_address.startsWith('0x') ? 'ETHEREUM MAINNET' : 'TRON NETWORK'}</strong></span>
+                      <span>CHAIN: <strong className="text-blue-500">{analysisStatus.wallet_address.startsWith('0x') ? 'ETHEREUM' : analysisStatus.wallet_address.startsWith('T') ? 'TRON' : 'BITCOIN'}</strong></span>
                     </div>
 
                     <div className="flex items-center space-x-2 pt-0.5">
@@ -493,7 +447,9 @@ export default function InvestigationAppPage() {
                         href={
                           analysisStatus.wallet_address.startsWith('0x')
                             ? `https://etherscan.io/address/${analysisStatus.wallet_address}`
-                            : `https://tronscan.org/#/address/${analysisStatus.wallet_address}`
+                            : analysisStatus.wallet_address.startsWith('T')
+                            ? `https://tronscan.org/#/address/${analysisStatus.wallet_address}`
+                            : `https://mempool.space/address/${analysisStatus.wallet_address}`
                         }
                         target="_blank"
                         rel="noreferrer"
@@ -519,7 +475,7 @@ export default function InvestigationAppPage() {
                       className="flex items-center space-x-1.5 px-3 py-1.5 bg-red-700 hover:bg-red-600 text-white font-medium text-[11px] rounded transition-colors shadow-sm"
                     >
                       <Scale className="h-3.5 w-3.5" />
-                      <span>Issue Freeze Notice</span>
+                      <span>Freeze Notice</span>
                     </button>
 
                     <button
@@ -535,12 +491,12 @@ export default function InvestigationAppPage() {
                 {/* Evidence Metrics Summary Bar */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 pt-2.5 text-[10px] text-forensic-textDim">
                   <div>
-                    <span className="block uppercase text-forensic-textDim">Observed Transfers</span>
+                    <span className="block uppercase text-forensic-textDim">Transfers</span>
                     <strong className="text-forensic-text text-xs">{analysisStatus.num_transactions || graphData?.edges?.length || 0} Tx</strong>
                   </div>
                   <div>
-                    <span className="block uppercase text-forensic-textDim">Network Graph Nodes</span>
-                    <strong className="text-forensic-text text-xs">{analysisStatus.num_nodes || graphData?.nodes?.length || 1} Nodes</strong>
+                    <span className="block uppercase text-forensic-textDim">Nodes</span>
+                    <strong className="text-forensic-text text-xs">{analysisStatus.num_nodes || graphData?.nodes?.length || 1}</strong>
                   </div>
                   <div>
                     <span className="block uppercase text-forensic-textDim">Attributed VASP</span>
@@ -549,26 +505,26 @@ export default function InvestigationAppPage() {
                     </strong>
                   </div>
                   <div>
-                    <span className="block uppercase text-forensic-textDim">Attribution Confidence</span>
+                    <span className="block uppercase text-forensic-textDim">Confidence</span>
                     <strong className="text-forensic-teal text-xs">
-                      {attributions[0] ? `${attributions[0].score.toFixed(1)}% (${attributions[0].evidence_strength})` : 'Evaluating'}
+                      {attributions[0] ? `${attributions[0].score.toFixed(1)}%` : 'Evaluating'}
                     </strong>
                   </div>
                   <div>
-                    <span className="block uppercase text-forensic-textDim">Structural Risk</span>
+                    <span className="block uppercase text-forensic-textDim">Risk Level</span>
                     <strong className="text-forensic-amber text-xs">
                       {analysisStatus.risk_assessment?.risk_level || 'ELEVATED'}
                     </strong>
                   </div>
                   <div>
-                    <span className="block uppercase text-forensic-textDim">Evidence Findings</span>
+                    <span className="block uppercase text-forensic-textDim">Evidence</span>
                     <strong className="text-forensic-text text-xs">{evidence.length || 1} Records</strong>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Split Workspace View — Renders during active streaming and after completion */}
+            {/* Split Workspace View */}
             {(analysisStatus || graphData) && (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
                 <div className="lg:col-span-5 space-y-4">
@@ -601,17 +557,16 @@ export default function InvestigationAppPage() {
               </div>
             )}
 
-            {/* Recent Cases Forensic Register */}
+            {/* Recent Cases */}
             {recentAnalyses.length > 0 && !isLoading && !isStreaming && (
               <div className="bg-forensic-surface border border-forensic-border rounded p-3.5 shadow-sm text-xs font-mono space-y-2.5 transition-colors">
                 <div className="flex items-center justify-between border-b border-forensic-border pb-2">
                   <div className="flex items-center space-x-2 text-forensic-text">
                     <FolderOpen className="h-4 w-4 text-forensic-textDim" />
                     <h3 className="uppercase font-bold text-xs tracking-wider">
-                      Recent Investigation Cases ({recentAnalyses.length})
+                      Recent Investigations ({recentAnalyses.length})
                     </h3>
                   </div>
-                  <span className="text-[10px] text-forensic-textDim uppercase">Audit Register</span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
@@ -633,7 +588,7 @@ export default function InvestigationAppPage() {
                       </div>
                       <div className="flex items-center justify-between text-[10px] text-forensic-textDim pt-0.5">
                         <span>{run.num_transactions} Transfers • {run.num_nodes} Nodes</span>
-                        <span className="text-blue-500 group-hover:underline font-semibold">Load Case →</span>
+                        <span className="text-blue-500 group-hover:underline font-semibold">Load →</span>
                       </div>
                     </button>
                   ))}
@@ -643,12 +598,7 @@ export default function InvestigationAppPage() {
           </>
         )}
 
-        {/* TAB: CANDIDATE DISCOVERY */}
-        {activeTab === 'CANDIDATE_DISCOVERY' && (
-          <CandidateDiscoveryView onSelectCandidate={(addr) => handleStartAnalysis(addr, 3)} />
-        )}
-
-        {/* TAB 2: FULL-SCREEN GRAPH STUDIO */}
+        {/* TAB: FULL-SCREEN GRAPH STUDIO */}
         {activeTab === 'GRAPH_STUDIO' && (
           <div className="space-y-4">
             <GraphCanvas
@@ -664,27 +614,9 @@ export default function InvestigationAppPage() {
           </div>
         )}
 
-        {/* TAB 3: NCRP INCIDENT QUEUE */}
+        {/* TAB: NCRP INCIDENT QUEUE */}
         {activeTab === 'NCRP_TRIAGE' && (
           <NCRPTriageView onSelectCase={handleStartAnalysis} />
-        )}
-
-        {/* TAB 4: VASP & ENTITY REGISTRY */}
-        {activeTab === 'VASP_REGISTRY' && (
-          <VASPRegistryModal isFullPageView={true} />
-        )}
-
-        {/* TAB 5: LEGAL FREEZE STUDIO */}
-        {activeTab === 'LEGAL_STUDIO' && (
-          <FreezeNoticeModal
-            analysisId={analysisStatus?.analysis_id || ''}
-            isFullPageView={true}
-          />
-        )}
-
-        {/* TAB 6: AUDIT METHODOLOGY */}
-        {activeTab === 'METHODOLOGY' && (
-          <ProvenanceSection />
         )}
       </main>
 
@@ -713,14 +645,6 @@ export default function InvestigationAppPage() {
 
       {showRegistryModal && (
         <VASPRegistryModal onClose={() => setShowRegistryModal(false)} />
-      )}
-
-      {showMLEvalModal && (
-        <MLEvaluationModal isOpen={showMLEvalModal} onClose={() => setShowMLEvalModal(false)} />
-      )}
-
-      {showDatasetModal && (
-        <DatasetStatusModal isOpen={showDatasetModal} onClose={() => setShowDatasetModal(false)} />
       )}
     </div>
   );

@@ -181,10 +181,10 @@ Tasks:
 **Goal:** Make the live demo bulletproof.
 
 Tasks:
-- [ ] Pre-warm/cache all API responses for the 3-5 curated `demo_labels.json` addresses so the live demo never depends on live rate limits or network flakiness.
-- [ ] Add a visible "Demo Mode" toggle if using cached data, and a genuine "Live Mode" for judges who want to paste an arbitrary real address (accept it may be slower/less complete — that's fine and honest).
-- [ ] Write a 5-8 line `DEMO_SCRIPT.md`: exact addresses to paste, expected outputs, talking points tying each screen back to problem-statement requirements (multi-chain, confidence scoring, investigation-ready report, VASP routing).
-- [ ] Final pass: error states don't crash the UI, loading states exist everywhere, README has one-command startup instructions.
+- [x] Pre-warm/cache all API responses for the 3-5 curated `demo_labels.json` addresses so the live demo never depends on live rate limits or network flakiness.
+- [x] Add a visible "Demo Mode" toggle if using cached data, and a genuine "Live Mode" for judges who want to paste an arbitrary real address (accept it may be slower/less complete — that's fine and honest).
+- [x] Write a 5-8 line `DEMO_SCRIPT.md`: exact addresses to paste, expected outputs, talking points tying each screen back to problem-statement requirements (multi-chain, confidence scoring, investigation-ready report, VASP routing).
+- [x] Final pass: error states don't crash the UI, loading states exist everywhere, README has one-command startup instructions.
 
 **Definition of done:** Someone unfamiliar with the codebase can run one command, follow `DEMO_SCRIPT.md`, and see the full flow work without touching code.
 

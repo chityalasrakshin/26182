@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'SIH Sudarshan - Automated Wallet to VASP Attribution Engine',
-  description: 'Automated attribution of unknown cryptocurrency wallets to nearest Virtual Asset Service Providers (VASPs) through real blockchain intelligence APIs.',
+  title: 'CryptoTrace — Financial Intelligence Workstation',
+  description: 'Blockchain investigation console for tracing cryptocurrency flows and attributing unknown wallets to Virtual Asset Service Providers.',
 };
 
 export default function RootLayout({
@@ -20,7 +20,6 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap"
           rel="stylesheet"
         />
-        <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" async></script>
       </head>
       <body className="bg-[#060A12] text-slate-100 antialiased min-h-screen">
         {children}

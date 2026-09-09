@@ -34,9 +34,9 @@ if "sqlite" in settings.DATABASE_URL:
     def set_sqlite_pragma(dbapi_connection, connection_record):
         try:
             cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA journal_mode=DELETE")
             cursor.execute("PRAGMA synchronous=NORMAL")
-            cursor.execute("PRAGMA busy_timeout=15000")
+            cursor.execute("PRAGMA busy_timeout=30000")
             cursor.close()
         except Exception:
             pass

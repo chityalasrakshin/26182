@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import cytoscape from 'cytoscape';
 import dagre from 'cytoscape-dagre';
 import {
@@ -57,6 +57,26 @@ interface GraphCanvasProps {
   streamingHop?: number;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Compute proportional edge width from transaction amount */
+const edgeWidthFromAmount = (amount: number): number =>
+  Math.max(1.5, Math.min(6, Math.log10(amount + 1) * 1.8));
+
+/** Opacity by hop (farther = more transparent) */
+const hopOpacity = (hop: number): number => {
+  if (hop <= 0) return 1;
+  if (hop === 1) return 1;
+  if (hop === 2) return 0.85;
+  return 0.7;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   graphData,
   isFullScreenView = false,
@@ -68,6 +88,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
+  const focusedPathRef = useRef<boolean>(false);
 
   // View & Layout State
   const [layoutMode, setLayoutMode] = useState<LayoutType>('flow');
@@ -97,6 +118,12 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   } | null>(null);
 
   const [copied, setCopied] = useState<boolean>(false);
+
+  // Sync ref with state for use in closure-captured event handlers
+  const updateFocusedPath = useCallback((val: typeof focusedPath) => {
+    focusedPathRef.current = val !== null;
+    setFocusedPath(val);
+  }, []);
 
   // Compute Root Target Wallet from data
   const rootNode = useMemo(() => {
@@ -148,7 +175,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     };
   }, [graphData]);
 
-  // Cytoscape Elements & Graph Lifecycle
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CYTOSCAPE GRAPH LIFECYCLE — REDESIGNED
+  // ═══════════════════════════════════════════════════════════════════════════
   useEffect(() => {
     if (!containerRef.current || !graphData || !graphData.nodes || graphData.nodes.length === 0) {
       return;
@@ -162,7 +191,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const elements: cytoscape.ElementDefinition[] = [];
     const validNodeIds = new Set<string>();
 
-    // 1. Build Nodes with Filtering
+    // ─────────────────────────────────────────────────────────────────────
+    // 1. BUILD NODES with Filtering & Tag Classification
+    // ─────────────────────────────────────────────────────────────────────
     graphData.nodes.forEach((n: any) => {
       const d = n.data || n;
       const nodeId = d.id || d.address;
@@ -171,9 +202,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       const hop = d.hop ?? 1;
 
       // Hop filter
-      if (!isRoot && !selectedHops.has(hop)) {
-        return;
-      }
+      if (!isRoot && !selectedHops.has(hop)) return;
 
       // Entity type filter
       let entityType = 'EXTERNAL';
@@ -181,18 +210,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       else if (isVasp) entityType = 'VASP';
       else if (hop >= 1 && hop <= 3) entityType = 'INTERMEDIARY';
 
-      if (!selectedEntityTypes.has(entityType)) {
-        return;
-      }
+      if (!selectedEntityTypes.has(entityType)) return;
 
       // View Mode Filtering
-      if (viewMode === 'EVIDENCE' && !isRoot && !isVasp && hop > 2) {
-        return;
-      }
+      if (viewMode === 'EVIDENCE' && !isRoot && !isVasp && hop > 2) return;
 
       validNodeIds.add(nodeId);
 
-      // Phase 7: Strict Tag Classification (exchange, mixer, sanctioned, unknown, target)
+      // Tag classification (exchange, mixer, sanctioned, unknown, target)
       const rawCat = (d.category || d.entity || d.label || d.role || d.vasp_name || '').toLowerCase();
       let nodeTag: 'target' | 'exchange' | 'mixer' | 'sanctioned' | 'unknown' = 'unknown';
       if (isRoot) {
@@ -228,20 +253,20 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         nodeTag = 'sanctioned';
       }
 
-      const shortAddr = `${nodeId.slice(0, 6)}...${nodeId.slice(-4)}`;
+      const shortAddr = `${nodeId.slice(0, 6)}…${nodeId.slice(-4)}`;
       const label = isRoot
-        ? `[TARGET]\n${shortAddr}`
+        ? `⊕ TARGET\n${shortAddr}`
         : nodeTag === 'exchange'
-        ? `[${d.vasp_name?.toUpperCase() || 'EXCHANGE'}]\n${shortAddr}`
+        ? `${d.vasp_name?.toUpperCase() || 'EXCHANGE'}\n${shortAddr}`
         : nodeTag === 'mixer'
-        ? `[MIXER]\n${shortAddr}`
+        ? `⚠ MIXER\n${shortAddr}`
         : nodeTag === 'sanctioned'
-        ? `[SANCTIONED]\n${shortAddr}`
-        : `${shortAddr}\n(Hop ${hop})`;
+        ? `✖ SANCTIONED\n${shortAddr}`
+        : `${shortAddr}\nHop ${hop}`;
 
       elements.push({
         group: 'nodes',
-        classes: `tag-${nodeTag}`,
+        classes: `tag-${nodeTag} ${isRoot ? 'is-root tag-target' : ''} ${isVasp || nodeTag === 'exchange' ? 'is-vasp tag-exchange' : ''}`.trim(),
         data: {
           id: nodeId,
           label: label,
@@ -258,11 +283,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           totalOutflow: d.total_outflow || 0,
           txCount: d.tx_count || 0,
           role: d.role || entityType,
+          nodeOpacity: hopOpacity(hop),
         },
       });
     });
 
-    // 2. Build Edges with Filtering
+    // ─────────────────────────────────────────────────────────────────────
+    // 2. BUILD EDGES with Filtering & Proportional Width
+    // ─────────────────────────────────────────────────────────────────────
     graphData.edges?.forEach((e: any, idx: number) => {
       const d = e.data || e;
       const src = d.source;
@@ -271,19 +299,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       const sym = (d.asset_symbol || d.token_symbol || 'ETH').toUpperCase();
       const edgeId = d.id || `edge-${idx}`;
 
-      if (!validNodeIds.has(src) || !validNodeIds.has(tgt)) {
-        return;
-      }
+      if (!validNodeIds.has(src) || !validNodeIds.has(tgt)) return;
 
       // Token filter
-      if (selectedToken !== 'ALL' && sym !== selectedToken) {
-        return;
-      }
+      if (selectedToken !== 'ALL' && sym !== selectedToken) return;
 
       // Min amount filter
-      if (minAmount > 0 && amt < minAmount) {
-        return;
-      }
+      if (minAmount > 0 && amt < minAmount) return;
 
       const label = amt > 0 ? `${amt >= 1000 ? (amt / 1000).toFixed(1) + 'k' : amt.toFixed(2)} ${sym}` : '';
 
@@ -295,6 +317,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           target: tgt,
           label: label,
           amount: amt,
+          edgeWidth: edgeWidthFromAmount(amt),
           tokenSymbol: sym,
           txHash: d.tx_hash || '',
           timestamp: d.timestamp || '',
@@ -303,100 +326,178 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       });
     });
 
-    // 3. Layout Options Factory
-    let layoutConfig: any = {
-      name: 'dagre',
-      rankDir: 'LR',
-      nodeSep: 65,
-      rankSep: 110,
-      animate: true,
-      animationDuration: 300,
-    };
+    // ─────────────────────────────────────────────────────────────────────
+    // 3. LAYOUT CONFIGURATIONS — REDESIGNED for clean spacing
+    // ─────────────────────────────────────────────────────────────────────
+    const nodeCount = elements.filter(el => el.group === 'nodes').length;
+    const spacingScale = nodeCount > 40 ? 1.3 : nodeCount > 20 ? 1.1 : 1.0;
 
-    if (layoutMode === 'force') {
-      layoutConfig = {
-        name: 'cose',
-        animate: false,
-        randomize: false,
-        componentSpacing: 100,
-        nodeOverlap: 20,
-        idealEdgeLength: 100,
-        nodeRepulsion: 400000,
-      };
-    } else if (layoutMode === 'hierarchical') {
-      layoutConfig = {
-        name: 'breadthfirst',
-        directed: true,
-        roots: rootNode?.id ? [`#${rootNode.id}`] : undefined,
-        spacingFactor: 1.4,
-        animate: true,
-      };
-    } else if (layoutMode === 'radial') {
-      layoutConfig = {
-        name: 'concentric',
-        concentric: (node: any) => 4 - (node.data('hop') || 1),
-        levelWidth: () => 1,
-        minNodeSpacing: 60,
-        animate: true,
-      };
+    let layoutConfig: any;
+
+    switch (layoutMode) {
+      case 'flow':
+        layoutConfig = {
+          name: 'dagre',
+          rankDir: 'LR',
+          nodeSep: nodeCount > 80 ? 80 : Math.round(120 * spacingScale),
+          rankSep: nodeCount > 80 ? 140 : Math.round(200 * spacingScale),
+          edgeSep: nodeCount > 80 ? 25 : 40,
+          ranker: 'network-simplex',
+          animate: true,
+          animationDuration: 500,
+          animationEasing: 'ease-out-cubic' as any,
+          fit: true,
+          padding: 50,
+        };
+        break;
+      case 'force': {
+        // Adaptive CoSE parameters: higher gravity + lower repulsion for dense graphs
+        const densityGravity = nodeCount > 100 ? 0.8 : nodeCount > 50 ? 0.5 : 0.25;
+        const densityRepulsion = nodeCount > 100 ? 600000 : nodeCount > 50 ? 1000000 : 2000000;
+        const densityEdgeLen = nodeCount > 100 ? 100 : nodeCount > 50 ? 140 : 180;
+        layoutConfig = {
+          name: 'cose',
+          animate: 'end',
+          animationDuration: 600,
+          animationEasing: 'ease-out-cubic' as any,
+          randomize: true,
+          componentSpacing: nodeCount > 100 ? 80 : 160,
+          nodeOverlap: 50,
+          idealEdgeLength: (edge: any) => densityEdgeLen,
+          nodeRepulsion: (node: any) => densityRepulsion,
+          edgeElasticity: (edge: any) => 80,
+          gravity: densityGravity,
+          numIter: nodeCount > 100 ? 300 : 500,
+          fit: true,
+          padding: 50,
+          nestingFactor: 1.2,
+        };
+        break;
+      }
+      case 'hierarchical':
+        layoutConfig = {
+          name: 'breadthfirst',
+          directed: true,
+          roots: rootNode?.id ? [`#${rootNode.id}`] : undefined,
+          spacingFactor: nodeCount > 80 ? 1.4 : 2.0 * spacingScale,
+          avoidOverlap: true,
+          animate: true,
+          animationDuration: 500,
+          fit: true,
+          padding: 50,
+          maximal: false,
+        };
+        break;
+      case 'radial':
+        layoutConfig = {
+          name: 'concentric',
+          concentric: (node: any) => 4 - (node.data('hop') || 1),
+          levelWidth: () => 1,
+          minNodeSpacing: nodeCount > 80 ? 50 : Math.round(120 * spacingScale),
+          animate: true,
+          animationDuration: 500,
+          fit: true,
+          padding: 50,
+          startAngle: 0,
+          sweep: 2 * Math.PI,
+          equidistant: false,
+        };
+        break;
     }
 
-    // 4. Forensic Theme Stylesheet
+    // ─────────────────────────────────────────────────────────────────────
+    // 4. STYLESHEET — PRODUCTION-GRADE VISUAL DESIGN
+    // ─────────────────────────────────────────────────────────────────────
+    const baseTextColor = isDarkMode ? '#cbd5e1' : '#1e293b';
+    const dimTextColor = isDarkMode ? '#64748b' : '#94a3b8';
+    const surfaceColor = isDarkMode ? '#0f172a' : '#f1f5f9';
+    const borderColor = isDarkMode ? '#334155' : '#cbd5e1';
+    const canvasBg = isDarkMode ? '#090d16' : '#ffffff';
+
+    // Adaptive node sizing: scale down for dense graphs
+    const sizeScale = nodeCount > 120 ? 0.65 : nodeCount > 80 ? 0.75 : nodeCount > 40 ? 0.85 : 1.0;
+    const sz = (base: number) => Math.round(base * sizeScale);
+    const fs = (base: number) => Math.round(base * Math.max(sizeScale, 0.8) * 10) / 10;
+
     const cy = cytoscape({
       container: containerRef.current,
       elements: elements,
+
+      // ── Global interaction config ──
+      minZoom: 0.15,
+      maxZoom: 4.0,
+      wheelSensitivity: 0.3,
+      boxSelectionEnabled: true,
+      selectionType: 'additive',
+      autoungrabify: false,
+
       style: [
+        // ────────────────── BASE NODE ──────────────────
         {
           selector: 'node',
           style: {
             'label': 'data(label)',
-            'color': isDarkMode ? '#cbd5e1' : '#1e293b',
-            'font-family': 'ui-monospace, SFMono-Regular, monospace',
-            'font-size': '9px',
+            'color': baseTextColor,
+            'font-family': 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            'font-size': `${fs(9)}px`,
             'text-wrap': 'wrap',
-            'text-valign': 'center',
+            'text-max-width': `${sz(110)}px`,
+            'text-valign': 'bottom',
             'text-halign': 'center',
-            'background-color': isDarkMode ? '#0f172a' : '#f1f5f9',
-            'border-width': 1.5,
-            'border-color': isDarkMode ? '#334155' : '#cbd5e1',
-            'width': 50,
-            'height': 50,
-            'shape': 'roundrectangle',
-            'transition-property': 'background-color, border-color, width, height, opacity',
-            'transition-duration': 0.2,
+            'text-margin-y': sz(8),
+            'background-color': surfaceColor,
+            'border-width': 2,
+            'border-color': borderColor,
+            'width': sz(56),
+            'height': sz(56),
+            'shape': 'ellipse',
+            'opacity': 'data(nodeOpacity)' as any,
+            'overlay-opacity': 0,
+            'overlay-padding': 6,
+            'transition-property': 'background-color, border-color, width, height, opacity, overlay-opacity',
+            'transition-duration': 200,
           },
         },
-        // Tag: Target Root Wallet
+        // ────────────────── TARGET / ROOT ──────────────────
         {
-          selector: 'node[tag = "target"], node.tag-target, node[?isRoot]',
+          selector: 'node[tag = "target"], node.tag-target, node.is-root',
           style: {
             'background-color': isDarkMode ? '#450a0a' : '#fee2e2',
             'border-color': '#ef4444',
-            'border-width': 3,
+            'border-width': 4,
             'color': isDarkMode ? '#fca5a5' : '#991b1b',
-            'width': 66,
-            'height': 66,
+            'width': sz(80),
+            'height': sz(80),
             'font-weight': 'bold',
-            'font-size': '10px',
-            'shape': 'roundrectangle',
+            'font-size': `${fs(10)}px`,
+            'shape': 'star',
+            'text-valign': 'bottom',
+            'text-margin-y': sz(10),
+            'opacity': 1,
+            'overlay-color': '#ef4444',
+            'overlay-opacity': 0.08,
+            'overlay-padding': sz(12),
           },
         },
-        // Tag: Exchange / VASP (Teal / Emerald)
+        // ────────────────── EXCHANGE / VASP ──────────────────
         {
-          selector: 'node[tag = "exchange"], node.tag-exchange, node[?isVasp]',
+          selector: 'node[tag = "exchange"], node.tag-exchange, node.is-vasp',
           style: {
             'background-color': isDarkMode ? '#042f2e' : '#ccfbf1',
             'border-color': '#14b8a6',
             'border-width': 3,
             'color': isDarkMode ? '#5eead4' : '#0f766e',
-            'width': 70,
-            'height': 58,
+            'width': sz(72),
+            'height': sz(60),
             'shape': 'roundrectangle',
             'font-weight': 'bold',
-            'font-size': '10px',
+            'font-size': `${fs(10)}px`,
+            'text-valign': 'bottom',
+            'text-margin-y': sz(8),
+            'opacity': 1,
           },
         },
-        // Tag: Mixer / Tumbler (Purple)
+        // ────────────────── MIXER / TUMBLER ──────────────────
         {
           selector: 'node[tag = "mixer"], node.tag-mixer',
           style: {
@@ -404,14 +505,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'border-color': '#a855f7',
             'border-width': 3,
             'color': isDarkMode ? '#d8b4fe' : '#6b21a8',
-            'width': 66,
-            'height': 58,
+            'width': sz(66),
+            'height': sz(58),
             'shape': 'diamond',
             'font-weight': 'bold',
-            'font-size': '10px',
+            'font-size': `${fs(10)}px`,
+            'text-valign': 'bottom',
+            'text-margin-y': sz(10),
           },
         },
-        // Tag: Sanctioned / OFAC (Crimson / Red)
+        // ────────────────── SANCTIONED / OFAC ──────────────────
         {
           selector: 'node[tag = "sanctioned"], node.tag-sanctioned',
           style: {
@@ -419,14 +522,19 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'border-color': '#dc2626',
             'border-width': 3.5,
             'color': isDarkMode ? '#fca5a5' : '#b91c1c',
-            'width': 66,
-            'height': 58,
+            'width': sz(66),
+            'height': sz(58),
             'shape': 'octagon',
             'font-weight': 'bold',
-            'font-size': '10px',
+            'font-size': `${fs(10)}px`,
+            'text-valign': 'bottom',
+            'text-margin-y': sz(10),
+            'overlay-color': '#dc2626',
+            'overlay-opacity': 0.06,
+            'overlay-padding': sz(8),
           },
         },
-        // Tag: Unknown / Intermediary
+        // ────────────────── UNKNOWN / INTERMEDIARY ──────────────────
         {
           selector: 'node[tag = "unknown"], node.tag-unknown',
           style: {
@@ -434,120 +542,245 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'border-color': isDarkMode ? '#475569' : '#94a3b8',
             'border-width': 2,
             'color': isDarkMode ? '#cbd5e1' : '#334155',
-            'width': 54,
-            'height': 54,
-            'shape': 'roundrectangle',
-            'font-size': '9px',
+            'width': sz(56),
+            'height': sz(56),
+            'shape': 'ellipse',
+            'font-size': `${fs(9)}px`,
           },
         },
+        // ── Hop 1 color accent ──
         {
-          selector: 'node[hop = 1]:not([?isRoot]):not([?isVasp]):not([tag = "mixer"]):not([tag = "sanctioned"])',
+          selector: 'node[hop = 1].tag-unknown',
           style: {
             'border-color': '#3b82f6',
             'background-color': isDarkMode ? '#1e293b' : '#dbeafe',
             'color': isDarkMode ? '#93c5fd' : '#1d4ed8',
           },
         },
+        // ── Hop 2 color accent ──
         {
-          selector: 'node[hop = 2]:not([?isRoot]):not([?isVasp]):not([tag = "mixer"]):not([tag = "sanctioned"])',
+          selector: 'node[hop = 2].tag-unknown',
           style: {
             'border-color': '#8b5cf6',
             'background-color': isDarkMode ? '#1e1b4b' : '#ede9fe',
             'color': isDarkMode ? '#c4b5fd' : '#6d28d9',
           },
         },
+        // ── Hop 3 color accent ──
         {
-          selector: 'node[hop = 3]:not([?isRoot]):not([?isVasp]):not([tag = "mixer"]):not([tag = "sanctioned"])',
+          selector: 'node[hop = 3].tag-unknown',
           style: {
             'border-color': '#6366f1',
             'background-color': isDarkMode ? '#1e1e38' : '#e0e7ff',
             'color': isDarkMode ? '#a5b4fc' : '#4338ca',
           },
         },
+
+        // ────────────────── BASE EDGE ──────────────────
         {
           selector: 'edge',
           style: {
-            'width': 1.8,
+            'width': 'data(edgeWidth)' as any,
             'line-color': isDarkMode ? '#334155' : '#94a3b8',
             'target-arrow-color': isDarkMode ? '#64748b' : '#64748b',
             'target-arrow-shape': 'triangle',
-            'arrow-scale': 0.9,
-            'curve-style': 'bezier',
-            'label': 'data(label)',
-            'font-size': '8.5px',
+            'arrow-scale': sizeScale < 0.8 ? 0.8 : 1.0,
+            'curve-style': 'unbundled-bezier',
+            'control-point-step-size': nodeCount > 80 ? 30 : 45,
+            'label': nodeCount > 100 ? '' : 'data(label)',
+            'font-size': `${fs(8)}px`,
             'font-family': 'ui-monospace, SFMono-Regular, monospace',
             'color': isDarkMode ? '#94a3b8' : '#475569',
             'text-rotation': 'autorotate',
-            'text-background-opacity': 0.85,
-            'text-background-color': isDarkMode ? '#090d16' : '#ffffff',
-            'text-background-padding': '2px',
+            'text-background-opacity': 0.9,
+            'text-background-color': isDarkMode ? '#0e1524' : '#ffffff',
+            'text-background-padding': '3px',
             'text-background-shape': 'roundrectangle',
+            'text-margin-y': -10,
+            'overlay-opacity': 0,
             'transition-property': 'line-color, target-arrow-color, width, opacity',
-            'transition-duration': 0.2,
+            'transition-duration': 200,
           },
         },
-        // Focused Path Highlighting Styles
+        // ── Edge hop color coding ──
+        {
+          selector: 'edge[hop = 1]',
+          style: {
+            'line-color': isDarkMode ? '#1e40af' : '#93c5fd',
+            'target-arrow-color': isDarkMode ? '#2563eb' : '#60a5fa',
+          },
+        },
+        {
+          selector: 'edge[hop = 2]',
+          style: {
+            'line-color': isDarkMode ? '#5b21b6' : '#c4b5fd',
+            'target-arrow-color': isDarkMode ? '#7c3aed' : '#a78bfa',
+          },
+        },
+        {
+          selector: 'edge[hop = 3]',
+          style: {
+            'line-color': isDarkMode ? '#3730a3' : '#a5b4fc',
+            'target-arrow-color': isDarkMode ? '#4f46e5' : '#818cf8',
+          },
+        },
+
+        // ────────────────── INTERACTIVE STATES ──────────────────
+
+        // Hover: node scale + glow
+        {
+          selector: 'node:active',
+          style: {
+            'overlay-opacity': 0.12,
+            'overlay-color': '#38bdf8',
+            'overlay-padding': 10,
+          },
+        },
+
+        // Path Focus — highlighted path
         {
           selector: '.path-focused',
           style: {
             'line-color': '#06b6d4',
             'target-arrow-color': '#06b6d4',
-            'width': 3.5,
+            'width': 4,
             'z-index': 999,
+            'label': 'data(label)',
+            'font-size': '9px',
+            'text-background-opacity': 0.95,
           },
         },
         {
           selector: 'node.path-focused',
           style: {
             'border-color': '#06b6d4',
-            'border-width': 3,
+            'border-width': 4,
             'z-index': 999,
+            'overlay-color': '#06b6d4',
+            'overlay-opacity': 0.1,
+            'overlay-padding': 10,
           },
         },
+        // Path Focus — dimmed elements
         {
           selector: '.path-dimmed',
           style: {
-            'opacity': 0.15,
+            'opacity': 0.12,
           },
         },
+        // Timeline replay — active edge
         {
           selector: '.replay-active-edge',
           style: {
             'line-color': '#f59e0b',
             'target-arrow-color': '#f59e0b',
-            'width': 4.5,
+            'width': 5,
             'z-index': 1000,
           },
         },
+        // Timeline replay — active node
         {
           selector: 'node.replay-active-node',
           style: {
             'border-color': '#f59e0b',
             'border-width': 4,
             'z-index': 1000,
+            'overlay-color': '#f59e0b',
+            'overlay-opacity': 0.15,
+            'overlay-padding': 12,
           },
         },
+        // Selection
         {
           selector: ':selected',
           style: {
             'border-color': '#38bdf8',
-            'border-width': 3.5,
+            'border-width': 4,
             'line-color': '#38bdf8',
             'target-arrow-color': '#38bdf8',
+            'overlay-color': '#38bdf8',
+            'overlay-opacity': 0.1,
+          },
+        },
+        // Hover highlight class (applied via JS)
+        {
+          selector: '.node-hover',
+          style: {
+            'border-width': 4,
+            'overlay-opacity': 0.1,
+            'overlay-color': '#38bdf8',
+            'overlay-padding': 10,
+          },
+        },
+        {
+          selector: '.edge-hover',
+          style: {
+            'width': 4,
+            'line-color': '#38bdf8',
+            'target-arrow-color': '#38bdf8',
+            'z-index': 500,
+            'label': 'data(label)',
+            'font-size': '9px',
+            'text-background-opacity': 0.95,
+          },
+        },
+        {
+          selector: '.neighbor-dim',
+          style: {
+            'opacity': 0.25,
           },
         },
       ],
       layout: layoutConfig,
     });
 
-    // Path Focus Helper: Computes simple path from target root to clicked node
+    // ─────────────────────────────────────────────────────────────────────
+    // 5. AUTO-FIT on layout completion
+    // ─────────────────────────────────────────────────────────────────────
+    cy.on('layoutstop', () => {
+      cy.fit(undefined, 60);
+    });
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 6. HOVER EFFECTS — Highlight node + connected edges on hover
+    // ─────────────────────────────────────────────────────────────────────
+    cy.on('mouseover', 'node', (evt) => {
+      const node = evt.target;
+      // Don't interfere with path focus mode
+      if (focusedPathRef.current) return;
+      node.addClass('node-hover');
+      node.connectedEdges().addClass('edge-hover');
+      // Dim all other elements
+      cy.elements().not(node).not(node.connectedEdges()).not(node.neighborhood('node')).addClass('neighbor-dim');
+    });
+
+    cy.on('mouseout', 'node', (evt) => {
+      const node = evt.target;
+      node.removeClass('node-hover');
+      node.connectedEdges().removeClass('edge-hover');
+      cy.elements().removeClass('neighbor-dim');
+    });
+
+    cy.on('mouseover', 'edge', (evt) => {
+      if (focusedPathRef.current) return;
+      const edge = evt.target;
+      edge.addClass('edge-hover');
+    });
+
+    cy.on('mouseout', 'edge', (evt) => {
+      evt.target.removeClass('edge-hover');
+    });
+
+    // ─────────────────────────────────────────────────────────────────────
+    // 7. PATH FOCUS — Dijkstra shortest path from root to clicked node
+    // ─────────────────────────────────────────────────────────────────────
     const highlightPathToNode = (targetNode: cytoscape.NodeSingular) => {
       const targetId = targetNode.id();
       const rootId = rootNode?.id || rootAddress;
 
       if (!rootId || targetId === rootId) {
         cy.elements().removeClass('path-focused path-dimmed');
-        setFocusedPath(null);
+        updateFocusedPath(null);
         return;
       }
 
@@ -576,7 +809,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           }
         });
 
-        setFocusedPath({
+        updateFocusedPath({
           targetNodeId: targetId,
           nodeIds,
           edgeIds,
@@ -587,7 +820,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
     };
 
-    // Event Handlers
+    // ─────────────────────────────────────────────────────────────────────
+    // 8. EVENT HANDLERS
+    // ─────────────────────────────────────────────────────────────────────
     cy.on('tap', 'node', (evt) => {
       const node = evt.target;
       setSelectedElement({
@@ -608,14 +843,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     cy.on('tap', (evt) => {
       if (evt.target === cy) {
         setSelectedElement(null);
-        cy.elements().removeClass('path-focused path-dimmed');
-        setFocusedPath(null);
+        cy.elements().removeClass('path-focused path-dimmed neighbor-dim node-hover edge-hover');
+        updateFocusedPath(null);
       }
     });
 
     // Auto-focus primary fund flow in FUND_FLOW view
     if (viewMode === 'FUND_FLOW') {
-      const topVaspNode = cy.nodes('[?isVasp]').first();
+      const topVaspNode = cy.nodes('.is-vasp, .tag-exchange, [tag = "exchange"]').first();
       if (topVaspNode.length > 0) {
         highlightPathToNode(topVaspNode);
       }
@@ -634,16 +869,26 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     riskFilter,
   ]);
 
-  // Controls
-  const handleFit = () => cyRef.current?.fit(undefined, 30);
-  const handleZoomIn = () => cyRef.current?.zoom(cyRef.current.zoom() * 1.25);
-  const handleZoomOut = () => cyRef.current?.zoom(cyRef.current.zoom() * 0.8);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONTROLS
+  // ═══════════════════════════════════════════════════════════════════════════
+  const handleFit = () => cyRef.current?.fit(undefined, 60);
+  const handleZoomIn = () => {
+    const cy = cyRef.current;
+    if (cy) cy.animate({ zoom: { level: cy.zoom() * 1.3, position: cy.extent() as any }, duration: 200 });
+  };
+  const handleZoomOut = () => {
+    const cy = cyRef.current;
+    if (cy) cy.animate({ zoom: { level: cy.zoom() * 0.75, position: cy.extent() as any }, duration: 200 });
+  };
   const handleReset = () => {
-    cyRef.current?.reset();
-    cyRef.current?.elements().removeClass('path-focused path-dimmed');
-    setFocusedPath(null);
+    const cy = cyRef.current;
+    if (cy) {
+      cy.elements().removeClass('path-focused path-dimmed neighbor-dim node-hover edge-hover');
+      cy.animate({ fit: { eles: cy.elements(), padding: 60 }, duration: 300 });
+    }
+    updateFocusedPath(null);
     setSelectedElement(null);
-    handleFit();
   };
 
   const toggleHopFilter = (hop: number) => {
@@ -678,6 +923,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div
       className={`bg-forensic-surface border border-forensic-border rounded-xl shadow-lg flex flex-col relative text-xs overflow-hidden transition-all duration-300 ${
@@ -1061,41 +1309,42 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         ) : (
           <div className="flex-1 relative bg-forensic-bg h-full flex flex-col">
             {/* Live Streaming Indicator & Tag Color Legend Overlay */}
-            <div className="absolute top-3 left-3 z-10 flex flex-wrap items-center gap-2 pointer-events-none">
+            <div className="absolute top-3 left-3 z-10 flex flex-col gap-2 pointer-events-none">
               {isStreaming && (
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-blue-600/90 text-white font-mono text-[10px] font-bold shadow-lg animate-pulse pointer-events-auto border border-blue-400">
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-blue-600/90 text-white font-mono text-[10px] font-bold shadow-lg animate-pulse pointer-events-auto border border-blue-400 w-fit">
                   <span className="w-2 h-2 rounded-full bg-white" />
                   <span>STREAMING HOP {streamingHop} VIA WEBSOCKET...</span>
                 </div>
               )}
 
               {/* Tag Color Legend */}
-              <div className="flex items-center space-x-2 px-2.5 py-1 rounded bg-forensic-surface/90 backdrop-blur-md border border-forensic-border text-[10px] font-mono shadow pointer-events-auto">
+              <div className="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg bg-forensic-surface/90 backdrop-blur-md border border-forensic-border text-[10px] font-mono shadow-md pointer-events-auto animate-fade-in w-fit">
                 <span className="text-forensic-textDim uppercase font-bold text-[9px]">Legend:</span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  <span className="w-2.5 h-2.5 bg-red-500" style={{ clipPath: 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)' }} />
                   <span className="text-red-400 font-semibold">Target</span>
                 </span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-teal-400" />
-                  <span className="text-teal-400 font-semibold">Exchange/VASP</span>
+                  <span className="w-2.5 h-2 rounded-sm bg-teal-400" />
+                  <span className="text-teal-400 font-semibold">Exchange</span>
                 </span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-purple-400" />
+                  <span className="w-2.5 h-2.5 bg-purple-400" style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }} />
                   <span className="text-purple-400 font-semibold">Mixer</span>
                 </span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-rose-600" />
+                  <span className="w-2.5 h-2.5 bg-rose-600" style={{ clipPath: 'polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%)' }} />
                   <span className="text-rose-400 font-semibold">Sanctioned</span>
                 </span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2 h-2 rounded-full bg-slate-400" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
                   <span className="text-slate-300 font-semibold">Unknown</span>
                 </span>
               </div>
             </div>
 
-            <div ref={containerRef} className="w-full flex-1" />
+            {/* Cytoscape Container with dot-grid background */}
+            <div ref={containerRef} className="w-full flex-1 graph-canvas-grid" />
 
             {/* Timeline Time-Machine Replay Bar */}
             {transactions && transactions.length > 0 && (
@@ -1148,7 +1397,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                   <button
                     onClick={() => {
                       cyRef.current?.elements().removeClass('path-focused path-dimmed');
-                      setFocusedPath(null);
+                      updateFocusedPath(null);
                     }}
                     className="text-forensic-textDim hover:text-forensic-text p-0.5"
                   >

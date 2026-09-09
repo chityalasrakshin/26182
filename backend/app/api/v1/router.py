@@ -59,6 +59,7 @@ from backend.app.services.reporting.legal_notice_generator import LegalNoticeGen
 from backend.app.services.reporting.narrative_service import narrative_service
 from backend.app.services.reporting.graph_visualizer import trace_graph_visualizer
 from backend.app.services.trace.job_manager import trace_job_manager
+from backend.app.services.blockchain.cache import blockchain_cache
 
 api_router = APIRouter(prefix="/api/v1", tags=["Investigation API"])
 
@@ -115,7 +116,8 @@ async def start_trace(
     job_id = trace_job_manager.create_job(
         address=norm_addr,
         chain=detected_chain,
-        max_depth=req.max_depth
+        max_depth=req.max_depth,
+        demo_mode=req.demo_mode
     )
 
     # Launch asynchronous execution
@@ -129,7 +131,7 @@ async def start_trace(
         resource_id=job_id,
         user_id=current_user.id if current_user else None,
         username=current_user.username if current_user else "anonymous_investigator",
-        details={"address": norm_addr, "chain": detected_chain, "max_depth": req.max_depth},
+        details={"address": norm_addr, "chain": detected_chain, "max_depth": req.max_depth, "demo_mode": req.demo_mode},
         ip_address=ip_addr,
         db=db
     )
@@ -141,7 +143,8 @@ async def start_trace(
         address=job_data["address"],
         chain=job_data["chain"],
         max_depth=job_data["max_depth"],
-        started_at=job_data["started_at"]
+        started_at=job_data["started_at"],
+        demo_mode=job_data.get("demo_mode", False)
     )
 
 
@@ -168,6 +171,8 @@ async def get_trace_status(job_id: str):
         matched_vasps=job.get("matched_vasps", []),
         shortest_path=job.get("shortest_path"),
         leaf_nodes=job.get("leaf_nodes", []),
+        demo_mode=job.get("demo_mode", False),
+        is_cached=job.get("is_cached", False),
         error_message=job.get("error_message"),
         summary=job.get("summary")
     )
@@ -247,6 +252,36 @@ api_router.include_router(trace_router)
 
 
 # ==============================================================================
+# Phase 8 — Demo Hardening & Diagnostics Endpoint
+# ==============================================================================
+
+@api_router.get("/demo/status")
+async def get_demo_status():
+    """
+    Diagnostic status endpoint for Phase 8 Demo Hardening.
+    Exposes pre-warmed cache stats, registered benchmark targets, and offline readiness.
+    """
+    stats = blockchain_cache.get_stats()
+    from backend.app.core.config import BASE_DIR
+    labels_file = BASE_DIR / "data" / "labels" / "demo_labels.json"
+    benchmarks = []
+    if labels_file.exists():
+        try:
+            with open(labels_file, "r", encoding="utf-8") as f:
+                benchmarks = json.load(f)
+        except Exception:
+            benchmarks = []
+
+    return {
+        "demo_active": True,
+        "prewarmed": len(stats.get("prewarmed_addresses", [])) > 0,
+        "cached_benchmark_count": len(benchmarks),
+        "benchmarks": benchmarks,
+        "cache_stats": stats,
+    }
+
+
+# ==============================================================================
 # Analysis Lifecycle Endpoints
 # ==============================================================================
 
@@ -288,7 +323,7 @@ async def start_analysis(
         resource_id=analysis_id,
         user_id=current_user.id if current_user else None,
         username=current_user.username if current_user else "anonymous_investigator",
-        details={"wallet_address": norm_address, "max_hops": req.max_hops},
+        details={"wallet_address": norm_address, "max_hops": req.max_hops, "demo_mode": req.demo_mode},
         ip_address=ip_addr,
         db=db
     )
@@ -297,7 +332,8 @@ async def start_analysis(
         AnalysisWorker.run_pipeline,
         analysis_id=analysis_id,
         wallet_address=norm_address,
-        max_hops=req.max_hops
+        max_hops=req.max_hops,
+        demo_mode=req.demo_mode
     )
 
     return AnalysisStatusResponse(
@@ -307,7 +343,8 @@ async def start_analysis(
         started_at=new_run.started_at,
         num_transactions=0,
         num_nodes=1,
-        num_edges=0
+        num_edges=0,
+        demo_mode=req.demo_mode
     )
 
 
@@ -330,6 +367,7 @@ async def get_analysis_status(
             num_transactions=cached.get("num_transactions", 0),
             num_nodes=cached.get("num_nodes", 0),
             num_edges=cached.get("num_edges", 0),
+            demo_mode=cached.get("demo_mode", False),
             top_attribution=top_attr,
             risk_assessment=cached.get("risk_assessment")
         )
@@ -352,6 +390,25 @@ async def get_analysis_status(
         num_nodes=run.num_nodes,
         num_edges=run.num_edges
     )
+
+
+@api_router.get("/demo/status")
+async def get_demo_status():
+    """
+    Returns pre-warmed cache diagnostic metrics and offline evaluation readiness.
+    Provides evaluators with full visibility into cached vs live capability.
+    """
+    from backend.app.services.blockchain.cache import blockchain_cache
+    stats = blockchain_cache.get_stats()
+    return {
+        "status": "ready",
+        "demo_mode_active": True,
+        "prewarmed_targets_count": len(stats.get("prewarmed_addresses", [])),
+        "prewarmed_addresses": stats.get("prewarmed_addresses", []),
+        "disk_cache_files_count": stats.get("disk_cache_files", 0),
+        "in_memory_keys_count": stats.get("in_memory_keys", 0),
+        "supported_rails": ["ethereum", "tron", "bitcoin"]
+    }
 
 
 @api_router.get("/analysis/{analysis_id}/graph", response_model=GraphData)

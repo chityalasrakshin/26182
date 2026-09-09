@@ -1,8 +1,5 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import React from 'react';
-import { LandingPageContent } from '../components/LandingPageContent';
-
-export default function RootLandingPage() {
-  return <LandingPageContent />;
+export default function RootPage() {
+  redirect('/app');
 }

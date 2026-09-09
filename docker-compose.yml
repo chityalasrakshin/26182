@@ -55,5 +55,4 @@ services:
       - NODE_ENV=production
     volumes:
       - ./frontend/public:/app/public
-      - ./frontend/.next:/app/.next
 

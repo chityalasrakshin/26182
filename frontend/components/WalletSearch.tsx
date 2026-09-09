@@ -1,14 +1,67 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Search, AlertCircle, ArrowRight, Radar } from 'lucide-react';
+import { Search, AlertCircle, ArrowRight, Radar, Zap, Globe, Sparkles } from 'lucide-react';
 import { api } from '../lib/api';
 import { CandidateWallet } from '../lib/types';
 
 interface WalletSearchProps {
   onAnalyze: (address: string, maxHops: number) => void;
   isLoading: boolean;
+  demoMode?: boolean;
+  onToggleDemoMode?: () => void;
 }
+
+const BENCHMARK_PRESETS = [
+  {
+    name: 'Binance Hot Wallet 14',
+    address: '0x28C6c06298d514Db089934071355E5743bf21d60',
+    chain: 'Ethereum',
+    type: 'VASP Deposit Node',
+    badge: 'Exchange',
+    badgeColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+  },
+  {
+    name: 'Coinbase Hot Wallet 2',
+    address: '0xA090e606E30bD747d4E6245a1517EbE430F0057e',
+    chain: 'Ethereum',
+    type: 'Custody Settlement',
+    badge: 'Exchange',
+    badgeColor: 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+  },
+  {
+    name: 'Tornado Cash Router',
+    address: '0xd90e2f925DA726b50C4Ed8D0Fb90Ad053324F31b',
+    chain: 'Ethereum',
+    type: 'Sanctioned Mixing Contract',
+    badge: 'OFAC Mixer',
+    badgeColor: 'bg-red-500/20 text-red-300 border-red-500/30'
+  },
+  {
+    name: 'WazirX $230M Hacker',
+    address: '0x3d0246a49591A5462D42fF025b6a3F2169E66e2c',
+    chain: 'Ethereum',
+    type: 'Scam / Exploit Recipient',
+    badge: 'High Risk',
+    badgeColor: 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+  },
+  {
+    name: 'Binance Tron Hot Wallet',
+    address: 'TMuA6YMeL4nNFYWAnWUCtqnmEvrCfsugnR',
+    chain: 'Tron TRC-20',
+    type: 'USDT Sweep Consolidation',
+    badge: 'TRC-20',
+    badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+  },
+  {
+    name: 'Binance Cold Storage BTC',
+    address: '34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo',
+    chain: 'Bitcoin',
+    type: 'UTXO Cold Storage Wallet',
+    badge: 'Bitcoin',
+    badgeColor: 'bg-orange-500/20 text-orange-300 border-orange-500/30'
+  }
+];
 
 const DEFAULT_REAL_CANDIDATES: CandidateWallet[] = [
   {
@@ -189,7 +242,12 @@ const DEFAULT_REAL_CANDIDATES: CandidateWallet[] = [
   }
 ];
 
-export const WalletSearch: React.FC<WalletSearchProps> = ({ onAnalyze, isLoading }) => {
+export const WalletSearch: React.FC<WalletSearchProps> = ({
+  onAnalyze,
+  isLoading,
+  demoMode = true,
+  onToggleDemoMode
+}) => {
   const [address, setAddress] = useState('');
   const [maxHops, setMaxHops] = useState<number>(3);
   const [error, setError] = useState<string | null>(null);
@@ -210,31 +268,34 @@ export const WalletSearch: React.FC<WalletSearchProps> = ({ onAnalyze, isLoading
     fetchTopCandidates();
   }, []);
 
-  const detectedChain = address.startsWith('0x')
+  const cleanAddr = address.trim();
+  const detectedChain = cleanAddr.startsWith('0x')
     ? 'Ethereum Mainnet'
-    : address.startsWith('T')
+    : cleanAddr.startsWith('T')
     ? 'Tron Network (TRC-20)'
+    : (cleanAddr.startsWith('1') || cleanAddr.startsWith('3') || cleanAddr.startsWith('bc1'))
+    ? 'Bitcoin Mainnet'
     : null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    const clean = address.trim();
-    if (!clean) {
-      setError('Please input a valid target Ethereum (0x...) or Tron (T...) wallet address.');
+    if (!cleanAddr) {
+      setError('Please input a valid target Ethereum (0x...), Tron (T...), or Bitcoin wallet address.');
       return;
     }
 
-    const isEth = /^0x[0-9a-fA-F]{40}$/.test(clean);
-    const isTron = /^T[1-9A-HJ-NP-za-km-z]{33}$/.test(clean);
+    const isEth = /^0x[0-9a-fA-F]{40}$/.test(cleanAddr);
+    const isTron = /^T[1-9A-HJ-NP-za-km-z]{33}$/.test(cleanAddr);
+    const isBtc = /^(1[a-km-zA-HJ-NP-Z1-9]{25,34}|3[a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[a-zA-HJ-NP-Z0-9]{25,90})$/.test(cleanAddr);
 
-    if (!isEth && !isTron) {
-      setError('Invalid format: Target must be a 40-character Ethereum hex address (0x...) or 34-character Tron Base58 address (T...).');
+    if (!isEth && !isTron && !isBtc) {
+      setError('Invalid format: Target must be an Ethereum hex address (0x...), Tron Base58 (T...), or Bitcoin address (1/3/bc1).');
       return;
     }
 
-    onAnalyze(clean, maxHops);
+    onAnalyze(cleanAddr, maxHops);
   };
 
   const handleSelectPreset = (addr: string) => {
@@ -244,18 +305,88 @@ export const WalletSearch: React.FC<WalletSearchProps> = ({ onAnalyze, isLoading
 
   return (
     <div className="bg-forensic-surface border border-forensic-border rounded shadow-sm text-xs transition-colors">
-      <div className="px-4 py-2 border-b border-forensic-border bg-forensic-bg flex items-center justify-between">
-        <span className="font-mono text-[11px] uppercase tracking-wider text-forensic-textDim font-semibold">
-          Target Wallet Acquisition & Depth Parameters
-        </span>
-        {detectedChain && (
-          <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-300 border border-blue-500/30">
-            Detected: {detectedChain}
+      <div className="px-4 py-2 border-b border-forensic-border bg-forensic-bg flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center space-x-2">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-forensic-textDim font-semibold">
+            Target Wallet Acquisition & Depth Parameters
           </span>
+          {detectedChain && (
+            <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-blue-500/15 text-blue-600 dark:text-blue-300 border border-blue-500/30">
+              Detected: {detectedChain}
+            </span>
+          )}
+        </div>
+
+        {/* Demo Mode vs Live Mode Indicator & Switch */}
+        {onToggleDemoMode && (
+          <div className="flex items-center space-x-2 font-mono text-[11px]">
+            <button
+              type="button"
+              onClick={onToggleDemoMode}
+              className={`flex items-center space-x-1.5 px-2 py-0.5 rounded border transition-colors cursor-pointer ${
+                demoMode
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                  : 'bg-blue-500/20 text-blue-300 border-blue-500/40 hover:bg-blue-500/30'
+              }`}
+              title="Click to toggle between Pre-Warmed Demo Mode and Live Mainnet Mode"
+            >
+              {demoMode ? (
+                <>
+                  <Zap className="h-3 w-3 text-amber-400 fill-amber-400/30" />
+                  <span className="font-bold">DEMO MODE</span>
+                  <span className="text-[9px] text-amber-200/80">(0ms Offline Cache)</span>
+                </>
+              ) : (
+                <>
+                  <Globe className="h-3 w-3 text-blue-400" />
+                  <span className="font-bold">LIVE MODE</span>
+                  <span className="text-[9px] text-blue-200/80">(Direct Explorers)</span>
+                </>
+              )}
+            </button>
+          </div>
         )}
       </div>
 
       <form onSubmit={handleSubmit} className="p-4 space-y-3">
+        {/* Curated Benchmark Scenarios (Phase 8 Evaluator Presets) */}
+        <div className="p-2.5 rounded bg-forensic-surfaceRaised/60 border border-forensic-border space-y-2">
+          <div className="flex items-center justify-between text-[10px] uppercase font-mono">
+            <span className="flex items-center space-x-1 text-forensic-textMuted font-bold">
+              <Sparkles className="h-3 w-3 text-amber-400" />
+              <span>Judges & Evaluator Benchmark Scenarios (1-Click Pre-Warmed):</span>
+            </span>
+            <span className="text-[9px] text-forensic-textDim">
+              {demoMode ? '⚡ Instant Local Cache' : '🌐 Live Explorer Query'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5">
+            {BENCHMARK_PRESETS.map((preset, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => handleSelectPreset(preset.address)}
+                className={`p-1.5 text-left rounded border transition-all text-[11px] font-mono flex flex-col justify-between ${
+                  address.toLowerCase() === preset.address.toLowerCase()
+                    ? 'bg-blue-600/20 border-blue-500 text-forensic-text shadow-sm ring-1 ring-blue-500/40'
+                    : 'bg-forensic-bg hover:bg-forensic-surface border-forensic-border text-forensic-textMuted hover:text-forensic-text'
+                }`}
+              >
+                <div className="font-bold text-[10px] truncate text-forensic-text">
+                  {preset.name}
+                </div>
+                <div className="flex items-center justify-between mt-1 text-[9px]">
+                  <span className="text-forensic-textDim">{preset.chain}</span>
+                  <span className={`px-1 py-0.2 rounded border ${preset.badgeColor}`}>
+                    {preset.badge}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <div className="relative flex-1">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-forensic-textDim">
@@ -268,7 +399,7 @@ export const WalletSearch: React.FC<WalletSearchProps> = ({ onAnalyze, isLoading
                 setAddress(e.target.value);
                 if (error) setError(null);
               }}
-              placeholder="Enter suspect target wallet address (0x... for ETH or T... for Tron TRC-20 USDT)"
+              placeholder="Enter suspect target wallet address (0x... ETH, T... Tron TRC-20, or 1/3/bc1... BTC)"
               className="w-full pl-9 pr-3 py-2 bg-forensic-bg border border-forensic-border rounded text-forensic-text placeholder-forensic-textDim font-mono text-xs focus:outline-none focus:border-blue-500 transition-colors"
             />
           </div>

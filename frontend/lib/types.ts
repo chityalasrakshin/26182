@@ -115,8 +115,42 @@ export interface AnalysisStatus {
   num_transactions: number;
   num_nodes: number;
   num_edges: number;
+  demo_mode?: boolean;
+  is_cached?: boolean;
   top_attribution?: Attribution | null;
   risk_assessment?: RiskAssessment | null;
+}
+
+export interface TraceJob {
+  job_id: string;
+  status: string;
+  address: string;
+  chain: string;
+  max_depth: number;
+  started_at: string;
+  demo_mode?: boolean;
+}
+
+export interface TraceStatus {
+  job_id: string;
+  address: string;
+  chain: string;
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  max_depth: number;
+  current_depth: number;
+  started_at: string;
+  completed_at?: string | null;
+  num_nodes: number;
+  num_edges: number;
+  num_transactions: number;
+  vasp_found: boolean;
+  matched_vasps: any[];
+  shortest_path?: any;
+  leaf_nodes: any[];
+  demo_mode?: boolean;
+  is_cached?: boolean;
+  error_message?: string | null;
+  summary?: string | null;
 }
 
 export interface VASPAddress {

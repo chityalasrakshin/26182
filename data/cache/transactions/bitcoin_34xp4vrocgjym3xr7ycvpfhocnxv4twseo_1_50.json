@@ -1,0 +1,30 @@
+[
+  {
+    "tx_hash": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b1",
+    "chain": "bitcoin",
+    "block_number": 857210,
+    "timestamp": "2026-09-06T12:35:14.729015+00:00",
+    "from_address": "bc1qa5wkgaew2dkv56kfvj49j0av5nml45x9ek9hz6",
+    "to_address": "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo",
+    "asset_type": "BTC",
+    "token_symbol": "BTC",
+    "token_decimals": 8,
+    "amount": 12.5,
+    "gas_used": 225,
+    "is_error": false
+  },
+  {
+    "tx_hash": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+    "chain": "bitcoin",
+    "block_number": 857215,
+    "timestamp": "2026-09-06T14:35:14.729015+00:00",
+    "from_address": "34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo",
+    "to_address": "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+    "asset_type": "BTC",
+    "token_symbol": "BTC",
+    "token_decimals": 8,
+    "amount": 0.5,
+    "gas_used": 190,
+    "is_error": false
+  }
+]

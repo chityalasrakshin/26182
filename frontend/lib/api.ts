@@ -35,11 +35,11 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 export const api = {
-  async startAnalysis(walletAddress: string, maxHops: number = 3): Promise<AnalysisStatus> {
+  async startAnalysis(walletAddress: string, maxHops: number = 3, demoMode: boolean = false): Promise<AnalysisStatus> {
     const res = await fetch(`${API_BASE_URL}/analyze`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wallet_address: walletAddress, max_hops: maxHops }),
+      body: JSON.stringify({ wallet_address: walletAddress, max_hops: maxHops, demo_mode: demoMode }),
     });
     return handleResponse<AnalysisStatus>(res);
   },
@@ -405,7 +405,7 @@ export const api = {
   // Phase 7: Multi-Hop Async Trace & Real-Time WebSocket Streaming
   // ==============================================================================
 
-  async startTrace(address: string, chain?: string, maxDepth: number = 6): Promise<{ job_id: string; status: string; chain: string }> {
+  async startTrace(address: string, chain?: string, maxDepth: number = 6, demoMode: boolean = false): Promise<{ job_id: string; status: string; chain: string; demo_mode?: boolean }> {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -413,8 +413,21 @@ export const api = {
     const res = await fetch(`${ROOT_URL}/trace`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ address, chain, max_depth: maxDepth }),
+      body: JSON.stringify({ address, chain, max_depth: maxDepth, demo_mode: demoMode }),
     });
+    return handleResponse<any>(res);
+  },
+
+  async getDemoStatus(): Promise<{
+    status: string;
+    demo_mode_active: boolean;
+    prewarmed_targets_count: number;
+    prewarmed_addresses: string[];
+    disk_cache_files_count: number;
+    in_memory_keys_count: number;
+    supported_rails: string[];
+  }> {
+    const res = await fetch(`${API_BASE_URL}/demo/status`, { cache: 'no-store' });
     return handleResponse<any>(res);
   },
 

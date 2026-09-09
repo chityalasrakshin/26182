@@ -3,33 +3,21 @@
 import React, { useEffect, useState } from 'react';
 import {
   Shield,
-  Database,
-  FileText,
-  Activity,
   Search,
-  ListFilter,
   Sun,
   Moon,
-  Scale,
   Network,
-  BrainCircuit,
-  Radar,
-  BookOpen,
+  ListFilter,
   Briefcase,
   Plus,
-  UserCheck,
 } from 'lucide-react';
 import { UserAuth } from '../lib/types';
 
 export type ActiveTabType =
   | 'WORKSPACE'
   | 'CASES_AUDIT'
-  | 'CANDIDATE_DISCOVERY'
   | 'GRAPH_STUDIO'
-  | 'NCRP_TRIAGE'
-  | 'VASP_REGISTRY'
-  | 'LEGAL_STUDIO'
-  | 'METHODOLOGY';
+  | 'NCRP_TRIAGE';
 
 interface NavbarProps {
   activeTab: ActiveTabType;
@@ -37,9 +25,6 @@ interface NavbarProps {
   onOpenCaseIntake?: () => void;
   currentUser?: UserAuth | null;
   onSwitchRole?: (role: 'supervisor' | 'investigator') => void;
-  onOpenMLEval?: () => void;
-  onOpenDatasetStatus?: () => void;
-  caseCount?: number;
   hasActiveTarget?: boolean;
 }
 
@@ -49,9 +34,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenCaseIntake,
   currentUser,
   onSwitchRole,
-  onOpenMLEval,
-  onOpenDatasetStatus,
-  caseCount = 4,
   hasActiveTarget = false,
 }) => {
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -80,9 +62,15 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
+  const tabClass = (tab: ActiveTabType) =>
+    `px-3 py-1.5 rounded font-medium transition-colors flex items-center space-x-1.5 ${
+      activeTab === tab
+        ? 'bg-forensic-surfaceRaised text-forensic-text border border-forensic-border font-bold shadow-sm'
+        : 'text-forensic-textMuted hover:text-forensic-text hover:bg-forensic-surfaceRaised/50'
+    }`;
+
   return (
     <header className="border-b border-forensic-border bg-forensic-surface sticky top-0 z-40 text-xs select-none transition-colors">
-      {/* Main Workstation Navbar */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between py-2.5">
         {/* Left: Branding & Core Navigation */}
         <div className="flex items-center space-x-5">
@@ -105,52 +93,19 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Operational View Switcher Tabs */}
+          {/* 4 Core Tabs */}
           <nav className="flex items-center space-x-1 font-mono text-xs">
-            <button
-              onClick={() => onSelectTab('WORKSPACE')}
-              className={`px-3 py-1.5 rounded font-medium transition-colors flex items-center space-x-1.5 ${
-                activeTab === 'WORKSPACE'
-                  ? 'bg-forensic-surfaceRaised text-forensic-text border border-forensic-border font-bold shadow-sm'
-                  : 'text-forensic-textMuted hover:text-forensic-text hover:bg-forensic-surfaceRaised/50'
-              }`}
-            >
+            <button onClick={() => onSelectTab('WORKSPACE')} className={tabClass('WORKSPACE')}>
               <Search className="h-3.5 w-3.5 text-blue-500" />
-              <span>Target Workspace</span>
+              <span>Workspace</span>
             </button>
 
-            <button
-              onClick={() => onSelectTab('CASES_AUDIT')}
-              className={`px-3 py-1.5 rounded font-medium transition-colors flex items-center space-x-1.5 ${
-                activeTab === 'CASES_AUDIT'
-                  ? 'bg-forensic-surfaceRaised text-forensic-text border border-forensic-border font-bold shadow-sm'
-                  : 'text-forensic-textMuted hover:text-forensic-text hover:bg-forensic-surfaceRaised/50'
-              }`}
-            >
+            <button onClick={() => onSelectTab('CASES_AUDIT')} className={tabClass('CASES_AUDIT')}>
               <Briefcase className="h-3.5 w-3.5 text-purple-400" />
-              <span>Cases & Audit</span>
+              <span>Cases</span>
             </button>
 
-            <button
-              onClick={() => onSelectTab('CANDIDATE_DISCOVERY')}
-              className={`px-3 py-1.5 rounded font-medium transition-colors flex items-center space-x-1.5 ${
-                activeTab === 'CANDIDATE_DISCOVERY'
-                  ? 'bg-forensic-surfaceRaised text-forensic-text border border-forensic-border font-bold shadow-sm'
-                  : 'text-forensic-textMuted hover:text-forensic-text hover:bg-forensic-surfaceRaised/50'
-              }`}
-            >
-              <Radar className="h-3.5 w-3.5 text-blue-400" />
-              <span>Candidate Discovery</span>
-            </button>
-
-            <button
-              onClick={() => onSelectTab('GRAPH_STUDIO')}
-              className={`px-3 py-1.5 rounded font-medium transition-colors flex items-center space-x-1.5 ${
-                activeTab === 'GRAPH_STUDIO'
-                  ? 'bg-forensic-surfaceRaised text-forensic-text border border-forensic-border font-bold shadow-sm'
-                  : 'text-forensic-textMuted hover:text-forensic-text hover:bg-forensic-surfaceRaised/50'
-              }`}
-            >
+            <button onClick={() => onSelectTab('GRAPH_STUDIO')} className={tabClass('GRAPH_STUDIO')}>
               <Network className="h-3.5 w-3.5 text-forensic-teal" />
               <span>Graph Studio</span>
               {hasActiveTarget && (
@@ -158,60 +113,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </button>
 
-            <button
-              onClick={() => onSelectTab('NCRP_TRIAGE')}
-              className={`px-3 py-1.5 rounded font-medium transition-colors flex items-center space-x-1.5 ${
-                activeTab === 'NCRP_TRIAGE'
-                  ? 'bg-forensic-surfaceRaised text-forensic-text border border-forensic-border font-bold shadow-sm'
-                  : 'text-forensic-textMuted hover:text-forensic-text hover:bg-forensic-surfaceRaised/50'
-              }`}
-            >
+            <button onClick={() => onSelectTab('NCRP_TRIAGE')} className={tabClass('NCRP_TRIAGE')}>
               <ListFilter className="h-3.5 w-3.5 text-forensic-amber" />
               <span>NCRP Queue</span>
-              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-amber-500/20 text-forensic-amber border border-amber-500/30">
-                {caseCount} Active
-              </span>
-            </button>
-
-            <button
-              onClick={() => onSelectTab('VASP_REGISTRY')}
-              className={`px-3 py-1.5 rounded font-medium transition-colors flex items-center space-x-1.5 ${
-                activeTab === 'VASP_REGISTRY'
-                  ? 'bg-forensic-surfaceRaised text-forensic-text border border-forensic-border font-bold shadow-sm'
-                  : 'text-forensic-textMuted hover:text-forensic-text hover:bg-forensic-surfaceRaised/50'
-              }`}
-            >
-              <Database className="h-3.5 w-3.5 text-blue-500" />
-              <span>VASP Registry</span>
-            </button>
-
-            <button
-              onClick={() => onSelectTab('LEGAL_STUDIO')}
-              className={`px-3 py-1.5 rounded font-medium transition-colors flex items-center space-x-1.5 ${
-                activeTab === 'LEGAL_STUDIO'
-                  ? 'bg-forensic-surfaceRaised text-forensic-text border border-forensic-border font-bold shadow-sm'
-                  : 'text-forensic-textMuted hover:text-forensic-text hover:bg-forensic-surfaceRaised/50'
-              }`}
-            >
-              <Scale className="h-3.5 w-3.5 text-forensic-rose" />
-              <span>Sec 91 Freeze Order</span>
-            </button>
-
-            <button
-              onClick={() => onSelectTab('METHODOLOGY')}
-              className={`px-3 py-1.5 rounded font-medium transition-colors flex items-center space-x-1.5 ${
-                activeTab === 'METHODOLOGY'
-                  ? 'bg-forensic-surfaceRaised text-forensic-text border border-forensic-border font-bold shadow-sm'
-                  : 'text-forensic-textMuted hover:text-forensic-text hover:bg-forensic-surfaceRaised/50'
-              }`}
-            >
-              <FileText className="h-3.5 w-3.5 text-forensic-textDim" />
-              <span>Audit Methodology</span>
             </button>
           </nav>
         </div>
 
-        {/* Right: Active Network Badge, Role Switcher & Theme Toggle */}
+        {/* Right: New Case, Role Switcher & Theme Toggle */}
         <div className="flex items-center space-x-2.5">
           {onOpenCaseIntake && (
             <button
@@ -250,42 +159,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             </div>
           )}
-
-          {onOpenDatasetStatus && (
-            <button
-              onClick={onOpenDatasetStatus}
-              className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-teal-500/10 hover:bg-teal-500/20 text-forensic-teal border border-teal-500/30 transition-colors font-mono text-[11px]"
-              title="View 100K+ Blockchain Dataset Ingestion Intelligence"
-            >
-              <Database className="h-3.5 w-3.5" />
-              <span>100K Dataset</span>
-            </button>
-          )}
-
-          {onOpenMLEval && (
-            <button
-              onClick={onOpenMLEval}
-              className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 transition-colors font-mono text-[11px]"
-              title="View Offline ML Evaluation & Benchmark Diagnostics"
-            >
-              <BrainCircuit className="h-3.5 w-3.5" />
-              <span>ML Evaluation</span>
-            </button>
-          )}
-
-          <a
-            href="/docs"
-            className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 transition-colors font-mono text-[11px]"
-            title="Open Judge Documentation & Technical Dossier (/docs)"
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            <span>Judge Docs</span>
-          </a>
-
-          <div className="hidden lg:flex items-center space-x-2 px-2.5 py-1 rounded bg-forensic-surfaceRaised border border-forensic-border text-[11px] text-forensic-textMuted font-mono">
-            <Activity className="h-3 w-3 text-forensic-teal animate-pulse" />
-            <span>EVM + TRON TRC-20</span>
-          </div>
 
           {/* Dark / Light Mode Toggle */}
           <button

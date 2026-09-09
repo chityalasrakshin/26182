@@ -46,6 +46,7 @@ class TraceOrchestrator:
         max_nodes: int = 150,
         max_tx_per_address: int = 30,
         job_id: Optional[str] = None,
+        demo_mode: bool = False,
         event_callback: Optional[Callable[[TraceEvent], Awaitable[None]]] = None
     ):
         self.seed_address = normalize_address(seed_address)
@@ -54,6 +55,8 @@ class TraceOrchestrator:
         self.max_nodes = max_nodes or settings.MAX_NODES_PER_ANALYSIS
         self.max_tx_per_address = max_tx_per_address or settings.MAX_TRANSACTIONS_PER_ADDRESS
         self.job_id = job_id or f"trace_{int(time.time())}"
+        self.demo_mode = demo_mode
+        self.is_cached = blockchain_cache.is_cached_or_demo(self.chain, self.seed_address)
         self.event_callback = event_callback
 
         # Graph representations
@@ -92,7 +95,9 @@ class TraceOrchestrator:
             "address": self.seed_address,
             "chain": self.chain,
             "max_depth": self.max_depth,
-            "max_nodes": self.max_nodes
+            "max_nodes": self.max_nodes,
+            "demo_mode": self.demo_mode,
+            "is_cached": self.is_cached
         })
 
         # Ensure Neo4j connection is ready
@@ -386,6 +391,8 @@ class TraceOrchestrator:
             "matched_vasps": self.matched_vasps,
             "shortest_path": shortest_path_result,
             "leaf_nodes": self.leaf_nodes[:10],  # Top frontier candidates
+            "demo_mode": self.demo_mode,
+            "is_cached": self.is_cached,
             "summary": summary_msg
         }
 

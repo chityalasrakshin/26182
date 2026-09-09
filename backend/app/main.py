@@ -131,6 +131,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"VASP directory auto-seed notice: {e}")
 
+    # 7. Pre-warm offline demo benchmark cache (Phase 8 Demo Hardening)
+    try:
+        from backend.app.services.blockchain.cache import blockchain_cache
+        prewarm_res = await blockchain_cache.prewarm_demo_cache()
+        logger.info(f"Phase 8 demo cache pre-warm ready: {prewarm_res.get('prewarmed_addresses_count', 0)} benchmark addresses ({prewarm_res.get('total_cached_transactions', 0)} txs).")
+    except Exception as e:
+        logger.warning(f"Demo cache pre-warm notice: {e}")
+
     yield
     logger.info("Shutting down service...")
 
