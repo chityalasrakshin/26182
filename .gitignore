@@ -34,9 +34,12 @@ venv.bak/
 
 # Databases & Runtime Storage
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 crypto_trace.db
+*.tsbuildinfo
 
 # Testing & Coverage
 .pytest_cache/
