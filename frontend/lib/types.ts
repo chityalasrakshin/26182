@@ -225,3 +225,50 @@ export interface CandidateStats {
   last_updated: string;
 }
 
+export interface VASPDirectoryItem {
+  id: number;
+  name: string;
+  category: string;
+  jurisdiction: string;
+  country: string;
+  known_deposit_cluster_labels: string[];
+  mock_contact_endpoint: string;
+  mock_response_sla: string;
+  fiu_registration_number?: string | null;
+  sahyog_routing_code?: string | null;
+  compliance_email?: string | null;
+  designated_lea_email?: string | null;
+  compliance_portal?: string | null;
+  nodal_officer?: string | null;
+  is_fiu_registered: boolean;
+  is_simulated: boolean;
+  created_at: string;
+}
+
+export interface DisclosureRequestResponse {
+  is_simulated: boolean;
+  simulation_notice: string;
+  dispatch_id: string;
+  case_id: string;
+  suspect_address: string;
+  chain: string;
+  target_vasp: string;
+  sahyog_routing_code: string;
+  mock_contact_endpoint: string;
+  mock_response_sla: string;
+  status: string;
+  acknowledgment_message: string;
+  statutory_authority: string;
+  dispatched_by: string;
+  timestamp: string;
+  timeline_event_id?: number | null;
+  draft_notice_summary?: {
+    ref_number?: string;
+    fiu_ind_registration?: string;
+    compliance_email?: string;
+    designated_lea_email?: string;
+    statutory_references?: string[];
+  } | null;
+}
+
+

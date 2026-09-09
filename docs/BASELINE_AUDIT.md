@@ -206,10 +206,10 @@ The relational database is managed via asynchronous SQLAlchemy with SQLite (`./d
   - [x] Standardized Section 91 CrPC / Section 94 BNSS freeze notice template.
   - [ ] Claude API integration for dynamic plain-English investigative narrative.
   - [ ] LLM draft lawful disclosure request generator.
-- [ ] **Phase 6 — Mock SAHYOG / VASP Directory**
-  - [x] VASP directory with 14 exchanges, FIU registrations, compliance contacts.
-  - [ ] `POST /cases/{id}/disclosure-request` simulated routing action.
-  - [ ] Explicit "Simulated Integration" UI badge.
+- [x] **Phase 6 — Mock SAHYOG / VASP Directory**
+  - [x] VASP directory with 16 exchanges, FIU registrations, compliance contacts, SLAs, and routing codes.
+  - [x] `POST /cases/{id}/disclosure-request` simulated routing action with Rule 6 audit logging.
+  - [x] Explicit "Simulated Integration" UI badge across modal and directory cards.
 - [ ] **Phase 7 — Frontend Dashboard**
   - [x] Next.js 14 dashboard with Cytoscape.js interactive graph.
   - [x] Multi-panel layout: Search, Attribution Card, Risk Card, Sankey, Ledger.

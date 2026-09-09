@@ -26,6 +26,11 @@ from backend.app.schemas.analysis import (
     InvestigationReportSchema,
     VASPSchema
 )
+from backend.app.schemas.vasp_directory import (
+    VASPDirectoryResponse,
+    DisclosureRequestCreate,
+    DisclosureRequestResponse
+)
 from backend.app.schemas.trace import (
     TraceRequest,
     TraceJobResponse,
@@ -654,6 +659,140 @@ async def get_freeze_notice(
     return notice_payload
 
 
+@api_router.post("/analysis/{analysis_id}/disclosure-request", response_model=DisclosureRequestResponse)
+async def dispatch_analysis_disclosure_request(
+    analysis_id: str,
+    payload: Optional[DisclosureRequestCreate] = None,
+    request: Request = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Simulated SAHYOG Lawful Disclosure Dispatch for an active analysis session.
+    Logs immutable audit record (Rule 6) and returns simulated electronic routing acknowledgment.
+    """
+    if analysis_id not in active_analyses_cache:
+        raise HTTPException(status_code=404, detail=f"Analysis session '{analysis_id}' not found.")
+
+    cached = active_analyses_cache[analysis_id]
+    suspect_addr = cached["wallet_address"]
+    chain = detect_blockchain(suspect_addr)
+
+    target_vasp = payload.target_vasp.strip() if payload and payload.target_vasp else None
+    if not target_vasp:
+        attrs = cached.get("attributions", [])
+        if attrs:
+            top_a = attrs[0]
+            target_vasp = getattr(top_a, "vasp_name", None) or (top_a.get("vasp_name") if isinstance(top_a, dict) else None)
+    if not target_vasp:
+        target_vasp = "Virtual Asset Service Provider"
+
+    from backend.app.services.vasp.directory_service import directory_service
+    dir_entry = await directory_service.get_by_name(db, target_vasp)
+
+    if dir_entry:
+        official_vasp_name = dir_entry["name"]
+        sahyog_routing_code = dir_entry["sahyog_routing_code"] or f"SAHYOG-VASP-{official_vasp_name.upper().replace(' ', '')}-GLB"
+        mock_contact_endpoint = dir_entry["mock_contact_endpoint"]
+        mock_response_sla = dir_entry["mock_response_sla"]
+    else:
+        official_vasp_name = target_vasp
+        sahyog_routing_code = f"SAHYOG-VASP-{official_vasp_name.upper().replace(' ', '')}-GLB"
+        mock_contact_endpoint = f"https://sahyog.gov.in/api/v1/vasp/{official_vasp_name.lower().replace(' ', '')}/dispatch"
+        mock_response_sla = "24 Hours (Statutory Emergency)"
+
+    import uuid
+    from datetime import datetime, timezone
+    now_utc = datetime.now(timezone.utc)
+    dispatch_id = f"SAHYOG-REQ-{now_utc.year}-{uuid.uuid4().hex[:8].upper()}"
+
+    officer_name = (payload.officer_name if payload and payload.officer_name else (current_user.full_name if current_user else "Investigating Officer"))
+    police_station = (payload.police_station if payload and payload.police_station else "Cyber Crime Police Station")
+    crime_ref = (payload.crime_reference if payload and payload.crime_reference else f"NCRP/{now_utc.year}/CYBER-{analysis_id[:8].upper()}")
+    urgency = payload.urgency if payload and payload.urgency else "CRITICAL_24H"
+
+    ack_message = (
+        f"Request logged — SAHYOG production integration would route this to "
+        f"{official_vasp_name} via the SAHYOG lawful-disclosure API"
+    )
+
+    user_id = current_user.id if current_user else None
+    username = current_user.username if current_user else "investigator"
+    ip_addr = request.client.host if request and request.client else None
+
+    audit_entry = await audit_logger.log_event(
+        action=AuditAction.DISCLOSURE_REQUEST,
+        resource_type=AuditResourceType.ANALYSIS,
+        resource_id=dispatch_id,
+        user_id=user_id,
+        username=username,
+        details={
+            "dispatch_id": dispatch_id,
+            "analysis_id": analysis_id,
+            "suspect_address": suspect_addr,
+            "chain": chain,
+            "target_vasp": official_vasp_name,
+            "sahyog_routing_code": sahyog_routing_code,
+            "mock_contact_endpoint": mock_contact_endpoint,
+            "mock_response_sla": mock_response_sla,
+            "urgency": urgency,
+            "is_simulated": True,
+            "simulation_notice": "SIMULATED INTEGRATION — Mock Lawful Disclosure Dispatch via SAHYOG API",
+            "message": ack_message,
+            "officer_name": officer_name,
+            "police_station": police_station,
+            "crime_reference": crime_ref,
+            "custom_instructions": payload.custom_instructions if payload else None
+        },
+        ip_address=ip_addr,
+        db=db
+    )
+
+    draft_summary = None
+    try:
+        top_attr = cached["attributions"][0] if cached.get("attributions") else None
+        draft_notice = LegalNoticeGenerator.generate_freeze_notice(
+            case_id=analysis_id,
+            wallet_address=suspect_addr,
+            chain=chain,
+            attribution=top_attr,
+            evidence=cached.get("evidence", []),
+            transactions=cached.get("transactions", []),
+            officer_name=officer_name,
+            police_station=police_station,
+            crime_number=crime_ref
+        )
+        draft_summary = {
+            "ref_number": draft_notice.get("ref_number"),
+            "fiu_ind_registration": draft_notice.get("fiu_ind_registration"),
+            "compliance_email": draft_notice.get("compliance_email"),
+            "designated_lea_email": draft_notice.get("designated_lea_email"),
+            "statutory_references": draft_notice.get("statutory_references", [])
+        }
+    except Exception as e:
+        logger.warning(f"Could not build draft summary in analysis disclosure: {e}")
+
+    return DisclosureRequestResponse(
+        is_simulated=True,
+        simulation_notice="SIMULATED INTEGRATION — Mock Lawful Disclosure Dispatch via SAHYOG API",
+        dispatch_id=dispatch_id,
+        case_id=analysis_id,
+        suspect_address=suspect_addr,
+        chain=chain,
+        target_vasp=official_vasp_name,
+        sahyog_routing_code=sahyog_routing_code,
+        mock_contact_endpoint=mock_contact_endpoint,
+        mock_response_sla=mock_response_sla,
+        status="ACKNOWLEDGED_SIMULATED",
+        acknowledgment_message=ack_message,
+        statutory_authority="Section 94 BNSS, 2023 / Section 91 Cr.P.C., 1973",
+        dispatched_by=username,
+        timestamp=now_utc,
+        timeline_event_id=audit_entry.id if audit_entry else None,
+        draft_notice_summary=draft_summary
+    )
+
+
 @api_router.get("/analysis/{analysis_id}/pdf")
 @api_router.get("/analysis/{analysis_id}/export/pdf")
 async def download_pdf_dossier(
@@ -902,6 +1041,36 @@ async def list_vasp_addresses(
 async def list_vasps():
     """Lists all supported VASPs and verified address clusters across Ethereum and Tron."""
     return vasp_matcher.get_all_vasps()
+
+
+@api_router.get("/vasps/directory", response_model=List[VASPDirectoryResponse])
+async def get_vasp_directory(
+    query: Optional[str] = Query(default=None, description="Search by name, jurisdiction, country, or routing code"),
+    fiu_only: bool = Query(default=False, description="Filter to FIU-IND registered entities only"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns the seeded mock SAHYOG VASP Directory containing compliance contacts,
+    FIU-IND registration numbers, mock response SLAs, and electronic routing codes.
+    Clearly marked as simulated integration (Phase 6).
+    """
+    from backend.app.services.vasp.directory_service import directory_service
+    return await directory_service.get_directory(db, search=query, fiu_only=fiu_only)
+
+
+@api_router.get("/vasps/directory/{vasp_name}", response_model=VASPDirectoryResponse)
+async def get_vasp_directory_entry(
+    vasp_name: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns the mock SAHYOG compliance profile for a specific VASP by name.
+    """
+    from backend.app.services.vasp.directory_service import directory_service
+    entry = await directory_service.get_by_name(db, vasp_name)
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"VASP '{vasp_name}' not found in compliance directory.")
+    return entry
 
 
 @api_router.get("/recent", response_model=List[AnalysisStatusResponse])

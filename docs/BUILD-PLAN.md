@@ -154,11 +154,11 @@ Tasks:
 **Goal:** Simulate the government-integration angle without needing real access.
 
 Tasks:
-- [ ] Seed a `vasp_directory` table: name, jurisdiction/country, known deposit-cluster labels, mock contact endpoint, mock response SLA.
-- [ ] `POST /cases/{id}/disclosure-request` — a clearly-labeled **simulated** action: logs the "request" to the audit trail and returns a mock acknowledgment (e.g., "Request logged — SAHYOG production integration would route this to {VASP} via the SAHYOG lawful-disclosure API").
-- [ ] Label this feature explicitly as simulated in the UI (a small "Simulated Integration" badge) — do not present it as a real government connection.
+- [x] Seed a `vasp_directory` table: name, jurisdiction/country, known deposit-cluster labels, mock contact endpoint, mock response SLA.
+- [x] `POST /cases/{id}/disclosure-request` — a clearly-labeled **simulated** action: logs the "request" to the audit trail and returns a mock acknowledgment (e.g., "Request logged — SAHYOG production integration would route this to {VASP} via the SAHYOG lawful-disclosure API").
+- [x] Label this feature explicitly as simulated in the UI (a small "Simulated Integration" badge) — do not present it as a real government connection.
 
-**Definition of done:** From a case with a resolved VASP, one action produces a mock disclosure-request record visible in the case timeline.
+**Definition of done:** From a case with a resolved VASP, one action produces a mock disclosure-request record visible in the case timeline. (VERIFIED)
 
 ---
 

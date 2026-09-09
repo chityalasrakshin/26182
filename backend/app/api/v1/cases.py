@@ -22,6 +22,10 @@ from backend.app.schemas.case import (
     CaseDetailResponse,
     CaseTraceRequest
 )
+from backend.app.schemas.vasp_directory import (
+    DisclosureRequestCreate,
+    DisclosureRequestResponse
+)
 from backend.app.schemas.audit import AuditLogResponse
 from backend.app.schemas.trace import TraceJobResponse
 from backend.app.services.audit.logger import audit_logger, AuditAction, AuditResourceType
@@ -780,4 +784,197 @@ async def export_case_pdf(
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(len(pdf_bytes))
         }
+    )
+
+
+@cases_router.post("/{case_id}/disclosure-request", response_model=DisclosureRequestResponse)
+async def dispatch_case_disclosure_request(
+    case_id: str,
+    payload: Optional[DisclosureRequestCreate] = None,
+    request: Request = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    POST /cases/{id}/disclosure-request (Phase 6: Mock SAHYOG / VASP Directory).
+    
+    Clearly-labeled SIMULATED action:
+    - Verifies the case exists and enforces investigator/supervisor RBAC.
+    - Resolves the attributed VASP (from payload override or case's linked traces/analyses).
+    - Queries the mock SAHYOG VASP Directory for jurisdiction, routing code, and response SLA.
+    - Emits an immutable audit trail event (AuditAction.DISCLOSURE_REQUEST) per Rule 6,
+      ensuring immediate visibility in the case timeline.
+    - Returns a mock acknowledgment simulating electronic routing to the destination VASP.
+    """
+    stmt = select(Case).where(Case.id == case_id)
+    case = (await db.execute(stmt)).scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Case '{case_id}' not found.")
+
+    if current_user.role != "supervisor":
+        if case.created_by_id != current_user.id and case.assigned_to_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to dispatch disclosure requests for this case."
+            )
+
+    # 1. Resolve Target VASP
+    target_vasp = payload.target_vasp.strip() if payload and payload.target_vasp else None
+    cached_analysis = None
+
+    if not target_vasp:
+        try:
+            a_ids = json.loads(case.analysis_ids_json or "[]")
+        except Exception:
+            a_ids = []
+
+        for aid in a_ids:
+            if aid in active_analyses_cache:
+                cached_analysis = active_analyses_cache[aid]
+                attrs = cached_analysis.get("attributions", [])
+                if attrs:
+                    top_a = attrs[0]
+                    target_vasp = getattr(top_a, "vasp_name", None) or (top_a.get("vasp_name") if isinstance(top_a, dict) else None)
+                    if target_vasp:
+                        break
+
+    if not target_vasp:
+        try:
+            a_ids = json.loads(case.analysis_ids_json or "[]")
+        except Exception:
+            a_ids = []
+        if a_ids:
+            from backend.app.models.database import Attribution
+            attr_stmt = (
+                select(Attribution)
+                .where(Attribution.analysis_id.in_(a_ids))
+                .order_by(Attribution.rank.asc(), Attribution.score.desc())
+            )
+            top_attr_rec = (await db.execute(attr_stmt)).scalars().first()
+            if top_attr_rec:
+                target_vasp = top_attr_rec.vasp_name
+
+    if not target_vasp:
+        try:
+            t_ids = json.loads(case.trace_job_ids_json or "[]")
+        except Exception:
+            t_ids = []
+        for tid in t_ids:
+            job = trace_job_manager.get_job(tid)
+            if job and job.get("matched_vasps"):
+                target_vasp = job["matched_vasps"][0]
+                break
+
+    if not target_vasp:
+        from backend.app.services.vasp.matcher import vasp_matcher
+        m = vasp_matcher.match_address(case.suspect_address, case.chain)
+        if m:
+            target_vasp = m.get("vasp_name")
+
+    if not target_vasp:
+        target_vasp = "Virtual Asset Service Provider"
+
+    # 2. Look up VASP directory record for SLA, mock endpoint, and electronic routing code
+    from backend.app.services.vasp.directory_service import directory_service
+    dir_entry = await directory_service.get_by_name(db, target_vasp)
+
+    if dir_entry:
+        official_vasp_name = dir_entry["name"]
+        sahyog_routing_code = dir_entry["sahyog_routing_code"] or f"SAHYOG-VASP-{official_vasp_name.upper().replace(' ', '')}-GLB"
+        mock_contact_endpoint = dir_entry["mock_contact_endpoint"]
+        mock_response_sla = dir_entry["mock_response_sla"]
+    else:
+        official_vasp_name = target_vasp
+        sahyog_routing_code = f"SAHYOG-VASP-{official_vasp_name.upper().replace(' ', '')}-GLB"
+        mock_contact_endpoint = f"https://sahyog.gov.in/api/v1/vasp/{official_vasp_name.lower().replace(' ', '')}/dispatch"
+        mock_response_sla = "24 Hours (Statutory Emergency)"
+
+    # 3. Generate unique mock dispatch reference
+    now_utc = datetime.now(timezone.utc)
+    dispatch_id = f"SAHYOG-REQ-{now_utc.year}-{uuid.uuid4().hex[:8].upper()}"
+
+    officer_name = (payload.officer_name if payload and payload.officer_name else current_user.full_name) or "Investigating Officer"
+    police_station = (payload.police_station if payload and payload.police_station else "Cyber Crime Police Station")
+    crime_ref = (payload.crime_reference if payload and payload.crime_reference else case.ncrp_complaint_id) or f"NCRP/{now_utc.year}/CYBER-{case_id[:8].upper()}"
+    urgency = payload.urgency if payload and payload.urgency else "CRITICAL_24H"
+
+    ack_message = (
+        f"Request logged — SAHYOG production integration would route this to "
+        f"{official_vasp_name} via the SAHYOG lawful-disclosure API"
+    )
+
+    # 4. Write immutable audit log record (Rule 6)
+    ip_addr = request.client.host if request and request.client else None
+    audit_event = await audit_logger.log_event(
+        action=AuditAction.DISCLOSURE_REQUEST,
+        resource_type=AuditResourceType.CASE,
+        resource_id=dispatch_id,
+        case_id=case_id,
+        user_id=current_user.id,
+        username=current_user.username,
+        details={
+            "dispatch_id": dispatch_id,
+            "case_id": case_id,
+            "suspect_address": case.suspect_address,
+            "chain": case.chain,
+            "target_vasp": official_vasp_name,
+            "sahyog_routing_code": sahyog_routing_code,
+            "mock_contact_endpoint": mock_contact_endpoint,
+            "mock_response_sla": mock_response_sla,
+            "urgency": urgency,
+            "is_simulated": True,
+            "simulation_notice": "SIMULATED INTEGRATION — Mock Lawful Disclosure Dispatch via SAHYOG API",
+            "message": ack_message,
+            "officer_name": officer_name,
+            "police_station": police_station,
+            "crime_reference": crime_ref,
+            "custom_instructions": payload.custom_instructions if payload else None
+        },
+        ip_address=ip_addr,
+        db=db
+    )
+
+    # 5. Draft statutory notice summary if analysis available
+    draft_summary = None
+    try:
+        top_attr_obj = cached_analysis.get("attributions", [None])[0] if cached_analysis and cached_analysis.get("attributions") else None
+        draft_notice = LegalNoticeGenerator.generate_freeze_notice(
+            case_id=case_id,
+            wallet_address=case.suspect_address,
+            chain=case.chain,
+            attribution=top_attr_obj,
+            evidence=cached_analysis.get("evidence", []) if cached_analysis else [],
+            transactions=cached_analysis.get("transactions", []) if cached_analysis else [],
+            officer_name=officer_name,
+            police_station=police_station,
+            crime_number=crime_ref
+        )
+        draft_summary = {
+            "ref_number": draft_notice.get("ref_number"),
+            "fiu_ind_registration": draft_notice.get("fiu_ind_registration"),
+            "compliance_email": draft_notice.get("compliance_email"),
+            "designated_lea_email": draft_notice.get("designated_lea_email"),
+            "statutory_references": draft_notice.get("statutory_references", [])
+        }
+    except Exception as e:
+        logger.warning(f"Could not attach draft notice summary: {e}")
+
+    return DisclosureRequestResponse(
+        is_simulated=True,
+        simulation_notice="SIMULATED INTEGRATION — Mock Lawful Disclosure Dispatch via SAHYOG API",
+        dispatch_id=dispatch_id,
+        case_id=case_id,
+        suspect_address=case.suspect_address,
+        chain=case.chain,
+        target_vasp=official_vasp_name,
+        sahyog_routing_code=sahyog_routing_code,
+        mock_contact_endpoint=mock_contact_endpoint,
+        mock_response_sla=mock_response_sla,
+        status="ACKNOWLEDGED_SIMULATED",
+        acknowledgment_message=ack_message,
+        statutory_authority="Section 94 BNSS, 2023 / Section 91 Cr.P.C., 1973",
+        dispatched_by=current_user.username,
+        timestamp=now_utc,
+        timeline_event_id=audit_event.id if audit_event else None,
+        draft_notice_summary=draft_summary
     )

@@ -128,6 +128,28 @@ class VASPAddress(Base):
     )
 
 
+class VASPDirectory(Base):
+    __tablename__ = "vasp_directory"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    category: Mapped[str] = mapped_column(String(50), default="Centralized Exchange")
+    jurisdiction: Mapped[str] = mapped_column(String(100), default="Global")
+    country: Mapped[str] = mapped_column(String(100), default="Unknown")
+    known_deposit_cluster_labels: Mapped[str] = mapped_column(Text, default="[]")
+    mock_contact_endpoint: Mapped[str] = mapped_column(String(255), default="https://sahyog.gov.in/api/v1/vasp/dispatch")
+    mock_response_sla: Mapped[str] = mapped_column(String(100), default="24 Hours (Statutory Emergency)")
+    fiu_registration_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sahyog_routing_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    compliance_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    designated_lea_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    compliance_portal: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    nodal_officer: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    is_fiu_registered: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_simulated: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+
 class AnalysisRun(Base):
     __tablename__ = "analysis_runs"
 

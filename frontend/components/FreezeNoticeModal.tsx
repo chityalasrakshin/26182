@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Scale, Copy, Check, Printer, X, Mail, ShieldCheck, QrCode, FileText, Code, CheckCircle2 } from 'lucide-react';
+import { Scale, Copy, Check, Printer, X, Mail, ShieldCheck, QrCode, FileText, Code, CheckCircle2, Send, AlertTriangle } from 'lucide-react';
 import QRCode from 'qrcode';
 import { api } from '../lib/api';
 
@@ -25,6 +25,9 @@ export const FreezeNoticeModal: React.FC<FreezeNoticeModalProps> = ({
   const [activeTab, setActiveTab] = useState<'visual' | 'markdown'>('visual');
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [dispatchResult, setDispatchResult] = useState<any>(null);
+  const [dispatching, setDispatching] = useState(false);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
 
   const fetchNotice = async () => {
     if (!analysisId) return;
@@ -77,6 +80,26 @@ export const FreezeNoticeModal: React.FC<FreezeNoticeModalProps> = ({
     window.print();
   };
 
+  const handleDispatchSahyog = async () => {
+    if (!analysisId) return;
+    try {
+      setDispatching(true);
+      setDispatchError(null);
+      const res = await api.dispatchDisclosureRequest(analysisId, {
+        officer_name: officerName,
+        police_station: policeStation,
+        crime_reference: crimeNumber,
+        target_vasp: noticeData?.vasp_name,
+        urgency: 'CRITICAL_24H'
+      });
+      setDispatchResult(res);
+    } catch (err: any) {
+      setDispatchError(err.message || 'Failed to dispatch simulated disclosure request.');
+    } finally {
+      setDispatching(false);
+    }
+  };
+
   const content = (
     <div className={`print-document-container bg-forensic-surface border border-forensic-border rounded-lg w-full flex flex-col font-sans text-xs overflow-hidden transition-colors ${
       isFullPageView ? 'shadow-sm' : 'max-w-5xl max-h-[94vh] shadow-2xl'
@@ -95,6 +118,10 @@ export const FreezeNoticeModal: React.FC<FreezeNoticeModalProps> = ({
               <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-rose-500/20 text-rose-400 border border-rose-500/30">
                 {noticeData?.ref_number || 'STATUTORY ORDER'}
               </span>
+              <div className="hidden lg:flex items-center space-x-1 px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[10px] font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                <span>SIMULATED INTEGRATION</span>
+              </div>
             </div>
             <p className="text-[11px] text-forensic-textDim mt-0.5">
               Official legal requisition for immediate asset freezing, KYC disclosure, and Section 65B preservation
@@ -140,11 +167,21 @@ export const FreezeNoticeModal: React.FC<FreezeNoticeModalProps> = ({
           </button>
 
           <button
+            onClick={handleDispatchSahyog}
+            disabled={dispatching}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-black font-bold text-[11px] shadow-sm cursor-pointer transition-colors"
+            title="Dispatch simulated lawful disclosure request to SAHYOG API"
+          >
+            <Send className="h-3.5 w-3.5" />
+            <span>{dispatching ? 'Dispatching...' : 'Dispatch SAHYOG (Simulated)'}</span>
+          </button>
+
+          <button
             onClick={handlePrint}
             className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-white font-semibold text-[11px] shadow-sm cursor-pointer"
           >
             <Printer className="h-3.5 w-3.5" />
-            <span>Print Official Notice</span>
+            <span>Print Notice</span>
           </button>
 
           {onClose && (
@@ -157,6 +194,40 @@ export const FreezeNoticeModal: React.FC<FreezeNoticeModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Simulated SAHYOG Dispatch Acknowledgment Card */}
+      {dispatchResult && (
+        <div className="no-print p-3.5 bg-amber-500/10 border-b border-amber-500/30 text-xs font-mono space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+              <span>SAHYOG ELECTRONIC DISPATCH ACKNOWLEDGED</span>
+              <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px]">
+                SIMULATED INTEGRATION
+              </span>
+            </div>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-forensic-surfaceRaised text-amber-300 border border-forensic-border font-bold">
+              REF: {dispatchResult.dispatch_id}
+            </span>
+          </div>
+          <p className="text-forensic-text text-[11px] leading-relaxed">
+            {dispatchResult.acknowledgment_message}
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[10px] text-forensic-textDim border-t border-amber-500/20">
+            <div>TARGET VASP: <strong className="text-rose-400">{dispatchResult.target_vasp}</strong></div>
+            <div>ROUTING CODE: <strong className="text-amber-300">{dispatchResult.sahyog_routing_code}</strong></div>
+            <div>RESPONSE SLA: <strong className="text-emerald-400">{dispatchResult.mock_response_sla}</strong></div>
+            <div>AUDIT STATUS: <strong className="text-teal-400">{dispatchResult.status}</strong></div>
+          </div>
+        </div>
+      )}
+
+      {dispatchError && (
+        <div className="no-print p-3 bg-rose-500/15 border-b border-rose-500/30 text-xs text-rose-400 flex items-center space-x-2">
+          <AlertTriangle className="h-4 w-4 text-rose-400 flex-shrink-0" />
+          <span>{dispatchError}</span>
+        </div>
+      )}
 
       {/* Input Parameters Bar (Hidden during Print) */}
       <div className="no-print p-3 bg-forensic-surfaceRaised border-b border-forensic-border grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">

@@ -6,6 +6,8 @@ import {
   NormalizedTransaction,
   InvestigationReport,
   VASPItem,
+  VASPDirectoryItem,
+  DisclosureRequestResponse,
 } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
@@ -218,6 +220,52 @@ export const api = {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   },
+
+  async getVASPDirectory(query?: string, fiuOnly: boolean = false): Promise<VASPDirectoryItem[]> {
+    const params = new URLSearchParams();
+    if (query) params.append('query', query);
+    if (fiuOnly) params.append('fiu_only', 'true');
+    const res = await fetch(`${API_BASE_URL}/vasps/directory?${params.toString()}`, { cache: 'no-store' });
+    return handleResponse<VASPDirectoryItem[]>(res);
+  },
+
+  async getVASPDirectoryEntry(vaspName: string): Promise<VASPDirectoryItem> {
+    const res = await fetch(`${API_BASE_URL}/vasps/directory/${encodeURIComponent(vaspName)}`, { cache: 'no-store' });
+    return handleResponse<VASPDirectoryItem>(res);
+  },
+
+  async dispatchDisclosureRequest(
+    targetId: string,
+    payload?: {
+      target_vasp?: string;
+      urgency?: string;
+      officer_name?: string;
+      police_station?: string;
+      crime_reference?: string;
+      custom_instructions?: string;
+    },
+    isCase: boolean = false
+  ): Promise<DisclosureRequestResponse> {
+    const endpoint = isCase
+      ? `${API_BASE_URL}/cases/${targetId}/disclosure-request`
+      : `${API_BASE_URL}/analysis/${targetId}/disclosure-request`;
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload || {}),
+    });
+    return handleResponse<DisclosureRequestResponse>(res);
+  },
 };
+
 
 

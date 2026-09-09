@@ -8,8 +8,16 @@ import {
   Copy,
   Check,
   X,
+  Building,
+  Globe,
+  Clock,
+  ShieldCheck,
+  Mail,
+  Send,
+  Layers,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { VASPDirectoryItem } from '../lib/types';
 
 interface VASPRegistryModalProps {
   onClose?: () => void;
@@ -17,10 +25,16 @@ interface VASPRegistryModalProps {
 }
 
 export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, isFullPageView = false }) => {
+  const [activeTab, setActiveTab] = useState<'ADDRESSES' | 'SAHYOG_DIRECTORY'>('SAHYOG_DIRECTORY');
   const [stats, setStats] = useState<any>(null);
   const [addresses, setAddresses] = useState<any[]>([]);
   const [totalMatches, setTotalMatches] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Directory state
+  const [directoryItems, setDirectoryItems] = useState<VASPDirectoryItem[]>([]);
+  const [directoryLoading, setDirectoryLoading] = useState<boolean>(false);
+  const [fiuOnly, setFiuOnly] = useState<boolean>(false);
 
   // Filters & Pagination
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -34,11 +48,28 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
 
   useEffect(() => {
     loadStats();
+    loadDirectory();
   }, []);
 
   useEffect(() => {
-    loadAddresses();
-  }, [searchQuery, selectedChain, selectedVasp, selectedType, page]);
+    if (activeTab === 'ADDRESSES') {
+      loadAddresses();
+    } else {
+      loadDirectory();
+    }
+  }, [activeTab, searchQuery, selectedChain, selectedVasp, selectedType, page, fiuOnly]);
+
+  const loadDirectory = async () => {
+    try {
+      setDirectoryLoading(true);
+      const items = await api.getVASPDirectory(searchQuery || undefined, fiuOnly);
+      setDirectoryItems(items || []);
+    } catch (e) {
+      console.error('Failed to load VASP directory:', e);
+    } finally {
+      setDirectoryLoading(false);
+    }
+  };
 
   const loadStats = async () => {
     try {
@@ -140,70 +171,238 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
         </div>
       )}
 
-      {/* Filters Toolbar */}
-      <div className="p-3 bg-forensic-surfaceRaised border-b border-forensic-border flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div className="flex-1 min-w-[220px] relative">
-          <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-forensic-textDim" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setPage(0);
-            }}
-            placeholder="Search by address (0x... or T...), VASP, or notes..."
-            className="w-full pl-8 pr-3 py-1.5 bg-forensic-bg border border-forensic-border rounded text-forensic-text placeholder-forensic-textDim font-mono text-[11px] focus:outline-none focus:border-blue-500"
-          />
+      {/* Sub-Tab Navigation */}
+      <div className="flex items-center justify-between px-4 py-2 bg-forensic-surfaceRaised border-b border-forensic-border text-xs">
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setActiveTab('SAHYOG_DIRECTORY')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded font-bold transition-all ${
+              activeTab === 'SAHYOG_DIRECTORY'
+                ? 'bg-amber-500 text-black shadow-sm'
+                : 'text-forensic-textDim hover:text-forensic-text hover:bg-forensic-surface'
+            }`}
+          >
+            <Building className="h-3.5 w-3.5" />
+            <span>SAHYOG VASP Directory (16 Entities)</span>
+            <span className="px-1 py-0.2 rounded bg-black/20 text-[9px] font-mono uppercase">
+              Simulated
+            </span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('ADDRESSES')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded font-bold transition-all ${
+              activeTab === 'ADDRESSES'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-forensic-textDim hover:text-forensic-text hover:bg-forensic-surface'
+            }`}
+          >
+            <Layers className="h-3.5 w-3.5" />
+            <span>Verified Seed Clusters ({stats?.total_addresses ? stats.total_addresses.toLocaleString() : '1,595'} Addrs)</span>
+          </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={selectedChain}
-            onChange={(e) => {
-              setSelectedChain(e.target.value);
-              setPage(0);
-            }}
-            className="bg-forensic-bg border border-forensic-border text-forensic-text rounded px-2 py-1.5 text-[11px] font-mono"
-          >
-            <option value="ALL">All Chains</option>
-            <option value="ethereum">Ethereum</option>
-            <option value="tron">Tron (TRC-20)</option>
-          </select>
-
-          <select
-            value={selectedVasp}
-            onChange={(e) => {
-              setSelectedVasp(e.target.value);
-              setPage(0);
-            }}
-            className="bg-forensic-bg border border-forensic-border text-forensic-text rounded px-2 py-1.5 text-[11px] font-mono"
-          >
-            <option value="ALL">All VASPs</option>
-            {stats?.by_vasp &&
-              Object.keys(stats.by_vasp).map((vname) => (
-                <option key={vname} value={vname}>
-                  {vname} ({stats.by_vasp[vname]})
-                </option>
-              ))}
-          </select>
-
-          <select
-            value={selectedType}
-            onChange={(e) => {
-              setSelectedType(e.target.value);
-              setPage(0);
-            }}
-            className="bg-forensic-bg border border-forensic-border text-forensic-text rounded px-2 py-1.5 text-[11px] font-mono"
-          >
-            <option value="ALL">All Types</option>
-            <option value="hot_wallet">Hot Wallet</option>
-            <option value="cold_storage">Cold Storage</option>
-            <option value="deposit">Deposit Collector</option>
-            <option value="withdrawal">Withdrawal Hub</option>
-            <option value="treasury">Treasury</option>
-          </select>
-        </div>
+        {activeTab === 'SAHYOG_DIRECTORY' && (
+          <label className="flex items-center space-x-2 cursor-pointer text-[11px] text-forensic-textDim">
+            <input
+              type="checkbox"
+              checked={fiuOnly}
+              onChange={(e) => setFiuOnly(e.target.checked)}
+              className="rounded border-forensic-border text-amber-500 focus:ring-amber-400"
+            />
+            <span>FIU-IND Registered Only</span>
+          </label>
+        )}
       </div>
+
+      {activeTab === 'SAHYOG_DIRECTORY' ? (
+        <div className={`overflow-y-auto p-4 bg-forensic-bg space-y-3 ${isFullPageView ? 'min-h-[500px]' : 'flex-1'}`}>
+          {/* Simulated Disclaimer Banner */}
+          <div className="p-3 rounded bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs text-amber-300">
+            <div className="flex items-center space-x-2">
+              <span className="text-amber-400 font-bold">⚡ SIMULATED GOVERNMENT & VASP INTEGRATION:</span>
+              <span className="text-forensic-textDim text-[11px]">
+                Lawful-disclosure routing codes and mock APIs for Section 94 BNSS / Section 91 CrPC compliance (Rule 7 compliant).
+              </span>
+            </div>
+            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono">
+              16 Regulated Entities
+            </span>
+          </div>
+
+          {/* Search bar inside directory */}
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-forensic-textDim" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search VASP Directory by name, jurisdiction, country, or routing code..."
+              className="w-full pl-9 pr-3 py-2 bg-forensic-surface border border-forensic-border rounded text-forensic-text placeholder-forensic-textDim font-mono text-[11px] focus:outline-none focus:border-amber-400"
+            />
+          </div>
+
+          {directoryLoading ? (
+            <div className="flex items-center justify-center py-20 text-forensic-textDim">
+              <span>Loading mock SAHYOG compliance directory...</span>
+            </div>
+          ) : directoryItems.length === 0 ? (
+            <div className="text-center py-16 text-forensic-textDim">
+              No VASP entities match your search criteria.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {directoryItems.map((vasp) => (
+                <div
+                  key={vasp.id}
+                  className="p-3.5 rounded bg-forensic-surface border border-forensic-border hover:border-amber-500/40 transition-colors space-y-2.5"
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <strong className="text-sm font-bold text-forensic-text">{vasp.name}</strong>
+                        {vasp.is_fiu_registered ? (
+                          <span className="px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold">
+                            FIU-IND REGISTERED
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.2 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30 text-[9px] font-bold">
+                            FOREIGN VASP
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-forensic-textDim block mt-0.5">
+                        {vasp.category} • {vasp.country} ({vasp.jurisdiction})
+                      </span>
+                    </div>
+
+                    <span className="px-2 py-0.5 rounded text-[9px] font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                      MOCK INTEGRATION
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[10px] bg-forensic-bg/60 p-2 rounded border border-forensic-border font-mono">
+                    <div>
+                      <span className="text-forensic-textDim block text-[9px]">SAHYOG ROUTING CODE</span>
+                      <div className="flex items-center space-x-1 pt-0.5">
+                        <span className="text-amber-300 font-bold truncate">{vasp.sahyog_routing_code}</span>
+                        <button
+                          onClick={() => handleCopy(vasp.sahyog_routing_code || '')}
+                          title="Copy routing code"
+                          className="hover:text-amber-300 text-forensic-textDim"
+                        >
+                          <Copy className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-forensic-textDim block text-[9px]">RESPONSE SLA</span>
+                      <span className="text-emerald-400 font-bold block pt-0.5 truncate">{vasp.mock_response_sla}</span>
+                    </div>
+
+                    <div>
+                      <span className="text-forensic-textDim block text-[9px]">FIU REGISTRATION</span>
+                      <span className="text-forensic-text truncate block pt-0.5">{vasp.fiu_registration_number || 'N/A'}</span>
+                    </div>
+
+                    <div>
+                      <span className="text-forensic-textDim block text-[9px]">NODAL OFFICER</span>
+                      <span className="text-forensic-text truncate block pt-0.5">{vasp.nodal_officer || 'Compliance Desk'}</span>
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] space-y-1 font-mono text-forensic-textDim">
+                    <div className="flex items-center justify-between">
+                      <span>LEA Contact:</span>
+                      <span className="text-blue-400">{vasp.designated_lea_email || vasp.compliance_email}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Mock Dispatch API:</span>
+                      <span className="text-amber-400/80 truncate max-w-[200px]">{vasp.mock_contact_endpoint}</span>
+                    </div>
+                  </div>
+
+                  {vasp.known_deposit_cluster_labels?.length > 0 && (
+                    <div className="pt-1 flex flex-wrap gap-1">
+                      {vasp.known_deposit_cluster_labels.map((lbl, idx) => (
+                        <span key={idx} className="px-1.5 py-0.2 rounded bg-forensic-surfaceRaised border border-forensic-border text-forensic-textDim text-[9px] font-mono">
+                          {lbl}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Filters Toolbar */}
+          <div className="p-3 bg-forensic-surfaceRaised border-b border-forensic-border flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex-1 min-w-[220px] relative">
+              <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-forensic-textDim" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setPage(0);
+                }}
+                placeholder="Search by address (0x... or T...), VASP, or notes..."
+                className="w-full pl-8 pr-3 py-1.5 bg-forensic-bg border border-forensic-border rounded text-forensic-text placeholder-forensic-textDim font-mono text-[11px] focus:outline-none focus:border-blue-500"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={selectedChain}
+                onChange={(e) => {
+                  setSelectedChain(e.target.value);
+                  setPage(0);
+                }}
+                className="bg-forensic-bg border border-forensic-border text-forensic-text rounded px-2 py-1.5 text-[11px] font-mono"
+              >
+                <option value="ALL">All Chains</option>
+                <option value="ethereum">Ethereum</option>
+                <option value="tron">Tron (TRC-20)</option>
+              </select>
+
+              <select
+                value={selectedVasp}
+                onChange={(e) => {
+                  setSelectedVasp(e.target.value);
+                  setPage(0);
+                }}
+                className="bg-forensic-bg border border-forensic-border text-forensic-text rounded px-2 py-1.5 text-[11px] font-mono"
+              >
+                <option value="ALL">All VASPs</option>
+                {stats?.by_vasp &&
+                  Object.keys(stats.by_vasp).map((vname) => (
+                    <option key={vname} value={vname}>
+                      {vname} ({stats.by_vasp[vname]})
+                    </option>
+                  ))}
+              </select>
+
+              <select
+                value={selectedType}
+                onChange={(e) => {
+                  setSelectedType(e.target.value);
+                  setPage(0);
+                }}
+                className="bg-forensic-bg border border-forensic-border text-forensic-text rounded px-2 py-1.5 text-[11px] font-mono"
+              >
+                <option value="ALL">All Types</option>
+                <option value="hot_wallet">Hot Wallet</option>
+                <option value="cold_storage">Cold Storage</option>
+                <option value="deposit">Deposit Collector</option>
+                <option value="withdrawal">Withdrawal Hub</option>
+                <option value="treasury">Treasury</option>
+              </select>
+            </div>
+          </div>
 
       {/* Address Records Table */}
       <div className={`overflow-y-auto p-3 bg-forensic-bg ${isFullPageView ? 'min-h-[400px]' : 'flex-1'}`}>
@@ -338,8 +537,10 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
           </button>
         </div>
       </div>
-    </div>
-  );
+      </>
+    )}
+  </div>
+);
 
   if (isFullPageView) {
     return content;

@@ -44,6 +44,7 @@ class AuditResourceType:
     ANALYSIS = "analysis"
     REPORT = "report"
     EXPORT = "export"
+    DISCLOSURE = "disclosure"
 
 
 class AuditLogger:

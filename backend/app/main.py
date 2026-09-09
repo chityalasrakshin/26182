@@ -123,6 +123,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Default user auto-seed notice: {e}")
 
+    # 6. Seed mock SAHYOG VASP directory (Phase 6)
+    try:
+        from backend.app.services.vasp.directory_service import directory_service
+        async with AsyncSessionLocal() as session:
+            await directory_service.seed_directory(session)
+    except Exception as e:
+        logger.warning(f"VASP directory auto-seed notice: {e}")
+
     yield
     logger.info("Shutting down service...")
 
