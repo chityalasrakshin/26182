@@ -179,16 +179,17 @@ The relational database is managed via asynchronous SQLAlchemy with SQLite (`./d
   - [x] Baseline boot verified (Docker compose healthy on ports 8000 & 3000).
   - [x] `.env.example` contract defined with all external API keys.
   - [x] `docs/BASELINE_AUDIT.md` created.
-- [ ] **Phase 1 — Data Foundations: Chain Adapters + Graph Ingestion + Seed Labels**
+- [x] **Phase 1 — Data Foundations: Chain Adapters + Graph Ingestion + Seed Labels**
   - [x] Chain adapters for EVM, Tron, Bitcoin implemented.
   - [x] 1,595 VASP seed labels indexed.
-  - [ ] Stand up Neo4j Community instance and Cypher shortestPath query.
-  - [ ] Ingestion script connecting seed address -> live adapters -> graph DB -> label matching.
-- [ ] **Phase 2 — Trace Orchestration (Multi-Hop, Async)**
-  - [x] 3-hop bounded BFS implemented with node explosion caps.
-  - [ ] Async job queue (Celery/Redis or enhanced background runner) with `job_id`.
-  - [ ] WebSocket / SSE streaming of partial hops as they resolve.
-  - [ ] Rate-limit caching layer in front of explorer APIs.
+  - [x] Stand up Neo4j Community instance and Cypher shortestPath query.
+  - [x] Ingestion script connecting seed address -> live adapters -> graph DB -> label matching.
+- [x] **Phase 2 — Trace Orchestration (Multi-Hop, Async)**
+  - [x] Multi-hop bounded BFS implemented with early VASP stopping and configurable max depth (up to 10 hops).
+  - [x] Async job queue (`TraceJobManager`) with unique `job_id` and background execution.
+  - [x] WebSocket and Server-Sent Events (SSE) streaming of partial hops and node discovery in real-time.
+  - [x] Rate-limit caching layer (`BlockchainCache`) in front of explorer APIs with Redis and in-memory TTL engine.
+  - [x] Graceful unresolved frontier handling returning partial graph and nearest leaf nodes.
 - [ ] **Phase 3 — Clustering Heuristics & Risk Scoring**
   - [x] 11 formal risk typology signals implemented with 4 bounded category caps.
   - [x] Anti-double-counting architecture.

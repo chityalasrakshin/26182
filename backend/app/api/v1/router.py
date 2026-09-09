@@ -3,8 +3,8 @@ import asyncio
 import datetime
 import json
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 from pydantic import BaseModel, Field
@@ -21,10 +21,17 @@ from backend.app.schemas.analysis import (
     InvestigationReportSchema,
     VASPSchema
 )
+from backend.app.schemas.trace import (
+    TraceRequest,
+    TraceJobResponse,
+    TraceStatusResponse,
+    TraceEvent
+)
 from backend.app.workers.analysis_worker import AnalysisWorker, active_analyses_cache
 from backend.app.services.vasp.matcher import vasp_matcher
 from backend.app.services.reporting.generator import ReportGenerator
 from backend.app.services.reporting.legal_notice_generator import LegalNoticeGenerator
+from backend.app.services.trace.job_manager import trace_job_manager
 
 api_router = APIRouter(prefix="/api/v1", tags=["Investigation API"])
 
@@ -43,6 +50,152 @@ class NCRPComplaintItem(BaseModel):
 
 class NCRPTriageRequest(BaseModel):
     complaints: List[NCRPComplaintItem]
+
+
+import logging
+logger = logging.getLogger(__name__)
+
+# Trace router mounted at both /api/v1/trace and root /trace
+trace_router = APIRouter(tags=["Trace Orchestration"])
+
+
+# ==============================================================================
+# Phase 2 — Trace Orchestration (Async, Multi-Hop, Streaming) Endpoints
+# ==============================================================================
+
+@trace_router.post("/trace", response_model=TraceJobResponse)
+async def start_trace(
+    req: TraceRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Submits an asynchronous multi-hop wallet trace job outward from a seed wallet.
+    Traverses up to max_depth (default 6), stopping branches on first VASP hit.
+    Returns job_id immediately.
+    """
+    if not is_valid_crypto_address(req.address):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid address format: {req.address}. Must be Ethereum (0x...), Tron (T...), or Bitcoin."
+        )
+
+    norm_addr = normalize_address(req.address)
+    detected_chain = req.chain or detect_blockchain(norm_addr)
+    
+    job_id = trace_job_manager.create_job(
+        address=norm_addr,
+        chain=detected_chain,
+        max_depth=req.max_depth
+    )
+
+    # Launch asynchronous execution
+    background_tasks.add_task(trace_job_manager.execute_trace, job_id=job_id)
+
+    job_data = trace_job_manager.get_job(job_id)
+    return TraceJobResponse(
+        job_id=job_id,
+        status=job_data["status"],
+        address=job_data["address"],
+        chain=job_data["chain"],
+        max_depth=job_data["max_depth"],
+        started_at=job_data["started_at"]
+    )
+
+
+@trace_router.get("/trace/{job_id}/status", response_model=TraceStatusResponse)
+async def get_trace_status(job_id: str):
+    """Polls the execution status, resolved paths, and metrics for a trace job."""
+    job = trace_job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Trace job {job_id} not found.")
+
+    return TraceStatusResponse(
+        job_id=job["job_id"],
+        address=job["address"],
+        chain=job["chain"],
+        status=job["status"],
+        max_depth=job["max_depth"],
+        current_depth=job.get("current_depth", 0),
+        started_at=job["started_at"],
+        completed_at=job.get("completed_at"),
+        num_nodes=job.get("num_nodes", 0),
+        num_edges=job.get("num_edges", 0),
+        num_transactions=job.get("num_transactions", 0),
+        vasp_found=job.get("vasp_found", False),
+        matched_vasps=job.get("matched_vasps", []),
+        shortest_path=job.get("shortest_path"),
+        leaf_nodes=job.get("leaf_nodes", []),
+        error_message=job.get("error_message"),
+        summary=job.get("summary")
+    )
+
+
+@trace_router.get("/trace/{job_id}/stream")
+async def stream_trace_events(job_id: str):
+    """
+    Server-Sent Events (SSE) streaming endpoint.
+    Pushes real-time progress events as each hop resolves.
+    """
+    job = trace_job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Trace job {job_id} not found.")
+
+    async def event_generator():
+        async for event in trace_job_manager.subscribe(job_id):
+            payload = json.dumps(event.model_dump(mode="json"))
+            yield f"event: {event.event}\ndata: {payload}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@trace_router.websocket("/trace/{job_id}/ws")
+async def websocket_trace_stream(websocket: WebSocket, job_id: str):
+    """
+    WebSocket endpoint for real-time bidirectional trace event streaming.
+    """
+    job = trace_job_manager.get_job(job_id)
+    if not job:
+        await websocket.close(code=4004, reason="Trace job not found")
+        return
+
+    await websocket.accept()
+    try:
+        async for event in trace_job_manager.subscribe(job_id):
+            await websocket.send_text(json.dumps(event.model_dump(mode="json")))
+    except WebSocketDisconnect:
+        logger.debug(f"Client disconnected from WebSocket trace {job_id}")
+    except Exception as e:
+        logger.warning(f"WebSocket error on trace {job_id}: {e}")
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
+@trace_router.get("/trace/{job_id}/graph", response_model=GraphData)
+async def get_trace_graph(job_id: str):
+    """Retrieves Cytoscape graph nodes and edges for the trace job."""
+    job = trace_job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Trace job {job_id} not found.")
+
+    graph = trace_job_manager.get_job_graph(job_id)
+    if not graph:
+        raise HTTPException(status_code=404, detail=f"Graph data not available yet for {job_id}.")
+
+    return graph
+
+
+# Mount trace_router inside api_router (exposes /api/v1/trace/...)
+api_router.include_router(trace_router)
 
 
 # ==============================================================================

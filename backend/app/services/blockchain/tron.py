@@ -21,6 +21,10 @@ class TronProvider(BlockchainProvider):
     Fetches real TRX transfers and TRC-20 (USDT) token movements.
     """
 
+    @property
+    def chain(self) -> str:
+        return "tron"
+
     def __init__(self, api_url: Optional[str] = None):
         self.api_url = api_url or TRONGRID_API_URL
         self.timeout = settings.REQUEST_TIMEOUT_SECONDS

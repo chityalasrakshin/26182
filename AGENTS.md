@@ -39,7 +39,7 @@ This workspace already has domain skills installed (see `skills-lock.json`, sour
 
 - [x] Phase 0 — Baseline audit
 - [x] Phase 1 — Chain adapters + graph ingestion + seed labels
-- [ ] Phase 2 — Trace orchestration (async, multi-hop)
+- [x] Phase 2 — Trace orchestration (async, multi-hop)
 - [ ] Phase 3 — Clustering heuristics + risk scoring
 - [ ] Phase 4 — Case management, auth, audit trail
 - [ ] Phase 5 — LLM narrative + report generation

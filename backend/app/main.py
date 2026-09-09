@@ -8,7 +8,7 @@ from pathlib import Path
 from backend.app.core.config import settings
 from backend.app.models.database import init_db, AsyncSessionLocal
 from backend.app.services.vasp.matcher import vasp_matcher
-from backend.app.api.v1.router import api_router
+from backend.app.api.v1.router import api_router, trace_router
 
 # Configure structured logging
 logging.basicConfig(
@@ -120,6 +120,7 @@ app.add_middleware(
 
 # Mount API routers
 app.include_router(api_router)
+app.include_router(trace_router)
 
 
 @app.get("/")

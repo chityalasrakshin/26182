@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./crypto_trace.db", description="Database connection URL")
     
+    # Redis Cache & Queue
+    REDIS_URL: str = Field(default="redis://localhost:6379/0", description="Redis connection URL for cache and queues")
+    DEFAULT_TRACE_MAX_DEPTH: int = Field(default=6, description="Default maximum traversal depth for multi-hop traces")
+    
     # Analysis Limits
     MAX_HOPS: int = Field(default=3, description="Maximum traversal depth from root wallet")
     MAX_NODES_PER_ANALYSIS: int = Field(default=150, description="Node explosion guard cap")

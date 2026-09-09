@@ -39,6 +39,10 @@ class BitcoinProvider(BlockchainProvider):
     - Exponential backoff retry on transient failures
     """
 
+    @property
+    def chain(self) -> str:
+        return "bitcoin"
+
     def __init__(self, rate_limit_delay: float = _DEFAULT_RATE_LIMIT_DELAY):
         self.base_url = BLOCKSTREAM_API_URL
         self.timeout = _DEFAULT_TIMEOUT
