@@ -23,6 +23,7 @@ services:
       - MAX_HOPS=3
     volumes:
       - ./data:/app/data
+      - ./backend:/app/backend
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
@@ -36,7 +37,7 @@ services:
     container_name: sudarshan-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6380:6379"
 
   frontend:
     build:
@@ -52,3 +53,7 @@ services:
       - backend
     environment:
       - NODE_ENV=production
+    volumes:
+      - ./frontend/public:/app/public
+      - ./frontend/.next:/app/.next
+

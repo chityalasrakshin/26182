@@ -52,13 +52,19 @@ interface GraphCanvasProps {
   isFullScreenView?: boolean;
   transactions?: NormalizedTransaction[];
   onPivotTarget?: (address: string) => void;
+  activeJobId?: string | null;
+  isStreaming?: boolean;
+  streamingHop?: number;
 }
 
 export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   graphData,
   isFullScreenView = false,
   transactions,
-  onPivotTarget
+  onPivotTarget,
+  activeJobId,
+  isStreaming = false,
+  streamingHop = 1,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
@@ -186,20 +192,63 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
       validNodeIds.add(nodeId);
 
+      // Phase 7: Strict Tag Classification (exchange, mixer, sanctioned, unknown, target)
+      const rawCat = (d.category || d.entity || d.label || d.role || d.vasp_name || '').toLowerCase();
+      let nodeTag: 'target' | 'exchange' | 'mixer' | 'sanctioned' | 'unknown' = 'unknown';
+      if (isRoot) {
+        nodeTag = 'target';
+      } else if (
+        isVasp ||
+        rawCat.includes('exchange') ||
+        rawCat.includes('binance') ||
+        rawCat.includes('okx') ||
+        rawCat.includes('vasp') ||
+        rawCat.includes('coinbase') ||
+        rawCat.includes('wazirx') ||
+        rawCat.includes('bybit') ||
+        rawCat.includes('kraken') ||
+        rawCat.includes('gate.io')
+      ) {
+        nodeTag = 'exchange';
+      } else if (
+        rawCat.includes('mixer') ||
+        rawCat.includes('tornado') ||
+        rawCat.includes('tumbler') ||
+        rawCat.includes('anonymizer')
+      ) {
+        nodeTag = 'mixer';
+      } else if (
+        rawCat.includes('sanction') ||
+        rawCat.includes('ofac') ||
+        rawCat.includes('illicit') ||
+        rawCat.includes('crime') ||
+        d.risk_level === 'CRITICAL' ||
+        d.risk_level === 'SANCTIONED'
+      ) {
+        nodeTag = 'sanctioned';
+      }
+
       const shortAddr = `${nodeId.slice(0, 6)}...${nodeId.slice(-4)}`;
       const label = isRoot
         ? `[TARGET]\n${shortAddr}`
-        : isVasp
-        ? `[${d.vasp_name?.toUpperCase() || 'VASP'}]\n${shortAddr}`
+        : nodeTag === 'exchange'
+        ? `[${d.vasp_name?.toUpperCase() || 'EXCHANGE'}]\n${shortAddr}`
+        : nodeTag === 'mixer'
+        ? `[MIXER]\n${shortAddr}`
+        : nodeTag === 'sanctioned'
+        ? `[SANCTIONED]\n${shortAddr}`
         : `${shortAddr}\n(Hop ${hop})`;
 
       elements.push({
         group: 'nodes',
+        classes: `tag-${nodeTag}`,
         data: {
           id: nodeId,
           label: label,
           isRoot: isRoot,
-          isVasp: isVasp,
+          isVasp: isVasp || nodeTag === 'exchange',
+          tag: nodeTag,
+          category: nodeTag,
           vaspName: d.vasp_name,
           vaspConfidence: d.vasp_confidence || 95,
           hop: hop,
@@ -317,35 +366,82 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'transition-duration': 0.2,
           },
         },
+        // Tag: Target Root Wallet
         {
-          selector: 'node[?isRoot]',
+          selector: 'node[tag = "target"], node.tag-target, node[?isRoot]',
           style: {
             'background-color': isDarkMode ? '#450a0a' : '#fee2e2',
             'border-color': '#ef4444',
-            'border-width': 2.5,
+            'border-width': 3,
             'color': isDarkMode ? '#fca5a5' : '#991b1b',
-            'width': 64,
-            'height': 64,
+            'width': 66,
+            'height': 66,
             'font-weight': 'bold',
             'font-size': '10px',
+            'shape': 'roundrectangle',
           },
         },
+        // Tag: Exchange / VASP (Teal / Emerald)
         {
-          selector: 'node[?isVasp]',
+          selector: 'node[tag = "exchange"], node.tag-exchange, node[?isVasp]',
           style: {
             'background-color': isDarkMode ? '#042f2e' : '#ccfbf1',
             'border-color': '#14b8a6',
-            'border-width': 2.5,
+            'border-width': 3,
             'color': isDarkMode ? '#5eead4' : '#0f766e',
-            'width': 68,
-            'height': 56,
+            'width': 70,
+            'height': 58,
             'shape': 'roundrectangle',
             'font-weight': 'bold',
             'font-size': '10px',
           },
         },
+        // Tag: Mixer / Tumbler (Purple)
         {
-          selector: 'node[hop = 1]:not([?isRoot]):not([?isVasp])',
+          selector: 'node[tag = "mixer"], node.tag-mixer',
+          style: {
+            'background-color': isDarkMode ? '#3b0764' : '#f3e8ff',
+            'border-color': '#a855f7',
+            'border-width': 3,
+            'color': isDarkMode ? '#d8b4fe' : '#6b21a8',
+            'width': 66,
+            'height': 58,
+            'shape': 'diamond',
+            'font-weight': 'bold',
+            'font-size': '10px',
+          },
+        },
+        // Tag: Sanctioned / OFAC (Crimson / Red)
+        {
+          selector: 'node[tag = "sanctioned"], node.tag-sanctioned',
+          style: {
+            'background-color': isDarkMode ? '#450a0a' : '#fef2f2',
+            'border-color': '#dc2626',
+            'border-width': 3.5,
+            'color': isDarkMode ? '#fca5a5' : '#b91c1c',
+            'width': 66,
+            'height': 58,
+            'shape': 'octagon',
+            'font-weight': 'bold',
+            'font-size': '10px',
+          },
+        },
+        // Tag: Unknown / Intermediary
+        {
+          selector: 'node[tag = "unknown"], node.tag-unknown',
+          style: {
+            'background-color': isDarkMode ? '#0f172a' : '#f1f5f9',
+            'border-color': isDarkMode ? '#475569' : '#94a3b8',
+            'border-width': 2,
+            'color': isDarkMode ? '#cbd5e1' : '#334155',
+            'width': 54,
+            'height': 54,
+            'shape': 'roundrectangle',
+            'font-size': '9px',
+          },
+        },
+        {
+          selector: 'node[hop = 1]:not([?isRoot]):not([?isVasp]):not([tag = "mixer"]):not([tag = "sanctioned"])',
           style: {
             'border-color': '#3b82f6',
             'background-color': isDarkMode ? '#1e293b' : '#dbeafe',
@@ -353,7 +449,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           },
         },
         {
-          selector: 'node[hop = 2]:not([?isRoot]):not([?isVasp])',
+          selector: 'node[hop = 2]:not([?isRoot]):not([?isVasp]):not([tag = "mixer"]):not([tag = "sanctioned"])',
           style: {
             'border-color': '#8b5cf6',
             'background-color': isDarkMode ? '#1e1b4b' : '#ede9fe',
@@ -361,7 +457,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           },
         },
         {
-          selector: 'node[hop = 3]:not([?isRoot]):not([?isVasp])',
+          selector: 'node[hop = 3]:not([?isRoot]):not([?isVasp]):not([tag = "mixer"]):not([tag = "sanctioned"])',
           style: {
             'border-color': '#6366f1',
             'background-color': isDarkMode ? '#1e1e38' : '#e0e7ff',
@@ -964,6 +1060,41 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           </div>
         ) : (
           <div className="flex-1 relative bg-forensic-bg h-full flex flex-col">
+            {/* Live Streaming Indicator & Tag Color Legend Overlay */}
+            <div className="absolute top-3 left-3 z-10 flex flex-wrap items-center gap-2 pointer-events-none">
+              {isStreaming && (
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-blue-600/90 text-white font-mono text-[10px] font-bold shadow-lg animate-pulse pointer-events-auto border border-blue-400">
+                  <span className="w-2 h-2 rounded-full bg-white" />
+                  <span>STREAMING HOP {streamingHop} VIA WEBSOCKET...</span>
+                </div>
+              )}
+
+              {/* Tag Color Legend */}
+              <div className="flex items-center space-x-2 px-2.5 py-1 rounded bg-forensic-surface/90 backdrop-blur-md border border-forensic-border text-[10px] font-mono shadow pointer-events-auto">
+                <span className="text-forensic-textDim uppercase font-bold text-[9px]">Legend:</span>
+                <span className="flex items-center space-x-1">
+                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  <span className="text-red-400 font-semibold">Target</span>
+                </span>
+                <span className="flex items-center space-x-1">
+                  <span className="w-2 h-2 rounded-full bg-teal-400" />
+                  <span className="text-teal-400 font-semibold">Exchange/VASP</span>
+                </span>
+                <span className="flex items-center space-x-1">
+                  <span className="w-2 h-2 rounded-full bg-purple-400" />
+                  <span className="text-purple-400 font-semibold">Mixer</span>
+                </span>
+                <span className="flex items-center space-x-1">
+                  <span className="w-2 h-2 rounded-full bg-rose-600" />
+                  <span className="text-rose-400 font-semibold">Sanctioned</span>
+                </span>
+                <span className="flex items-center space-x-1">
+                  <span className="w-2 h-2 rounded-full bg-slate-400" />
+                  <span className="text-slate-300 font-semibold">Unknown</span>
+                </span>
+              </div>
+            </div>
+
             <div ref={containerRef} className="w-full flex-1" />
 
             {/* Timeline Time-Machine Replay Bar */}

@@ -44,5 +44,5 @@ This workspace already has domain skills installed (see `skills-lock.json`, sour
 - [x] Phase 4 — Case management, auth, audit trail
 - [x] Phase 5 — LLM narrative + report generation
 - [x] Phase 6 — Mock SAHYOG/VASP directory
-- [ ] Phase 7 — Frontend dashboard
+- [x] Phase 7 — Frontend dashboard
 - [ ] Phase 8 — Demo hardening

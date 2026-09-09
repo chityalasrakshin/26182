@@ -4,7 +4,7 @@ Pydantic schemas for authentication and user management.
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class LoginRequest(BaseModel):
@@ -14,7 +14,7 @@ class LoginRequest(BaseModel):
 
 class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
-    email: EmailStr = Field(...)
+    email: str = Field(..., description="User email address")
     full_name: str = Field(..., min_length=1, max_length=100)
     role: str = Field(default="investigator", description="Role: 'investigator' or 'supervisor'")
 

@@ -15,10 +15,15 @@ import {
   BrainCircuit,
   Radar,
   BookOpen,
+  Briefcase,
+  Plus,
+  UserCheck,
 } from 'lucide-react';
+import { UserAuth } from '../lib/types';
 
 export type ActiveTabType =
   | 'WORKSPACE'
+  | 'CASES_AUDIT'
   | 'CANDIDATE_DISCOVERY'
   | 'GRAPH_STUDIO'
   | 'NCRP_TRIAGE'
@@ -29,6 +34,9 @@ export type ActiveTabType =
 interface NavbarProps {
   activeTab: ActiveTabType;
   onSelectTab: (tab: ActiveTabType) => void;
+  onOpenCaseIntake?: () => void;
+  currentUser?: UserAuth | null;
+  onSwitchRole?: (role: 'supervisor' | 'investigator') => void;
   onOpenMLEval?: () => void;
   onOpenDatasetStatus?: () => void;
   caseCount?: number;
@@ -38,6 +46,9 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   onSelectTab,
+  onOpenCaseIntake,
+  currentUser,
+  onSwitchRole,
   onOpenMLEval,
   onOpenDatasetStatus,
   caseCount = 4,
@@ -106,6 +117,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <Search className="h-3.5 w-3.5 text-blue-500" />
               <span>Target Workspace</span>
+            </button>
+
+            <button
+              onClick={() => onSelectTab('CASES_AUDIT')}
+              className={`px-3 py-1.5 rounded font-medium transition-colors flex items-center space-x-1.5 ${
+                activeTab === 'CASES_AUDIT'
+                  ? 'bg-forensic-surfaceRaised text-forensic-text border border-forensic-border font-bold shadow-sm'
+                  : 'text-forensic-textMuted hover:text-forensic-text hover:bg-forensic-surfaceRaised/50'
+              }`}
+            >
+              <Briefcase className="h-3.5 w-3.5 text-purple-400" />
+              <span>Cases & Audit</span>
             </button>
 
             <button
@@ -188,8 +211,46 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
         </div>
 
-        {/* Right: Active Network Badge & Theme Toggle */}
-        <div className="flex items-center space-x-3">
+        {/* Right: Active Network Badge, Role Switcher & Theme Toggle */}
+        <div className="flex items-center space-x-2.5">
+          {onOpenCaseIntake && (
+            <button
+              onClick={onOpenCaseIntake}
+              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-mono text-[11px] font-bold shadow transition-colors"
+              title="Open New Investigation Case Intake"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>New Case</span>
+            </button>
+          )}
+
+          {onSwitchRole && (
+            <div className="hidden sm:flex items-center bg-forensic-surfaceRaised border border-forensic-border rounded p-0.5 font-mono text-[10px]">
+              <button
+                onClick={() => onSwitchRole('supervisor')}
+                className={`px-2 py-0.5 rounded transition-colors ${
+                  currentUser?.role === 'supervisor'
+                    ? 'bg-purple-600 text-white font-bold'
+                    : 'text-forensic-textMuted hover:text-forensic-text'
+                }`}
+                title="Switch to Supervisor Mode (All Cases & Global Audit Logs)"
+              >
+                Supervisor
+              </button>
+              <button
+                onClick={() => onSwitchRole('investigator')}
+                className={`px-2 py-0.5 rounded transition-colors ${
+                  currentUser?.role !== 'supervisor'
+                    ? 'bg-blue-600 text-white font-bold'
+                    : 'text-forensic-textMuted hover:text-forensic-text'
+                }`}
+                title="Switch to Investigator Mode (Assigned Cases)"
+              >
+                Investigator
+              </button>
+            </div>
+          )}
+
           {onOpenDatasetStatus && (
             <button
               onClick={onOpenDatasetStatus}

@@ -8,9 +8,17 @@ import {
   VASPItem,
   VASPDirectoryItem,
   DisclosureRequestResponse,
+  UserAuth,
+  CaseItem,
+  CaseDetail,
+  CaseCreatePayload,
+  AuditLogEntry,
+  AuditLogListResponse,
+  TraceStreamEvent,
 } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const ROOT_URL = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -265,7 +273,215 @@ export const api = {
     });
     return handleResponse<DisclosureRequestResponse>(res);
   },
+
+  // ==============================================================================
+  // Phase 7: Authentication & RBAC Access Control
+  // ==============================================================================
+
+  async login(username: string, password: string): Promise<UserAuth> {
+    const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const authData = await handleResponse<any>(res);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('token', authData.access_token);
+      localStorage.setItem('user_role', authData.role);
+      localStorage.setItem('username', authData.username);
+      if (authData.full_name) localStorage.setItem('user_full_name', authData.full_name);
+    }
+    return {
+      access_token: authData.access_token,
+      token_type: authData.token_type,
+      role: authData.role,
+      username: authData.username,
+      full_name: authData.full_name,
+    };
+  },
+
+  logout(): void {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user_role');
+      localStorage.removeItem('username');
+      localStorage.removeItem('user_full_name');
+    }
+  },
+
+  getStoredUser(): UserAuth | null {
+    if (typeof window === 'undefined') return null;
+    const token = localStorage.getItem('token');
+    const role = localStorage.getItem('user_role');
+    const username = localStorage.getItem('username');
+    if (!token || !role || !username) return null;
+    return {
+      access_token: token,
+      token_type: 'bearer',
+      role: role as 'supervisor' | 'investigator',
+      username,
+      full_name: localStorage.getItem('user_full_name') || undefined,
+    };
+  },
+
+  // ==============================================================================
+  // Phase 7: Case Management Endpoints
+  // ==============================================================================
+
+  async getCases(params: {
+    status?: string;
+    chain?: string;
+    priority?: string;
+    search?: string;
+  } = {}): Promise<CaseItem[]> {
+    const sp = new URLSearchParams();
+    if (params.status) sp.append('status', params.status);
+    if (params.chain) sp.append('chain', params.chain);
+    if (params.priority) sp.append('priority', params.priority);
+    if (params.search) sp.append('search', params.search);
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/cases?${sp.toString()}`, {
+      headers,
+      cache: 'no-store',
+    });
+    return handleResponse<CaseItem[]>(res);
+  },
+
+  async createCase(payload: CaseCreatePayload): Promise<CaseItem> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/cases`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    return handleResponse<CaseItem>(res);
+  },
+
+  async getCaseDetail(caseId: string): Promise<CaseDetail> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/cases/${caseId}`, {
+      headers,
+      cache: 'no-store',
+    });
+    return handleResponse<CaseDetail>(res);
+  },
+
+  async getCaseAuditTrail(caseId: string): Promise<AuditLogEntry[]> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/cases/${caseId}/audit-trail`, {
+      headers,
+      cache: 'no-store',
+    });
+    return handleResponse<AuditLogEntry[]>(res);
+  },
+
+  async startCaseTrace(caseId: string, maxDepth: number = 6): Promise<{ job_id: string; status: string; chain: string }> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/cases/${caseId}/trace`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ max_depth: maxDepth }),
+    });
+    return handleResponse<any>(res);
+  },
+
+  // ==============================================================================
+  // Phase 7: Multi-Hop Async Trace & Real-Time WebSocket Streaming
+  // ==============================================================================
+
+  async startTrace(address: string, chain?: string, maxDepth: number = 6): Promise<{ job_id: string; status: string; chain: string }> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${ROOT_URL}/trace`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ address, chain, max_depth: maxDepth }),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async getTraceStatus(jobId: string): Promise<any> {
+    const res = await fetch(`${ROOT_URL}/trace/${jobId}/status`, { cache: 'no-store' });
+    return handleResponse<any>(res);
+  },
+
+  async getTraceGraph(jobId: string): Promise<GraphData> {
+    const res = await fetch(`${ROOT_URL}/trace/${jobId}/graph`, { cache: 'no-store' });
+    return handleResponse<GraphData>(res);
+  },
+
+  connectTraceWebSocket(
+    jobId: string,
+    onMessage: (event: TraceStreamEvent) => void,
+    onError?: (err: any) => void,
+    onClose?: () => void
+  ): WebSocket | null {
+    if (typeof window === 'undefined') return null;
+
+    const wsUrl = (ROOT_URL.replace(/^http/, 'ws')) + `/trace/${jobId}/ws`;
+    const ws = new WebSocket(wsUrl);
+
+    ws.onmessage = (e) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        onMessage(parsed);
+      } catch (err) {
+        console.warn('Failed to parse WebSocket trace event:', err);
+      }
+    };
+
+    if (onError) ws.onerror = onError;
+    if (onClose) ws.onclose = onClose;
+
+    return ws;
+  },
+
+  // ==============================================================================
+  // Phase 7: Global Audit Log Inspector (Supervisor RBAC)
+  // ==============================================================================
+
+  async getGlobalAuditLogs(params: {
+    action?: string;
+    resource_type?: string;
+    user_id?: number;
+    case_id?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<AuditLogListResponse> {
+    const sp = new URLSearchParams();
+    if (params.action) sp.append('action', params.action);
+    if (params.resource_type) sp.append('resource_type', params.resource_type);
+    if (params.user_id !== undefined) sp.append('user_id', params.user_id.toString());
+    if (params.case_id) sp.append('case_id', params.case_id);
+    if (params.limit !== undefined) sp.append('limit', params.limit.toString());
+    if (params.offset !== undefined) sp.append('offset', params.offset.toString());
+
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/audit/logs?${sp.toString()}`, {
+      headers,
+      cache: 'no-store',
+    });
+    return handleResponse<AuditLogListResponse>(res);
+  },
 };
-
-
-

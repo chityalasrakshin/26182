@@ -271,4 +271,125 @@ export interface DisclosureRequestResponse {
   } | null;
 }
 
+// ==============================================================================
+// Phase 7 — Case Management, RBAC Auth, Audit Trail & Streaming Types
+// ==============================================================================
 
+export interface UserAuth {
+  access_token: string;
+  token_type: string;
+  role: 'supervisor' | 'investigator' | string;
+  username: string;
+  full_name?: string;
+  email?: string;
+}
+
+export interface CaseItem {
+  id: string;
+  title: string;
+  description?: string | null;
+  suspect_address: string;
+  chain: string;
+  status: 'OPEN' | 'IN_PROGRESS' | 'CLOSED';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  created_by_id?: number;
+  creator_username?: string | null;
+  assigned_to_id?: number;
+  assignee_username?: string | null;
+  victim_loss_inr: number;
+  ncrp_complaint_id?: string | null;
+  trace_job_ids: string[];
+  analysis_ids: string[];
+  tags: string[];
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CaseDetail extends CaseItem {
+  traces: Array<{
+    job_id: string;
+    status: string;
+    chain: string;
+    vasp_found: boolean;
+    matched_vasps: any[];
+    shortest_path?: any;
+    num_nodes: number;
+    num_edges: number;
+  }>;
+  analyses: any[];
+  audit_trail: AuditLogEntry[];
+  disclosure_requests?: DisclosureRequestResponse[];
+}
+
+export interface CaseCreatePayload {
+  title: string;
+  description?: string;
+  suspect_address: string;
+  chain?: string;
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  victim_loss_inr?: number;
+  ncrp_complaint_id?: string;
+  tags?: string[];
+  notes?: string;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  timestamp: string;
+  user_id?: number | null;
+  username: string;
+  action: string;
+  resource_type: string;
+  resource_id?: string | null;
+  case_id?: string | null;
+  details: Record<string, any>;
+  ip_address?: string | null;
+}
+
+export interface AuditLogListResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  logs: AuditLogEntry[];
+}
+
+export interface TraceStreamEvent {
+  event: 'JOB_STARTED' | 'HOP_STARTED' | 'NODE_DISCOVERED' | 'EDGE_ADDED' | 'VASP_REACHED' | 'HOP_COMPLETED' | 'TRACE_COMPLETED' | 'TRACE_FAILED';
+  job_id: string;
+  hop: number;
+  timestamp: string;
+  data: {
+    address?: string;
+    chain?: string;
+    is_vasp?: boolean;
+    label?: string;
+    entity?: string;
+    risk_level?: string;
+    category?: string; // 'exchange' | 'mixer' | 'sanctioned' | 'unknown'
+    source?: string;
+    target?: string;
+    tx_hash?: string;
+    amount?: number;
+    asset_symbol?: string;
+    vasp_name?: string;
+    path?: string[];
+    num_nodes?: number;
+    num_edges?: number;
+    matched_vasps?: any[];
+    shortest_path?: any;
+    error?: string;
+    [key: string]: any;
+  };
+}
+
+export interface CSVIntakeRecord {
+  id: string;
+  address: string;
+  chain: string;
+  label?: string;
+  victim_loss_inr?: number;
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  status: 'valid' | 'invalid';
+  error?: string;
+}

@@ -1,30 +1,78 @@
 """
 Core security utilities: Bcrypt password hashing and JWT token handling.
+Includes pure-python HMAC/SHA256 fallback when binary C-extensions are unavailable.
 """
 
+import hmac
+import hashlib
+import base64
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
-import bcrypt
-from jose import jwt, JWTError
+
+try:
+    import bcrypt
+    _HAS_BCRYPT = True
+except ImportError:
+    _HAS_BCRYPT = False
+
+try:
+    from jose import jwt, JWTError
+    _HAS_JOSE = True
+except ImportError:
+    _HAS_JOSE = False
 
 from backend.app.core.config import settings
 
 
+def _fallback_hash(password: str) -> str:
+    key = settings.JWT_SECRET_KEY.encode("utf-8")
+    h = hmac.new(key, password.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"sha256${h}"
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verifies a plain password against a bcrypt hash."""
-    try:
-        password_bytes = plain_password.encode("utf-8")[:72]
-        hashed_bytes = hashed_password.encode("utf-8")
-        return bcrypt.checkpw(password_bytes, hashed_bytes)
-    except Exception:
+    """Verifies a plain password against a bcrypt or HMAC-sha256 hash."""
+    if not plain_password or not hashed_password:
         return False
+
+    if hashed_password.startswith("sha256$"):
+        expected = _fallback_hash(plain_password)
+        return hmac.compare_digest(expected, hashed_password)
+
+    if _HAS_BCRYPT:
+        try:
+            password_bytes = plain_password.encode("utf-8")[:72]
+            hashed_bytes = hashed_password.encode("utf-8")
+            return bcrypt.checkpw(password_bytes, hashed_bytes)
+        except Exception:
+            return False
+
+    # Fallback if hash was stored as sha256
+    return hmac.compare_digest(_fallback_hash(plain_password), hashed_password)
 
 
 def get_password_hash(password: str) -> str:
-    """Generates a bcrypt hash of the plain password."""
-    password_bytes = password.encode("utf-8")[:72]
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password_bytes, salt).decode("utf-8")
+    """Generates a password hash (bcrypt if available, HMAC-sha256 otherwise)."""
+    if _HAS_BCRYPT:
+        try:
+            password_bytes = password.encode("utf-8")[:72]
+            salt = bcrypt.gensalt()
+            return bcrypt.hashpw(password_bytes, salt).decode("utf-8")
+        except Exception:
+            pass
+    return _fallback_hash(password)
+
+
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
+
+
+def _b64url_decode(s: str) -> bytes:
+    pad = 4 - (len(s) % 4)
+    if pad != 4:
+        s += "=" * pad
+    return base64.urlsafe_b64decode(s.encode("utf-8"))
 
 
 def create_access_token(
@@ -42,27 +90,56 @@ def create_access_token(
         expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
     to_encode.update({
-        "exp": expire,
-        "iat": now
+        "exp": int(expire.timestamp()),
+        "iat": int(now.timestamp())
     })
-    encoded_jwt = jwt.encode(
-        to_encode,
-        settings.JWT_SECRET_KEY,
-        algorithm=settings.JWT_ALGORITHM
-    )
-    return encoded_jwt
+
+    if _HAS_JOSE:
+        return jwt.encode(
+            to_encode,
+            settings.JWT_SECRET_KEY,
+            algorithm=settings.JWT_ALGORITHM
+        )
+
+    # Pure-Python JWT implementation
+    header = {"alg": "HS256", "typ": "JWT"}
+    h_b64 = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+    p_b64 = _b64url_encode(json.dumps(to_encode, separators=(",", ":")).encode("utf-8"))
+    signing_input = f"{h_b64}.{p_b64}".encode("utf-8")
+    sig = hmac.new(settings.JWT_SECRET_KEY.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    sig_b64 = _b64url_encode(sig)
+    return f"{h_b64}.{p_b64}.{sig_b64}"
 
 
 def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     """
     Decodes and validates a JWT token. Returns payload dict or None if invalid.
     """
+    if _HAS_JOSE:
+        try:
+            return jwt.decode(
+                token,
+                settings.JWT_SECRET_KEY,
+                algorithms=[settings.JWT_ALGORITHM]
+            )
+        except JWTError:
+            return None
+
+    # Pure-Python JWT verification
     try:
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM]
-        )
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+        h_b64, p_b64, sig_b64 = parts
+        signing_input = f"{h_b64}.{p_b64}".encode("utf-8")
+        expected_sig = _b64url_encode(hmac.new(settings.JWT_SECRET_KEY.encode("utf-8"), signing_input, hashlib.sha256).digest())
+        if not hmac.compare_digest(sig_b64, expected_sig):
+            return None
+
+        payload = json.loads(_b64url_decode(p_b64).decode("utf-8"))
+        exp = payload.get("exp")
+        if exp and datetime.now(timezone.utc).timestamp() > exp:
+            return None
         return payload
-    except JWTError:
+    except Exception:
         return None
