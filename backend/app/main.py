@@ -87,7 +87,42 @@ async def lifespan(app: FastAPI):
                     logger.info(f"Auto-seeded {len(cand_items)} verified on-chain candidate wallets.")
     except Exception as e:
         logger.warning(f"Candidate wallet auto-seed notice: {e}")
-        
+
+    # 5. Bootstrap default investigator and supervisor users if not present
+    try:
+        from backend.app.models.database import User
+        from backend.app.core.security import get_password_hash
+
+        async with AsyncSessionLocal() as session:
+            sup = (await session.execute(select(User).where(User.username == "supervisor"))).scalar_one_or_none()
+            if not sup:
+                supervisor_user = User(
+                    username="supervisor",
+                    email="supervisor@cryptotrace.gov",
+                    hashed_password=get_password_hash("supervisor123"),
+                    full_name="Senior Cyber Crime Supervisor",
+                    role="supervisor",
+                    is_active=True
+                )
+                session.add(supervisor_user)
+
+            inv = (await session.execute(select(User).where(User.username == "investigator"))).scalar_one_or_none()
+            if not inv:
+                investigator_user = User(
+                    username="investigator",
+                    email="investigator@cryptotrace.gov",
+                    hashed_password=get_password_hash("investigator123"),
+                    full_name="Cyber Crime Investigating Officer",
+                    role="investigator",
+                    is_active=True
+                )
+                session.add(investigator_user)
+
+            await session.commit()
+            logger.info("Verified default supervisor and investigator accounts.")
+    except Exception as e:
+        logger.warning(f"Default user auto-seed notice: {e}")
+
     yield
     logger.info("Shutting down service...")
 

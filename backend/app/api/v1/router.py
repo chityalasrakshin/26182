@@ -3,14 +3,19 @@ import asyncio
 import datetime
 import json
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 from pydantic import BaseModel, Field
 
 from backend.app.core.address_validator import detect_blockchain, is_valid_crypto_address, normalize_address
-from backend.app.models.database import get_db, AnalysisRun, VASP, VASPAddress
+from backend.app.core.auth import get_optional_current_user
+from backend.app.models.database import get_db, AnalysisRun, VASP, VASPAddress, User
+from backend.app.services.audit.logger import audit_logger, AuditAction, AuditResourceType
+from backend.app.api.v1.auth import auth_router
+from backend.app.api.v1.cases import cases_router
+from backend.app.api.v1.audit import audit_api_router
 from backend.app.schemas.analysis import (
     AnalyzeRequest,
     AnalysisStatusResponse,
@@ -81,7 +86,10 @@ trace_router = APIRouter(tags=["Trace Orchestration"])
 @trace_router.post("/trace", response_model=TraceJobResponse)
 async def start_trace(
     req: TraceRequest,
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    request: Request = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Submits an asynchronous multi-hop wallet trace job outward from a seed wallet.
@@ -105,6 +113,19 @@ async def start_trace(
 
     # Launch asynchronous execution
     background_tasks.add_task(trace_job_manager.execute_trace, job_id=job_id)
+
+    # Append immutable audit log entry (Rule 6 compliance)
+    ip_addr = request.client.host if request and request.client else None
+    await audit_logger.log_event(
+        action=AuditAction.TRACE_START,
+        resource_type=AuditResourceType.TRACE,
+        resource_id=job_id,
+        user_id=current_user.id if current_user else None,
+        username=current_user.username if current_user else "anonymous_investigator",
+        details={"address": norm_addr, "chain": detected_chain, "max_depth": req.max_depth},
+        ip_address=ip_addr,
+        db=db
+    )
 
     job_data = trace_job_manager.get_job(job_id)
     return TraceJobResponse(
@@ -209,6 +230,11 @@ async def get_trace_graph(job_id: str):
     return graph
 
 
+# Mount Phase 4 routers inside api_router
+api_router.include_router(auth_router)
+api_router.include_router(cases_router)
+api_router.include_router(audit_api_router)
+
 # Mount trace_router inside api_router (exposes /api/v1/trace/...)
 api_router.include_router(trace_router)
 
@@ -221,6 +247,8 @@ api_router.include_router(trace_router)
 async def start_analysis(
     req: AnalyzeRequest,
     background_tasks: BackgroundTasks,
+    request: Request = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -244,6 +272,19 @@ async def start_analysis(
     )
     db.add(new_run)
     await db.commit()
+
+    # Append audit log
+    ip_addr = request.client.host if request and request.client else None
+    await audit_logger.log_event(
+        action=AuditAction.ANALYSIS_START,
+        resource_type=AuditResourceType.ANALYSIS,
+        resource_id=analysis_id,
+        user_id=current_user.id if current_user else None,
+        username=current_user.username if current_user else "anonymous_investigator",
+        details={"wallet_address": norm_address, "max_hops": req.max_hops},
+        ip_address=ip_addr,
+        db=db
+    )
 
     background_tasks.add_task(
         AnalysisWorker.run_pipeline,
@@ -345,7 +386,10 @@ async def get_analysis_transactions(analysis_id: str):
 @api_router.get("/analysis/{analysis_id}/report")
 async def get_analysis_report(
     analysis_id: str,
-    format: str = "json"
+    format: str = "json",
+    request: Request = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """Generates standardized investigation dossier."""
     if analysis_id not in active_analyses_cache:
@@ -357,6 +401,19 @@ async def get_analysis_report(
             status_code=400, 
             detail=f"Analysis is in state '{cached['status']}'. Report requires COMPLETED status."
         )
+
+    # Append audit log
+    ip_addr = request.client.host if request and request.client else None
+    await audit_logger.log_event(
+        action=AuditAction.REPORT_VIEW,
+        resource_type=AuditResourceType.REPORT,
+        resource_id=analysis_id,
+        user_id=current_user.id if current_user else None,
+        username=current_user.username if current_user else "anonymous_investigator",
+        details={"case_id": analysis_id, "format": format},
+        ip_address=ip_addr,
+        db=db
+    )
 
     chain = detect_blockchain(cached["wallet_address"])
     chain_name = "Ethereum Mainnet" if chain == "ethereum" else "Tron Network"
@@ -399,13 +456,29 @@ async def get_freeze_notice(
     analysis_id: str,
     officer_name: str = Query(default="Investigating Officer"),
     police_station: str = Query(default="Cyber Crime Police Station / CID"),
-    crime_number: str = Query(default="NCRP/2026/CYBER-FRAUD")
+    crime_number: str = Query(default="NCRP/2026/CYBER-FRAUD"),
+    request: Request = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Generates official Section 91 CrPC / BNSS Asset Preservation Notice for identified VASP.
     """
     if analysis_id not in active_analyses_cache:
         raise HTTPException(status_code=404, detail="Analysis case not found.")
+
+    # Append audit log
+    ip_addr = request.client.host if request and request.client else None
+    await audit_logger.log_event(
+        action=AuditAction.FREEZE_NOTICE_EXPORT,
+        resource_type=AuditResourceType.EXPORT,
+        resource_id=analysis_id,
+        user_id=current_user.id if current_user else None,
+        username=current_user.username if current_user else "anonymous_investigator",
+        details={"crime_number": crime_number, "police_station": police_station},
+        ip_address=ip_addr,
+        db=db
+    )
 
     cached = active_analyses_cache[analysis_id]
     top_attr = cached["attributions"][0] if cached.get("attributions") else None
@@ -431,6 +504,9 @@ async def download_pdf_dossier(
     analysis_id: str,
     officer_name: str = Query(default="Investigating Officer"),
     police_station: str = Query(default="Cyber Crime Police Station"),
+    request: Request = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Generates and downloads a court-admissible PDF investigation dossier
@@ -447,6 +523,19 @@ async def download_pdf_dossier(
             status_code=400,
             detail=f"Analysis is in state '{cached['status']}'. PDF requires COMPLETED status."
         )
+
+    # Append audit log
+    ip_addr = request.client.host if request and request.client else None
+    await audit_logger.log_event(
+        action=AuditAction.REPORT_EXPORT_PDF,
+        resource_type=AuditResourceType.EXPORT,
+        resource_id=analysis_id,
+        user_id=current_user.id if current_user else None,
+        username=current_user.username if current_user else "anonymous_investigator",
+        details={"officer_name": officer_name, "police_station": police_station},
+        ip_address=ip_addr,
+        db=db
+    )
 
     try:
         from backend.app.services.reporting.pdf_generator import PDFDossierGenerator

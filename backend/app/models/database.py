@@ -244,3 +244,66 @@ class CandidateWallet(Base):
         UniqueConstraint("chain", "address", name="uq_cand_chain_address")
     )
 
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    full_name: Mapped[str] = mapped_column(String(100))
+    role: Mapped[str] = mapped_column(String(32), default="investigator", index=True)  # investigator, supervisor
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    created_cases: Mapped[list["Case"]] = relationship("Case", back_populates="creator", foreign_keys="Case.created_by_id")
+    assigned_cases: Mapped[list["Case"]] = relationship("Case", back_populates="assignee", foreign_keys="Case.assigned_to_id")
+    audit_logs: Mapped[list["AuditLog"]] = relationship("AuditLog", back_populates="user")
+
+
+class Case(Base):
+    __tablename__ = "cases"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)  # e.g. CASE-2026-XXXX or UUID
+    title: Mapped[str] = mapped_column(String(200), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suspect_address: Mapped[str] = mapped_column(String(100), index=True)
+    chain: Mapped[str] = mapped_column(String(32), default="ethereum", index=True)
+    status: Mapped[str] = mapped_column(String(32), default="OPEN", index=True)  # OPEN, IN_PROGRESS, CLOSED, ARCHIVED
+    priority: Mapped[str] = mapped_column(String(32), default="MEDIUM", index=True)  # LOW, MEDIUM, HIGH, CRITICAL
+    created_by_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), index=True)
+    assigned_to_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    victim_loss_inr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ncrp_complaint_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    trace_job_ids_json: Mapped[str] = mapped_column(Text, default="[]")  # JSON list of linked trace job IDs
+    analysis_ids_json: Mapped[str] = mapped_column(Text, default="[]")  # JSON list of linked analysis run IDs
+    tags_json: Mapped[str] = mapped_column(Text, default="[]")  # JSON list of tags
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow, index=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
+    creator: Mapped["User"] = relationship("User", back_populates="created_cases", foreign_keys=[created_by_id])
+    assignee: Mapped["User | None"] = relationship("User", back_populates="assigned_cases", foreign_keys=[assigned_to_id])
+    audit_logs: Mapped[list["AuditLog"]] = relationship("AuditLog", back_populates="case", cascade="all, delete-orphan")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    timestamp: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow, index=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    username: Mapped[str] = mapped_column(String(50), default="anonymous", index=True)
+    action: Mapped[str] = mapped_column(String(64), index=True)  # TRACE_START, REPORT_VIEW, EXPORT_PDF, CASE_CREATE, etc.
+    resource_type: Mapped[str] = mapped_column(String(32), index=True)  # trace, report, case, export, auth
+    resource_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    case_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("cases.id"), nullable=True, index=True)
+    details_json: Mapped[str] = mapped_column(Text, default="{}")
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+
+    user: Mapped["User | None"] = relationship("User", back_populates="audit_logs")
+    case: Mapped["Case | None"] = relationship("Case", back_populates="audit_logs")
+
+
