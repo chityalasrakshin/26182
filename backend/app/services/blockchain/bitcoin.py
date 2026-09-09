@@ -17,6 +17,7 @@ import httpx
 
 from backend.app.services.blockchain.base import BlockchainProvider
 from backend.app.schemas.analysis import NormalizedTransaction
+from backend.app.schemas.heuristics import UTXOTransaction, UTXOInput, UTXOOutput
 
 logger = logging.getLogger(__name__)
 
@@ -265,3 +266,78 @@ class BitcoinProvider(BlockchainProvider):
         # Sort descending by timestamp
         unique_txs.sort(key=lambda x: x.timestamp, reverse=True)
         return unique_txs[:max_tx]
+
+    def parse_utxo_transaction(self, raw_tx: Dict[str, Any]) -> Optional[UTXOTransaction]:
+        """
+        Parses a raw Blockstream JSON transaction into a full UTXOTransaction object
+        with all inputs and outputs preserved.
+        """
+        txid = raw_tx.get("txid", "")
+        status = raw_tx.get("status", {})
+        block_time = status.get("block_time", 0)
+        block_height = status.get("block_height", 0)
+        dt = datetime.fromtimestamp(block_time, tz=timezone.utc) if block_time else datetime.now(timezone.utc)
+
+        inputs: List[UTXOInput] = []
+        for inp in raw_tx.get("vin", []):
+            prevout = inp.get("prevout", {}) or {}
+            addr = prevout.get("scriptpubkey_address", "")
+            val_sat = prevout.get("value", 0)
+            if addr:
+                inputs.append(
+                    UTXOInput(
+                        address=addr,
+                        value_sat=val_sat,
+                        amount_btc=val_sat / 1e8,
+                        txid=inp.get("txid"),
+                        vout=inp.get("vout")
+                    )
+                )
+
+        outputs: List[UTXOOutput] = []
+        for idx, out in enumerate(raw_tx.get("vout", [])):
+            addr = out.get("scriptpubkey_address", "")
+            val_sat = out.get("value", 0)
+            if addr:
+                outputs.append(
+                    UTXOOutput(
+                        address=addr,
+                        value_sat=val_sat,
+                        amount_btc=val_sat / 1e8,
+                        index=idx
+                    )
+                )
+
+        if not inputs and not outputs:
+            return None
+
+        tot_in = sum(i.amount_btc for i in inputs)
+        tot_out = sum(o.amount_btc for o in outputs)
+        fee = max(0.0, round(tot_in - tot_out, 8))
+
+        return UTXOTransaction(
+            tx_hash=txid,
+            chain="bitcoin",
+            block_height=block_height,
+            timestamp=dt,
+            inputs=inputs,
+            outputs=outputs,
+            total_input_btc=tot_in,
+            total_output_btc=tot_out,
+            fee_btc=fee
+        )
+
+    async def get_raw_transactions(
+        self, address: str, max_tx: int = 50
+    ) -> List[UTXOTransaction]:
+        """
+        Fetch and parse full multi-input/multi-output UTXO transactions for an address.
+        """
+        raw_txs = await self._fetch_address_transactions(address, max_tx=max_tx)
+        utxo_txs: List[UTXOTransaction] = []
+        for raw in raw_txs:
+            parsed = self.parse_utxo_transaction(raw)
+            if parsed:
+                utxo_txs.append(parsed)
+        return utxo_txs
+

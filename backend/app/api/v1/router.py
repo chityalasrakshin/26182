@@ -27,6 +27,21 @@ from backend.app.schemas.trace import (
     TraceStatusResponse,
     TraceEvent
 )
+from backend.app.schemas.heuristics import (
+    UTXOTransaction,
+    AddressCluster,
+    ClusterQueryResponse,
+    SweepDetectionResult,
+    PeelChainDetectionResult,
+    HeuristicAnalyzeRequest,
+    HeuristicAnalysisSummary
+)
+from backend.app.services.heuristics import (
+    clustering_engine,
+    sweep_detector,
+    peel_detector,
+    heuristics_engine
+)
 from backend.app.workers.analysis_worker import AnalysisWorker, active_analyses_cache
 from backend.app.services.vasp.matcher import vasp_matcher
 from backend.app.services.reporting.generator import ReportGenerator
@@ -968,6 +983,106 @@ async def trigger_candidate_discovery(
         "status": "started",
         "message": f"Candidate discovery worker dispatched across {max_seeds} VASP seeds."
     }
+
+
+# ==============================================================================
+# Phase 3 — Clustering Heuristics & Risk Scoring Endpoints
+# ==============================================================================
+
+@api_router.post("/heuristics/clustering/common-input", response_model=Dict[str, Any])
+async def cluster_common_inputs(
+    transactions: List[UTXOTransaction]
+):
+    """
+    Applies the Bitcoin Common-Input-Ownership Heuristic (CIOH) to a batch of
+    multi-input UTXO transactions, merging co-spending addresses into clusters.
+    """
+    merged_count = clustering_engine.add_transactions(transactions)
+    clusters = clustering_engine.get_all_clusters(min_size=2)
+    return {
+        "transactions_processed": len(transactions),
+        "multi_input_clustering_events": merged_count,
+        "total_clusters_found": len(clusters),
+        "clusters": [c.model_dump() for c in clusters.values()]
+    }
+
+
+@api_router.get("/heuristics/cluster/{address}", response_model=ClusterQueryResponse)
+async def get_address_cluster(
+    address: str
+):
+    """
+    Queries the common-input ownership cluster containing the given address.
+    """
+    norm_addr = address.lower().strip()
+    cluster = clustering_engine.get_cluster(norm_addr)
+    co_spenders = list(clustering_engine.get_co_spenders(norm_addr))
+
+    return ClusterQueryResponse(
+        queried_address=address,
+        is_clustered=bool(cluster and cluster.cluster_size > 1),
+        cluster=cluster,
+        co_spenders=co_spenders
+    )
+
+
+@api_router.post("/heuristics/sweep-detection", response_model=List[SweepDetectionResult])
+async def detect_sweeps(
+    transactions: List[UTXOTransaction]
+):
+    """
+    Detects sweep and consolidation transactions (many inputs -> 1 dominant output).
+    """
+    results = sweep_detector.analyze_transactions(transactions)
+    return results
+
+
+@api_router.post("/heuristics/peel-chain", response_model=List[PeelChainDetectionResult])
+async def detect_peeling_chains(
+    transactions: List[UTXOTransaction],
+    min_length: int = Query(default=2, ge=2, le=20)
+):
+    """
+    Detects peeling chain sequences (2-output asymmetric transfers with sequential change spending).
+    """
+    detector = peel_detector if min_length == peel_detector.min_chain_length else peel_detector.__class__(min_chain_length=min_length)
+    chains = detector.detect_utxo_peel_chains(transactions)
+    return chains
+
+
+@api_router.post("/heuristics/analyze", response_model=HeuristicAnalysisSummary)
+async def analyze_heuristics(
+    req: HeuristicAnalyzeRequest
+):
+    """
+    Runs full composite heuristic analysis (CIOH clustering, sweep detection, peeling chains)
+    on provided UTXO transactions or fetches live transactions for an address.
+    """
+    txs: List[UTXOTransaction] = []
+
+    if req.raw_transactions:
+        for raw in req.raw_transactions:
+            try:
+                txs.append(UTXOTransaction(**raw))
+            except Exception as e:
+                logger.warning(f"Failed parsing transaction in heuristic analysis: {e}")
+    elif req.address:
+        # Fetch live transactions from Bitcoin provider
+        from backend.app.services.blockchain.factory import BlockchainProviderFactory
+        provider = BlockchainProviderFactory.get_provider("bitcoin")
+        if hasattr(provider, "get_raw_transactions"):
+            try:
+                txs = await provider.get_raw_transactions(req.address, max_tx=50)
+            except Exception as e:
+                logger.error(f"Failed fetching raw Bitcoin transactions for {req.address}: {e}")
+                raise HTTPException(status_code=502, detail=f"Failed fetching Bitcoin transactions: {e}")
+
+    summary = heuristics_engine.analyze_utxo_transactions(
+        transactions=txs,
+        queried_address=req.address
+    )
+    return summary
+
 
 
 

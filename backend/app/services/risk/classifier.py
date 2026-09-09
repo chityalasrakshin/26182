@@ -35,6 +35,9 @@ from dataclasses import dataclass, field
 import networkx as nx
 
 from backend.app.schemas.analysis import RiskAssessmentSchema
+from backend.app.services.heuristics.peel_detector import peel_detector
+from backend.app.services.heuristics.sweep_detector import sweep_detector
+from backend.app.services.heuristics.common_input import clustering_engine
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,8 @@ DEFAULT_SIGNAL_WEIGHTS = {
     "PEEL_CHAIN": 22,
     "HIGH_FAN_OUT": 12,
     "HIGH_FAN_IN": 12,
+    "SWEEP_CONSOLIDATION": 15,
+    "COMMON_INPUT_CLUSTER": 12,
     "RAPID_FORWARDING": 20,
     "SUSPICIOUS_VELOCITY": 10,
     "ROUND_AMOUNT_PATTERN": 5,
@@ -61,7 +66,7 @@ DEFAULT_SIGNAL_WEIGHTS = {
 # Category groupings and their hard caps
 CATEGORY_CAPS = {
     "VELOCITY_LAYER": 25,       # RAPID_FORWARDING + SUSPICIOUS_VELOCITY
-    "DISPERSION_LAYER": 22,     # HIGH_FAN_OUT + HIGH_FAN_IN + PEEL_CHAIN
+    "DISPERSION_LAYER": 25,     # HIGH_FAN_OUT + HIGH_FAN_IN + PEEL_CHAIN + SWEEP_CONSOLIDATION + COMMON_INPUT_CLUSTER
     "RECURRENCE_LAYER": 10,     # REPEATED_DESTINATION + ROUND_AMOUNT_PATTERN
     "ENTITY_RISK_LAYER": 50,    # SANCTIONED + MIXER + SCAM + BRIDGE
 }
@@ -73,6 +78,8 @@ SIGNAL_CATEGORIES = {
     "HIGH_FAN_OUT": "DISPERSION_LAYER",
     "HIGH_FAN_IN": "DISPERSION_LAYER",
     "PEEL_CHAIN": "DISPERSION_LAYER",
+    "SWEEP_CONSOLIDATION": "DISPERSION_LAYER",
+    "COMMON_INPUT_CLUSTER": "DISPERSION_LAYER",
     "REPEATED_DESTINATION": "RECURRENCE_LAYER",
     "ROUND_AMOUNT_PATTERN": "RECURRENCE_LAYER",
     "SANCTIONED_ENTITY_INTERACTION": "ENTITY_RISK_LAYER",
@@ -132,16 +139,20 @@ class RiskClassifier:
     def evaluate_risk(
         graph: nx.MultiDiGraph,
         root_wallet: str,
-        known_entities: Optional[Dict[str, str]] = None
+        known_entities: Optional[Dict[str, str]] = None,
+        cluster_info: Optional[Dict[str, Any]] = None,
+        utxo_transactions: Optional[List[Any]] = None
     ) -> RiskAssessmentSchema:
         """
-        Evaluate risk indicators from the transaction graph.
+        Evaluate risk indicators from the transaction graph and heuristic findings.
 
         Args:
             graph: NetworkX MultiDiGraph with node/edge attributes
             root_wallet: The seed wallet address being investigated
             known_entities: Optional dict mapping addresses to entity types
                           (e.g., {"0xabc...": "MIXER", "0xdef...": "SANCTIONED"})
+            cluster_info: Optional dictionary with common-input cluster details
+            utxo_transactions: Optional list of raw UTXO transactions
 
         Returns:
             RiskAssessmentSchema with bounded score, level, and indicators
@@ -178,14 +189,39 @@ class RiskClassifier:
         timestamps.sort()
 
         # ═══════════════════════════════════════════════════════════════════
-        # Signal 1: PEEL_CHAIN — Rapid linear small-volume peeling
+        # Signal 1: PEEL_CHAIN — Asymmetric sequential peeling
         # ═══════════════════════════════════════════════════════════════════
-        peel_chain_detected = _detect_peel_chain(graph, root_wallet)
-        if peel_chain_detected:
+        peel_chain_length = 0
+        peel_evidence = []
+        if utxo_transactions:
+            utxo_peels = peel_detector.detect_utxo_peel_chains(utxo_transactions)
+            if utxo_peels:
+                peel_chain_length = utxo_peels[0].chain_length
+                peel_evidence = [{
+                    "chain_id": p.chain_id,
+                    "length": p.chain_length,
+                    "peeled_total": p.total_peeled_amount
+                } for p in utxo_peels]
+
+        if not peel_chain_length:
+            graph_peels = peel_detector.detect_graph_peel_chains(graph, root_wallet=root_wallet)
+            if graph_peels:
+                peel_chain_length = graph_peels[0].chain_length
+                peel_evidence = [{
+                    "chain_id": p.chain_id,
+                    "length": p.chain_length,
+                    "peeled_total": p.total_peeled_amount
+                } for p in graph_peels]
+
+        if not peel_chain_length:
+            peel_chain_length = _detect_peel_chain(graph, root_wallet)
+
+        if peel_chain_length:
             contributions.append(_make_contribution(
                 "PEEL_CHAIN", category_running_totals,
-                f"Peel chain pattern detected: Linear chain of {peel_chain_detected} "
-                f"small-value sequential transfers from root wallet."
+                f"Peel chain pattern detected: Linear chain of {peel_chain_length} "
+                f"asymmetric sequential peeling transfers from root wallet.",
+                evidence=peel_evidence
             ))
 
         # ═══════════════════════════════════════════════════════════════════
@@ -218,6 +254,69 @@ class RiskClassifier:
                 "HIGH_FAN_IN", category_running_totals,
                 f"High fan-in aggregation: {fan_in_count} node(s) receiving "
                 f"from 5+ distinct sources (consolidation pattern)."
+            ))
+
+        # ═══════════════════════════════════════════════════════════════════
+        # Signal 3b: SWEEP_CONSOLIDATION — Multi-source consolidation
+        # ═══════════════════════════════════════════════════════════════════
+        sweep_detected = False
+        sweep_evidence = []
+        if utxo_transactions:
+            utxo_sweeps = sweep_detector.analyze_transactions(utxo_transactions)
+            if utxo_sweeps:
+                sweep_detected = True
+                sweep_evidence = [{
+                    "tx_hash": s.tx_hash,
+                    "inputs": s.input_count,
+                    "amount": s.consolidated_amount
+                } for s in utxo_sweeps[:3]]
+
+        if not sweep_detected:
+            graph_sweeps = sweep_detector.analyze_graph(graph, min_in_degree=3)
+            if graph_sweeps:
+                sweep_detected = True
+                sweep_evidence = [{
+                    "target": s.sweep_target_address,
+                    "sources": len(s.swept_source_addresses),
+                    "amount": s.consolidated_amount
+                } for s in graph_sweeps[:3]]
+
+        if sweep_detected:
+            contributions.append(_make_contribution(
+                "SWEEP_CONSOLIDATION", category_running_totals,
+                f"Sweep transaction detected: Multi-source balance consolidation identified in transaction flow.",
+                evidence=sweep_evidence
+            ))
+
+        # ═══════════════════════════════════════════════════════════════════
+        # Signal 3c: COMMON_INPUT_CLUSTER — Co-spending entity cluster
+        # ═══════════════════════════════════════════════════════════════════
+        cluster_detected = False
+        cluster_evidence = []
+        if cluster_info and cluster_info.get("cluster_size", 1) > 1:
+            cluster_detected = True
+            cluster_evidence = [{
+                "cluster_id": cluster_info.get("cluster_id"),
+                "size": cluster_info.get("cluster_size"),
+                "members": cluster_info.get("members", [])[:5]
+            }]
+        elif root_wallet:
+            cl = clustering_engine.get_cluster(root_wallet)
+            if cl and cl.cluster_size > 1:
+                cluster_detected = True
+                cluster_evidence = [{
+                    "cluster_id": cl.cluster_id,
+                    "size": cl.cluster_size,
+                    "members": cl.members[:5]
+                }]
+
+        if cluster_detected:
+            c_size = cluster_evidence[0].get("size", 2)
+            contributions.append(_make_contribution(
+                "COMMON_INPUT_CLUSTER", category_running_totals,
+                f"Common-input ownership cluster: Seed wallet belongs to a multi-address "
+                f"co-spending cluster of {c_size} addresses.",
+                evidence=cluster_evidence
             ))
 
         # ═══════════════════════════════════════════════════════════════════
@@ -345,10 +444,12 @@ class RiskClassifier:
         # Generate human-readable indicators list
         indicators: List[str] = []
         # Sort contributions by effective weight descending
-        contributions.sort(key=lambda c: c.effective_weight, reverse=True)
+        contributions.sort(key=lambda c: (c.effective_weight, c.raw_weight), reverse=True)
         for c in contributions:
             if c.effective_weight > 0:
                 indicators.append(f"[+{c.effective_weight}pts] {c.reason}")
+            elif c.raw_weight > 0:
+                indicators.append(f"[+0pts (layer capped)] {c.reason}")
 
         if not indicators:
             indicators.append(

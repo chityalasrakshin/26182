@@ -30,6 +30,20 @@ FEATURE_NAMES = [
     "is_hop3",
 ]
 
+HEURISTIC_FEATURE_NAMES = [
+    "has_sweep_pattern",
+    "sweep_tx_count",
+    "sweep_volume_ratio",
+    "has_peel_chain",
+    "peel_chain_max_length",
+    "peel_volume_total",
+    "is_clustered_entity",
+    "cluster_member_count",
+    "in_out_degree_ratio",
+]
+
+EXTENDED_FEATURE_NAMES = FEATURE_NAMES + HEURISTIC_FEATURE_NAMES
+
 
 def extract_candidate_features(
     graph: nx.MultiDiGraph,
@@ -146,3 +160,68 @@ def extract_candidate_features(
 def feature_dict_to_vector(features: Dict[str, float]) -> List[float]:
     """Ensures deterministic ordering of extracted features for model input."""
     return [float(features.get(k, 0.0)) for k in FEATURE_NAMES]
+
+
+def extract_enhanced_features(
+    graph: nx.MultiDiGraph,
+    root_wallet: str,
+    candidate_vasp_name: str,
+    candidate_nodes: List[Dict[str, Any]],
+    clustering_eng: Optional[Any] = None
+) -> Dict[str, float]:
+    """
+    Extracts base candidate features combined with Phase 3 clustering heuristics:
+    - Sweep / consolidation patterns
+    - Peeling chain structures
+    - Common-input cluster membership metrics
+    """
+    from backend.app.services.heuristics.sweep_detector import sweep_detector
+    from backend.app.services.heuristics.peel_detector import peel_detector
+
+    feats = extract_candidate_features(graph, root_wallet, candidate_vasp_name, candidate_nodes)
+
+    # Heuristic: Sweep Detection
+    sweeps = sweep_detector.analyze_graph(graph, min_in_degree=3)
+    sweeps_count = len(sweeps)
+    swept_vol = sum(s.consolidated_amount for s in sweeps)
+    root_outflow = feats.get("root_outflow_total", 1.0)
+    sweep_vol_ratio = min(swept_vol / max(root_outflow, 1e-6), 1.0)
+
+    feats["has_sweep_pattern"] = 1.0 if sweeps_count > 0 else 0.0
+    feats["sweep_tx_count"] = float(sweeps_count)
+    feats["sweep_volume_ratio"] = float(sweep_vol_ratio)
+
+    # Heuristic: Peeling-Chain Detection
+    peel_chains = peel_detector.detect_graph_peel_chains(graph, root_wallet=root_wallet)
+    has_peel = 1.0 if len(peel_chains) > 0 else 0.0
+    max_peel_len = float(max([p.chain_length for p in peel_chains], default=0))
+    peel_vol = float(sum(p.total_peeled_amount for p in peel_chains))
+
+    feats["has_peel_chain"] = has_peel
+    feats["peel_chain_max_length"] = max_peel_len
+    feats["peel_volume_total"] = peel_vol
+
+    # Heuristic: Common-Input Cluster Membership
+    is_clustered = 0.0
+    cluster_size = 1.0
+    if clustering_eng is not None:
+        cluster = clustering_eng.get_cluster(root_wallet)
+        if cluster and cluster.cluster_size > 1:
+            is_clustered = 1.0
+            cluster_size = float(cluster.cluster_size)
+
+    feats["is_clustered_entity"] = is_clustered
+    feats["cluster_member_count"] = cluster_size
+
+    # Degree Asymmetry
+    in_deg = graph.in_degree(root_wallet) if root_wallet in graph else 0
+    out_deg = graph.out_degree(root_wallet) if root_wallet in graph else 0
+    feats["in_out_degree_ratio"] = float(in_deg / max(out_deg, 1))
+
+    return feats
+
+
+def extended_feature_dict_to_vector(features: Dict[str, float]) -> List[float]:
+    """Serializes extended feature dictionary into vector adhering to EXTENDED_FEATURE_NAMES."""
+    return [float(features.get(k, 0.0)) for k in EXTENDED_FEATURE_NAMES]
+
