@@ -203,6 +203,19 @@ class PDFDossierGenerator:
         elements.extend(self._build_metrics_section(summary_stats, styles))
         elements.append(Spacer(1, 5 * mm))
 
+        # 6b. Cross-Chain Movement & Asset Flight Analysis
+        cross_chain_txs = []
+        for tx in (transactions or []):
+            is_b = getattr(tx, "is_bridge", False) if hasattr(tx, "is_bridge") else (tx.get("is_bridge", False) if isinstance(tx, dict) else False)
+            proto = getattr(tx, "bridge_protocol", None) if hasattr(tx, "bridge_protocol") else (tx.get("bridge_protocol") if isinstance(tx, dict) else None)
+            is_cc = getattr(tx, "is_cross_chain", False) if hasattr(tx, "is_cross_chain") else (tx.get("is_cross_chain", False) if isinstance(tx, dict) else False)
+            if is_b or proto or is_cc:
+                cross_chain_txs.append(tx)
+
+        if cross_chain_txs:
+            elements.extend(self._build_cross_chain_section(cross_chain_txs, styles))
+            elements.append(Spacer(1, 5 * mm))
+
         # 7. Transaction Evidence Table
         if evidence:
             elements.extend(self._build_evidence_section(evidence, styles))
@@ -527,6 +540,64 @@ class PDFDossierGenerator:
             ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
             ("LEFTPADDING", (0, 0), (-1, -1), 4),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, TABLE_ALT_ROW]),
+        ]))
+        elements.append(table)
+
+        return elements
+
+    def _build_cross_chain_section(self, cross_chain_txs: List[Any], styles):
+        """Build dedicated Cross-Chain Movement & Asset Flight Analysis table."""
+        elements = []
+        elements.append(Paragraph("CROSS-CHAIN MOVEMENT &amp; ASSET FLIGHT ANALYSIS", styles["SectionHeading"]))
+        elements.append(Paragraph(
+            "<i>Autonomous capital flight identified across cross-chain bridge contracts:</i>",
+            styles["BodyJustified"]
+        ))
+        elements.append(Spacer(1, 1.5 * mm))
+
+        headers = ["#", "Bridge Protocol", "Source (Chain/Wallet)", "Destination (Chain/Recipient)", "Amount", "Tx Hash"]
+        data = [headers]
+
+        for i, ctx in enumerate(cross_chain_txs[:10], 1):
+            if hasattr(ctx, "tx_hash"):
+                proto = str(getattr(ctx, "bridge_protocol", None) or "Bridge")
+                src_c = str(getattr(ctx, "source_chain", getattr(ctx, "chain", "ETH"))).upper()
+                dst_c = str(getattr(ctx, "destination_chain", getattr(ctx, "target_chain", "SOL"))).upper()
+                src_w = _truncate(str(ctx.from_address), 16)
+                dst_w = _truncate(str(getattr(ctx, "destination_address", ctx.to_address)), 16)
+                amt = f"{ctx.amount:.2f} {ctx.token_symbol or ''}".strip()
+                tx_h = _truncate(str(ctx.tx_hash), 16)
+            else:
+                proto = str(ctx.get("bridge_protocol") or "Bridge")
+                src_c = str(ctx.get("source_chain") or ctx.get("chain", "ETH")).upper()
+                dst_c = str(ctx.get("destination_chain") or ctx.get("target_chain", "SOL")).upper()
+                src_w = _truncate(str(ctx.get("from", ctx.get("from_address", "-"))), 16)
+                dst_w = _truncate(str(ctx.get("destination_address") or ctx.get("to", ctx.get("to_address", "-"))), 16)
+                amt = f"{ctx.get('amount', 0)} {ctx.get('asset', ctx.get('token_symbol', ''))}".strip()
+                tx_h = _truncate(str(ctx.get("tx_hash", "-")), 16)
+
+            data.append([
+                str(i),
+                proto[:18],
+                f"{src_c}: {src_w}",
+                f"{dst_c}: {dst_w}",
+                amt,
+                tx_h,
+            ])
+
+        col_widths = [8 * mm, 30 * mm, 38 * mm, 38 * mm, 24 * mm, 32 * mm]
+        table = Table(data, colWidths=col_widths)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#4a148c")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME", (0, 1), (-1, -1), "Courier"),
+            ("FONTSIZE", (0, 0), (-1, -1), 6.5),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#7b1fa2")),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f3e8ff")]),
         ]))
         elements.append(table)
 

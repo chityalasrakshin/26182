@@ -127,56 +127,23 @@ def test_estimative_probability_ladder_mapping():
 @pytest.mark.asyncio
 async def test_narrative_service_deterministic_synthesis():
     """
-    Verifies that LLMNarrativeService synthesizes a complete intelligence brief
-    conforming to write-the-intel-brief: BLUF, Observations, Inferences,
-    Assessments, Negative Findings, and Next Actions.
+    Verifies that LLMNarrativeService raises RuntimeError when ANTHROPIC_API_KEY
+    is not configured, strictly preventing fake or static fallback responses.
     """
-    service = LLMNarrativeService(api_key="")  # Force fallback
+    service = LLMNarrativeService(api_key="")
     wallet = "0xa090e606e30bd747d4e6245a1517ebe430f0057e"
 
-    attributions = [
-        {"vasp_name": "Binance", "score": 88.5, "evidence_strength": "High", "rank": 1, "summary": "Direct deposit into Binance cluster"}
-    ]
-    risk = {
-        "score": 75.0,
-        "risk_level": "HIGH",
-        "explanation": "Rapid peeling chain traversal observed.",
-        "indicators": ["Peeling chain detected across 3 hops", "Rapid pass-through transaction velocity"]
-    }
-    evidence = [
-        {"evidence_type": "Direct Transfer", "strength": "High", "hop_distance": 1, "source_address": wallet, "target_address": "0xb5d85cbf7cb3ee0d56b3bb207d5fc4b82f43f511", "tx_hash": "0x59fdffd6b720040e1189a7690a5f33ebe9ae50eb09d19e498b1228134285c2a6"}
-    ]
-    txs = [
-        {"tx_hash": "0x59fdffd6...", "from": wallet, "to": "0xb5d85cbf...", "amount": 5.78, "asset": "ETH", "hop": 1}
-    ]
-
-    res = await service.generate_narrative(
-        case_id="case-p5-test",
-        wallet_address=wallet,
-        chain="Ethereum Mainnet",
-        attributions=attributions,
-        risk_assessment=risk,
-        evidence=evidence,
-        transactions=txs,
-        summary_stats={"total_nodes": 12, "total_edges": 15, "vasp_nodes_found": 1, "max_hop_reached": 3}
-    )
-
-    assert "narrative" in res
-    assert "bluf" in res
-    assert res["confidence"] == "High"
-    assert res["probability_term"] == "almost certainly"
-    assert res["mode"] == "deterministic_fallback"
-
-    narrative = res["narrative"]
-    assert "### 1. BOTTOM LINE UP FRONT (BLUF)" in narrative
-    assert "### 2. VERIFIABLE OBSERVATIONS (FACTUAL RECORD)" in narrative
-    assert "### 3. FORENSIC INFERENCES (TRANSACTION DYNAMICS & PATTERNS)" in narrative
-    assert "### 4. ANALYTIC ASSESSMENT (VASP ATTRIBUTION & ESTIMATIVE RATING)" in narrative
-    assert "### 5. NEGATIVE FINDINGS & LIMITATIONS" in narrative
-    assert "### 6. RECOMMENDED LAW ENFORCEMENT ACTIONS (SECTION 94 BNSS / 91 CrPC)" in narrative
-    assert "Binance" in narrative
-    assert wallet in narrative
-    assert "almost certainly" in narrative
+    with pytest.raises(RuntimeError, match="Anthropic Claude API key is not configured"):
+        await service.generate_narrative(
+            case_id="case-p5-test",
+            wallet_address=wallet,
+            chain="Ethereum Mainnet",
+            attributions=[{"vasp_name": "Binance", "score": 88.5, "evidence_strength": "High", "rank": 1}],
+            risk_assessment={"score": 75.0, "risk_level": "HIGH"},
+            evidence=[],
+            transactions=[],
+            summary_stats={"total_nodes": 12, "total_edges": 15, "vasp_nodes_found": 1, "max_hop_reached": 3}
+        )
 
 
 @pytest.mark.asyncio
@@ -317,7 +284,8 @@ def test_report_generator_schema_and_markdown():
         evidence=[EvidenceSchema(evidence_type="Flow", strength="High", hop_distance=1, source_address="0x1", target_address="0x2", tx_hash="0x3", explanation="Flow proof")],
         risk_assessment=RiskAssessmentSchema(risk_level="MEDIUM", score=55.0, indicators=["Transit activity"], explanation="Moderate transit flow"),
         summary_stats={"total_nodes": 6, "total_edges": 8, "vasp_nodes_found": 1, "max_hop_reached": 2},
-        critical_txs=[{"tx_hash": "0x3", "from": "0x1", "to": "0x2", "amount": 10.0, "asset": "USDT", "hop": 1}]
+        critical_txs=[{"tx_hash": "0x3", "from": "0x1", "to": "0x2", "amount": 10.0, "asset": "USDT", "hop": 1}],
+        narrative="Verified CoinDCX deposit flow."
     )
 
     assert report.narrative is not None
@@ -371,9 +339,6 @@ def test_api_get_analysis_report_json_and_markdown(mock_completed_analysis):
     assert resp_json.status_code == 200
     data = resp_json.json()
     assert data["case_id"] == aid
-    assert "narrative" in data
-    assert data["narrative"] is not None
-    assert "Binance" in data["narrative"]
     assert "draft_disclosure_notice" in data
 
     # 2. Markdown format
@@ -381,23 +346,18 @@ def test_api_get_analysis_report_json_and_markdown(mock_completed_analysis):
     assert resp_md.status_code == 200
     md_data = resp_md.json()
     assert "report_markdown" in md_data
-    assert "EXECUTIVE FORENSIC INTELLIGENCE BRIEF" in md_data["report_markdown"]
+    assert "CRYPTOCURRENCY ASSET INVESTIGATION DOSSIER" in md_data["report_markdown"]
 
 
 def test_api_get_analysis_narrative_endpoint(mock_completed_analysis):
-    """Verifies dedicated GET /api/v1/analysis/{id}/narrative endpoint."""
+    """Verifies dedicated GET /api/v1/analysis/{id}/narrative returns 503 when Claude API is unconfigured."""
     aid = mock_completed_analysis
     token = get_token("p5_investigator", "investigator")
     headers = {"Authorization": f"Bearer {token}"}
 
     resp = client.get(f"/api/v1/analysis/{aid}/narrative", headers=headers)
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "narrative" in data
-    assert "bluf" in data
-    assert "confidence" in data
-    assert "probability_term" in data
-    assert data["confidence"] == "High"
+    assert resp.status_code == 503
+    assert "Anthropic" in resp.json()["detail"]
 
 
 def test_api_get_analysis_graph_image_endpoint(mock_completed_analysis):
@@ -488,7 +448,7 @@ def test_api_case_report_and_pdf_export_rbac_and_audit():
     rep_resp = client.get(f"/api/v1/cases/{case_id}/report?format=markdown", headers={"Authorization": f"Bearer {inv_token}"})
     assert rep_resp.status_code == 200
     assert "report_markdown" in rep_resp.json()
-    assert "EXECUTIVE FORENSIC INTELLIGENCE BRIEF" in rep_resp.json()["report_markdown"]
+    assert "CRYPTOCURRENCY ASSET INVESTIGATION DOSSIER" in rep_resp.json()["report_markdown"]
 
     # 4. Other investigator is forbidden (403)
     forbidden_resp = client.get(f"/api/v1/cases/{case_id}/report", headers={"Authorization": f"Bearer {other_token}"})

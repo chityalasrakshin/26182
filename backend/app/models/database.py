@@ -4,11 +4,22 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import String, Integer, Float, Boolean, DateTime, Text, ForeignKey, Index, UniqueConstraint
 
-from backend.app.core.config import settings
+import os
+from backend.app.core.config import settings, BASE_DIR
+
+def _get_database_url() -> str:
+    url = settings.DATABASE_URL
+    if url.startswith("sqlite+aiosqlite:///"):
+        path_part = url[len("sqlite+aiosqlite:///"):]
+        if not os.path.isabs(path_part) and not (len(path_part) > 1 and path_part[1] == ":"):
+            abs_db = (BASE_DIR / path_part.lstrip("./\\")).resolve()
+            abs_db.parent.mkdir(parents=True, exist_ok=True)
+            return f"sqlite+aiosqlite:///{abs_db.as_posix()}"
+    return url
 
 # Async engine for FastAPI
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    _get_database_url(),
     echo=False,
     future=True
 )

@@ -602,21 +602,25 @@ async def get_case_report(
         for t in cached.get("transactions", [])
     ]
 
-    narrative_data = await narrative_service.generate_narrative(
-        case_id=case_id,
-        wallet_address=case.suspect_address,
-        chain=chain_name,
-        attributions=attr_dicts,
-        risk_assessment=risk_dict,
-        evidence=evidence_dicts,
-        transactions=tx_dicts,
-        summary_stats={
-            "total_nodes": cached.get("num_nodes", 0),
-            "total_edges": cached.get("num_edges", 0),
-            "vasp_nodes_found": len(attr_dicts),
-            "max_hop_reached": cached.get("max_hops", 3)
-        }
-    )
+    narrative_data = None
+    try:
+        narrative_data = await narrative_service.generate_narrative(
+            case_id=case_id,
+            wallet_address=case.suspect_address,
+            chain=chain_name,
+            attributions=attr_dicts,
+            risk_assessment=risk_dict,
+            evidence=evidence_dicts,
+            transactions=tx_dicts,
+            summary_stats={
+                "total_nodes": cached.get("num_nodes", 0),
+                "total_edges": cached.get("num_edges", 0),
+                "vasp_nodes_found": len(attr_dicts),
+                "max_hop_reached": cached.get("max_hops", 3)
+            }
+        )
+    except RuntimeError as err:
+        logger.warning(f"AI narrative omitted from case report: {err}")
 
     report = ReportGenerator.generate_report(
         case_id=case_id,
@@ -630,8 +634,18 @@ async def get_case_report(
             "vasp_nodes_found": len(attr_dicts),
             "max_hop_reached": cached.get("max_hops", 3)
         },
-        critical_txs=tx_dicts[:10],
-        narrative=narrative_data.get("narrative"),
+        critical_txs=[
+            {
+                "tx_hash": t.tx_hash if hasattr(t, "tx_hash") else t.get("tx_hash", "N/A"),
+                "from": t.from_address if hasattr(t, "from_address") else t.get("from", t.get("from_address", "N/A")),
+                "to": t.to_address if hasattr(t, "to_address") else t.get("to", t.get("to_address", "N/A")),
+                "amount": t.amount if hasattr(t, "amount") else t.get("amount", 0.0),
+                "asset": t.token_symbol if hasattr(t, "token_symbol") else t.get("token_symbol", t.get("asset", "ETH")),
+                "hop": t.hop if hasattr(t, "hop") else t.get("hop", 1)
+            }
+            for t in cached.get("transactions", [])[:10]
+        ],
+        narrative=narrative_data.get("narrative") if narrative_data else None,
         narrative_metadata=narrative_data
     )
     report.chain = chain_name
@@ -727,21 +741,25 @@ async def export_case_pdf(
         for t in cached.get("transactions", [])
     ]
 
-    narrative_res = await narrative_service.generate_narrative(
-        case_id=case_id,
-        wallet_address=case.suspect_address,
-        chain=chain_name,
-        attributions=attr_dicts,
-        risk_assessment=risk_dict,
-        evidence=evidence_dicts,
-        transactions=tx_dicts,
-        summary_stats={
-            "total_nodes": cached.get("num_nodes", 0),
-            "total_edges": cached.get("num_edges", 0),
-            "vasp_nodes_found": len(attr_dicts),
-            "max_hop_reached": cached.get("max_hops", 3)
-        }
-    )
+    narrative_res = None
+    try:
+        narrative_res = await narrative_service.generate_narrative(
+            case_id=case_id,
+            wallet_address=case.suspect_address,
+            chain=chain_name,
+            attributions=attr_dicts,
+            risk_assessment=risk_dict,
+            evidence=evidence_dicts,
+            transactions=tx_dicts,
+            summary_stats={
+                "total_nodes": cached.get("num_nodes", 0),
+                "total_edges": cached.get("num_edges", 0),
+                "vasp_nodes_found": len(attr_dicts),
+                "max_hop_reached": cached.get("max_hops", 3)
+            }
+        )
+    except RuntimeError as err:
+        logger.warning(f"AI narrative omitted from case PDF: {err}")
 
     top_attr_obj = cached.get("attributions", [None])[0] if cached.get("attributions") else None
     draft_notice = LegalNoticeGenerator.generate_freeze_notice(
@@ -770,7 +788,7 @@ async def export_case_pdf(
             "vasp_nodes_found": len(attr_dicts),
             "max_hop_reached": cached.get("max_hops", 3)
         },
-        narrative=narrative_res.get("narrative"),
+        narrative=narrative_res.get("narrative") if narrative_res else None,
         draft_notice=draft_notice,
         officer_name=officer_name,
         police_station=police_station
@@ -874,107 +892,8 @@ async def dispatch_case_disclosure_request(
     if not target_vasp:
         target_vasp = "Virtual Asset Service Provider"
 
-    # 2. Look up VASP directory record for SLA, mock endpoint, and electronic routing code
-    from backend.app.services.vasp.directory_service import directory_service
-    dir_entry = await directory_service.get_by_name(db, target_vasp)
-
-    if dir_entry:
-        official_vasp_name = dir_entry["name"]
-        sahyog_routing_code = dir_entry["sahyog_routing_code"] or f"SAHYOG-VASP-{official_vasp_name.upper().replace(' ', '')}-GLB"
-        mock_contact_endpoint = dir_entry["mock_contact_endpoint"]
-        mock_response_sla = dir_entry["mock_response_sla"]
-    else:
-        official_vasp_name = target_vasp
-        sahyog_routing_code = f"SAHYOG-VASP-{official_vasp_name.upper().replace(' ', '')}-GLB"
-        mock_contact_endpoint = f"https://sahyog.gov.in/api/v1/vasp/{official_vasp_name.lower().replace(' ', '')}/dispatch"
-        mock_response_sla = "24 Hours (Statutory Emergency)"
-
-    # 3. Generate unique mock dispatch reference
-    now_utc = datetime.now(timezone.utc)
-    dispatch_id = f"SAHYOG-REQ-{now_utc.year}-{uuid.uuid4().hex[:8].upper()}"
-
-    officer_name = (payload.officer_name if payload and payload.officer_name else current_user.full_name) or "Investigating Officer"
-    police_station = (payload.police_station if payload and payload.police_station else "Cyber Crime Police Station")
-    crime_ref = (payload.crime_reference if payload and payload.crime_reference else case.ncrp_complaint_id) or f"NCRP/{now_utc.year}/CYBER-{case_id[:8].upper()}"
-    urgency = payload.urgency if payload and payload.urgency else "CRITICAL_24H"
-
-    ack_message = (
-        f"Request logged — SAHYOG production integration would route this to "
-        f"{official_vasp_name} via the SAHYOG lawful-disclosure API"
-    )
-
-    # 4. Write immutable audit log record (Rule 6)
-    ip_addr = request.client.host if request and request.client else None
-    audit_event = await audit_logger.log_event(
-        action=AuditAction.DISCLOSURE_REQUEST,
-        resource_type=AuditResourceType.CASE,
-        resource_id=dispatch_id,
-        case_id=case_id,
-        user_id=current_user.id,
-        username=current_user.username,
-        details={
-            "dispatch_id": dispatch_id,
-            "case_id": case_id,
-            "suspect_address": case.suspect_address,
-            "chain": case.chain,
-            "target_vasp": official_vasp_name,
-            "sahyog_routing_code": sahyog_routing_code,
-            "mock_contact_endpoint": mock_contact_endpoint,
-            "mock_response_sla": mock_response_sla,
-            "urgency": urgency,
-            "is_simulated": True,
-            "simulation_notice": "SIMULATED INTEGRATION — Mock Lawful Disclosure Dispatch via SAHYOG API",
-            "message": ack_message,
-            "officer_name": officer_name,
-            "police_station": police_station,
-            "crime_reference": crime_ref,
-            "custom_instructions": payload.custom_instructions if payload else None
-        },
-        ip_address=ip_addr,
-        db=db
-    )
-
-    # 5. Draft statutory notice summary if analysis available
-    draft_summary = None
-    try:
-        top_attr_obj = cached_analysis.get("attributions", [None])[0] if cached_analysis and cached_analysis.get("attributions") else None
-        draft_notice = LegalNoticeGenerator.generate_freeze_notice(
-            case_id=case_id,
-            wallet_address=case.suspect_address,
-            chain=case.chain,
-            attribution=top_attr_obj,
-            evidence=cached_analysis.get("evidence", []) if cached_analysis else [],
-            transactions=cached_analysis.get("transactions", []) if cached_analysis else [],
-            officer_name=officer_name,
-            police_station=police_station,
-            crime_number=crime_ref
-        )
-        draft_summary = {
-            "ref_number": draft_notice.get("ref_number"),
-            "fiu_ind_registration": draft_notice.get("fiu_ind_registration"),
-            "compliance_email": draft_notice.get("compliance_email"),
-            "designated_lea_email": draft_notice.get("designated_lea_email"),
-            "statutory_references": draft_notice.get("statutory_references", [])
-        }
-    except Exception as e:
-        logger.warning(f"Could not attach draft notice summary: {e}")
-
-    return DisclosureRequestResponse(
-        is_simulated=True,
-        simulation_notice="SIMULATED INTEGRATION — Mock Lawful Disclosure Dispatch via SAHYOG API",
-        dispatch_id=dispatch_id,
-        case_id=case_id,
-        suspect_address=case.suspect_address,
-        chain=case.chain,
-        target_vasp=official_vasp_name,
-        sahyog_routing_code=sahyog_routing_code,
-        mock_contact_endpoint=mock_contact_endpoint,
-        mock_response_sla=mock_response_sla,
-        status="ACKNOWLEDGED_SIMULATED",
-        acknowledgment_message=ack_message,
-        statutory_authority="Section 94 BNSS, 2023 / Section 91 Cr.P.C., 1973",
-        dispatched_by=current_user.username,
-        timestamp=now_utc,
-        timeline_event_id=audit_event.id if audit_event else None,
-        draft_notice_summary=draft_summary
+    # 2. Check if live external electronic disclosure gateway is configured
+    raise HTTPException(
+        status_code=501,
+        detail="External electronic lawful disclosure API gateway is not configured. Generate the court-admissible Section 94 BNSS / Section 91 Cr.P.C. legal notice PDF or transmit directly via the verified VASP Law Enforcement compliance portal."
     )

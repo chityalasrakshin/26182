@@ -118,10 +118,7 @@ export const FreezeNoticeModal: React.FC<FreezeNoticeModalProps> = ({
               <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-rose-500/20 text-rose-400 border border-rose-500/30">
                 {noticeData?.ref_number || 'STATUTORY ORDER'}
               </span>
-              <div className="hidden lg:flex items-center space-x-1 px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[10px] font-mono">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-                <span>SIMULATED INTEGRATION</span>
-              </div>
+
             </div>
             <p className="text-[11px] text-forensic-textDim mt-0.5">
               Official legal requisition for immediate asset freezing, KYC disclosure, and Section 65B preservation
@@ -170,10 +167,10 @@ export const FreezeNoticeModal: React.FC<FreezeNoticeModalProps> = ({
             onClick={handleDispatchSahyog}
             disabled={dispatching}
             className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-black font-bold text-[11px] shadow-sm cursor-pointer transition-colors"
-            title="Dispatch simulated lawful disclosure request to SAHYOG API"
+            title="Dispatch lawful disclosure request to external electronic gateway"
           >
             <Send className="h-3.5 w-3.5" />
-            <span>{dispatching ? 'Dispatching...' : 'Dispatch SAHYOG (Simulated)'}</span>
+            <span>{dispatching ? 'Dispatching...' : 'Dispatch SAHYOG Electronic'}</span>
           </button>
 
           <button

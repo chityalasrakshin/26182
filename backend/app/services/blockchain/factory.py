@@ -1,18 +1,19 @@
 from backend.app.core.config import settings
 from backend.app.core.address_validator import (
     detect_blockchain, is_valid_tron_address, is_valid_btc_address,
-    is_valid_eth_address, detect_evm_chain
+    is_valid_eth_address, is_valid_sol_address, detect_evm_chain
 )
 from backend.app.services.blockchain.base import BlockchainProvider
 from backend.app.services.blockchain.etherscan import EtherscanProvider
 from backend.app.services.blockchain.tron import TronProvider
 from backend.app.services.blockchain.bitcoin import BitcoinProvider
+from backend.app.services.blockchain.solana import SolanaProvider
 
 
 class BlockchainProviderFactory:
     """
     Factory automatically routing to the appropriate blockchain provider
-    (Ethereum, Tron, Bitcoin, Polygon, BSC, Arbitrum) based on the address
+    (Ethereum, Tron, Bitcoin, Solana, Polygon, BSC, Arbitrum) based on the address
     prefix/network or explicit chain name.
 
     Multi-EVM chains are served by the same EtherscanProvider class, with
@@ -34,7 +35,7 @@ class BlockchainProviderFactory:
 
         Args:
             address_or_chain: Either a wallet address (auto-detected) or an explicit
-                            chain name (ethereum, tron, bitcoin, polygon, bsc, arbitrum)
+                            chain name (ethereum, tron, bitcoin, solana, polygon, bsc, arbitrum)
 
         Returns:
             BlockchainProvider instance configured for the target chain
@@ -43,6 +44,10 @@ class BlockchainProviderFactory:
         arg_lower = arg.lower()
 
         # --- Explicit chain name routing ---
+
+        # Solana by name
+        if arg_lower == "solana" or arg_lower == "sol":
+            return SolanaProvider()
 
         # Bitcoin by name
         if arg_lower == "bitcoin" or arg_lower == "btc":
@@ -62,6 +67,10 @@ class BlockchainProviderFactory:
             )
 
         # --- Address-based auto-detection ---
+
+        # Check Solana address
+        if is_valid_sol_address(arg):
+            return SolanaProvider()
 
         # Check Tron address
         if is_valid_tron_address(arg):
@@ -87,4 +96,4 @@ class BlockchainProviderFactory:
     @staticmethod
     def get_supported_chains() -> list:
         """Returns list of all supported blockchain chain names."""
-        return ["ethereum", "tron", "bitcoin", "polygon", "bsc", "arbitrum"]
+        return ["ethereum", "tron", "bitcoin", "polygon", "bsc", "arbitrum", "solana"]

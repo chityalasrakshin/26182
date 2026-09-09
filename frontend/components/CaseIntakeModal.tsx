@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FolderPlus,
   X,
@@ -25,48 +25,6 @@ interface CaseIntakeModalProps {
   onCaseCreated: (createdCase: CaseItem, initialJobId?: string) => void;
 }
 
-const DEMO_PRESETS = [
-  {
-    name: 'Binance Counterparty',
-    address: '0x3f8702cfb1662195fcc98593789682da91dfaae3',
-    chain: 'ethereum',
-    priority: 'CRITICAL',
-    title: 'NCRP-2026 Task Fraud Layering Lead',
-    loss_inr: 4500000,
-    ncrp: 'NCRP-MH-2026-948102',
-    tag: 'Exchange Counterparty',
-  },
-  {
-    name: 'Gate.io Rapid Mule',
-    address: '0x0051cc1d8bbf0b3373b02e22ea5a2fe483266cea',
-    chain: 'ethereum',
-    priority: 'HIGH',
-    title: 'Telegram Part-time Job Investment Scam',
-    loss_inr: 1250000,
-    ncrp: 'NCRP-KA-2026-381920',
-    tag: 'High Velocity Mule',
-  },
-  {
-    name: 'Tornado Cash Mixer',
-    address: '0xd90e2f925da726b50c4ed8d0fb90ad053324f31b',
-    chain: 'ethereum',
-    priority: 'CRITICAL',
-    title: 'DeFi Exploit Obfuscation Pool',
-    loss_inr: 85000000,
-    ncrp: 'NCRP-DL-2026-102934',
-    tag: 'Sanctioned Mixer',
-  },
-  {
-    name: 'Tron TRC-20 Tether Mule',
-    address: 'TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k',
-    chain: 'tron',
-    priority: 'HIGH',
-    title: 'Ponzi Investment Laundering Channel',
-    loss_inr: 3200000,
-    ncrp: 'NCRP-TN-2026-551048',
-    tag: 'TRC-20 USDT',
-  },
-];
 
 export const CaseIntakeModal: React.FC<CaseIntakeModalProps> = ({
   isOpen,
@@ -74,6 +32,32 @@ export const CaseIntakeModal: React.FC<CaseIntakeModalProps> = ({
   onCaseCreated,
 }) => {
   const [activeTab, setActiveTab] = useState<'single' | 'csv'>('single');
+  const [discoveredPresets, setDiscoveredPresets] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchTopSeeds = async () => {
+      try {
+        const res = await api.getCandidates({ limit: 4, min_score: 40, sort_by: 'quality' });
+        if (res?.candidates && res.candidates.length > 0) {
+          setDiscoveredPresets(
+            res.candidates.map((c: any) => ({
+              name: c.discovery_vasp_name ? `${c.discovery_vasp_name} Counterparty` : 'Discovered Lead',
+              address: c.address,
+              chain: c.chain,
+              priority: 'HIGH',
+              title: `Suspect Lead (${c.chain.toUpperCase()}) - ${c.discovery_vasp_name || 'Counterparty'}`,
+              loss_inr: Math.round((c.total_volume_usd || 10000) * 83),
+              ncrp: `NCRP-2026-${c.id.toString().padStart(6, '0')}`,
+              tag: c.discovery_vasp_name || 'Active Counterparty',
+            }))
+          );
+        }
+      } catch (e) {
+        console.warn('Could not fetch candidate presets for intake:', e);
+      }
+    };
+    fetchTopSeeds();
+  }, []);
 
   // Single Case Form State
   const [suspectAddress, setSuspectAddress] = useState('');
@@ -103,7 +87,7 @@ export const CaseIntakeModal: React.FC<CaseIntakeModalProps> = ({
     return { valid: false, detectedChain: 'unknown', error: 'Invalid crypto wallet address format' };
   };
 
-  const handleApplyPreset = (preset: typeof DEMO_PRESETS[0]) => {
+  const handleApplyPreset = (preset: any) => {
     setSuspectAddress(preset.address);
     setChain(preset.chain as any);
     setTitle(preset.title);
@@ -305,12 +289,16 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
                 <div className="flex items-center justify-between text-[11px] text-forensic-textDim">
                   <span className="flex items-center space-x-1.5 font-bold uppercase tracking-wider text-forensic-text">
                     <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                    <span>Quick Demo Seeds (Curated On-Chain Targets):</span>
+                    <span>Discovered Target Leads (Active Database Counterparties):</span>
                   </span>
                   <span className="text-[10px] text-forensic-textDim">Click to autofill</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                  {DEMO_PRESETS.map((p, idx) => (
+                  {discoveredPresets.length === 0 ? (
+                    <div className="col-span-4 text-[10px] text-forensic-textDim py-1 italic">
+                      No automated candidate leads in database yet. Enter suspect details manually below.
+                    </div>
+                  ) : discoveredPresets.map((p, idx) => (
                     <button
                       key={idx}
                       type="button"

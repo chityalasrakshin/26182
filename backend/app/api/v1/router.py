@@ -116,8 +116,7 @@ async def start_trace(
     job_id = trace_job_manager.create_job(
         address=norm_addr,
         chain=detected_chain,
-        max_depth=req.max_depth,
-        demo_mode=req.demo_mode
+        max_depth=req.max_depth
     )
 
     # Launch asynchronous execution
@@ -131,7 +130,7 @@ async def start_trace(
         resource_id=job_id,
         user_id=current_user.id if current_user else None,
         username=current_user.username if current_user else "anonymous_investigator",
-        details={"address": norm_addr, "chain": detected_chain, "max_depth": req.max_depth, "demo_mode": req.demo_mode},
+        details={"address": norm_addr, "chain": detected_chain, "max_depth": req.max_depth},
         ip_address=ip_addr,
         db=db
     )
@@ -144,7 +143,7 @@ async def start_trace(
         chain=job_data["chain"],
         max_depth=job_data["max_depth"],
         started_at=job_data["started_at"],
-        demo_mode=job_data.get("demo_mode", False)
+        demo_mode=False
     )
 
 
@@ -252,36 +251,6 @@ api_router.include_router(trace_router)
 
 
 # ==============================================================================
-# Phase 8 — Demo Hardening & Diagnostics Endpoint
-# ==============================================================================
-
-@api_router.get("/demo/status")
-async def get_demo_status():
-    """
-    Diagnostic status endpoint for Phase 8 Demo Hardening.
-    Exposes pre-warmed cache stats, registered benchmark targets, and offline readiness.
-    """
-    stats = blockchain_cache.get_stats()
-    from backend.app.core.config import BASE_DIR
-    labels_file = BASE_DIR / "data" / "labels" / "demo_labels.json"
-    benchmarks = []
-    if labels_file.exists():
-        try:
-            with open(labels_file, "r", encoding="utf-8") as f:
-                benchmarks = json.load(f)
-        except Exception:
-            benchmarks = []
-
-    return {
-        "demo_active": True,
-        "prewarmed": len(stats.get("prewarmed_addresses", [])) > 0,
-        "cached_benchmark_count": len(benchmarks),
-        "benchmarks": benchmarks,
-        "cache_stats": stats,
-    }
-
-
-# ==============================================================================
 # Analysis Lifecycle Endpoints
 # ==============================================================================
 
@@ -294,14 +263,10 @@ async def start_analysis(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Initiates an asynchronous 3-hop VASP attribution analysis on an Ethereum or Tron wallet.
+    Initializes a new blockchain wallet attribution pipeline.
+    Validates input address (Ethereum or Tron), persists state, and offloads
+    multi-hop graph crawling to asynchronous worker.
     """
-    if not is_valid_crypto_address(req.wallet_address):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid address format: {req.wallet_address}. Must be Ethereum (0x...) or Tron (T...)."
-        )
-
     norm_address = normalize_address(req.wallet_address)
     analysis_id = str(uuid.uuid4())
 
@@ -309,13 +274,11 @@ async def start_analysis(
         id=analysis_id,
         wallet_address=norm_address,
         max_hops=req.max_hops,
-        status="QUEUED",
-        started_at=datetime.datetime.utcnow()
+        status="QUEUED"
     )
     db.add(new_run)
     await db.commit()
 
-    # Append audit log
     ip_addr = request.client.host if request and request.client else None
     await audit_logger.log_event(
         action=AuditAction.ANALYSIS_START,
@@ -323,7 +286,7 @@ async def start_analysis(
         resource_id=analysis_id,
         user_id=current_user.id if current_user else None,
         username=current_user.username if current_user else "anonymous_investigator",
-        details={"wallet_address": norm_address, "max_hops": req.max_hops, "demo_mode": req.demo_mode},
+        details={"wallet_address": norm_address, "max_hops": req.max_hops},
         ip_address=ip_addr,
         db=db
     )
@@ -332,8 +295,7 @@ async def start_analysis(
         AnalysisWorker.run_pipeline,
         analysis_id=analysis_id,
         wallet_address=norm_address,
-        max_hops=req.max_hops,
-        demo_mode=req.demo_mode
+        max_hops=req.max_hops
     )
 
     return AnalysisStatusResponse(
@@ -344,7 +306,7 @@ async def start_analysis(
         num_transactions=0,
         num_nodes=1,
         num_edges=0,
-        demo_mode=req.demo_mode
+        demo_mode=False
     )
 
 
@@ -367,7 +329,7 @@ async def get_analysis_status(
             num_transactions=cached.get("num_transactions", 0),
             num_nodes=cached.get("num_nodes", 0),
             num_edges=cached.get("num_edges", 0),
-            demo_mode=cached.get("demo_mode", False),
+            demo_mode=False,
             top_attribution=top_attr,
             risk_assessment=cached.get("risk_assessment")
         )
@@ -390,25 +352,6 @@ async def get_analysis_status(
         num_nodes=run.num_nodes,
         num_edges=run.num_edges
     )
-
-
-@api_router.get("/demo/status")
-async def get_demo_status():
-    """
-    Returns pre-warmed cache diagnostic metrics and offline evaluation readiness.
-    Provides evaluators with full visibility into cached vs live capability.
-    """
-    from backend.app.services.blockchain.cache import blockchain_cache
-    stats = blockchain_cache.get_stats()
-    return {
-        "status": "ready",
-        "demo_mode_active": True,
-        "prewarmed_targets_count": len(stats.get("prewarmed_addresses", [])),
-        "prewarmed_addresses": stats.get("prewarmed_addresses", []),
-        "disk_cache_files_count": stats.get("disk_cache_files", 0),
-        "in_memory_keys_count": stats.get("in_memory_keys", 0),
-        "supported_rails": ["ethereum", "tron", "bitcoin"]
-    }
 
 
 @api_router.get("/analysis/{analysis_id}/graph", response_model=GraphData)
@@ -500,22 +443,26 @@ async def get_analysis_report(
         for t in cached.get("transactions", [])
     ]
 
-    # Generate synthesized intelligence brief
-    narrative_data = await narrative_service.generate_narrative(
-        case_id=analysis_id,
-        wallet_address=cached["wallet_address"],
-        chain=chain_name,
-        attributions=attr_dicts,
-        risk_assessment=risk_dict,
-        evidence=evidence_dicts,
-        transactions=tx_dicts,
-        summary_stats={
-            "total_nodes": cached.get("num_nodes", 0),
-            "total_edges": cached.get("num_edges", 0),
-            "vasp_nodes_found": len(attr_dicts),
-            "max_hop_reached": cached.get("max_hops", 3)
-        }
-    )
+    # Generate synthesized intelligence brief (if configured)
+    narrative_data = None
+    try:
+        narrative_data = await narrative_service.generate_narrative(
+            case_id=analysis_id,
+            wallet_address=cached["wallet_address"],
+            chain=chain_name,
+            attributions=attr_dicts,
+            risk_assessment=risk_dict,
+            evidence=evidence_dicts,
+            transactions=tx_dicts,
+            summary_stats={
+                "total_nodes": cached.get("num_nodes", 0),
+                "total_edges": cached.get("num_edges", 0),
+                "vasp_nodes_found": len(attr_dicts),
+                "max_hop_reached": cached.get("max_hops", 3),
+            }
+        )
+    except RuntimeError as err:
+        logger.warning(f"AI narrative generation omitted: {err}")
 
     report = ReportGenerator.generate_report(
         case_id=analysis_id,
@@ -540,7 +487,7 @@ async def get_analysis_report(
             }
             for t in cached.get("transactions", [])[:10]
         ],
-        narrative=narrative_data.get("narrative"),
+        narrative=narrative_data.get("narrative") if narrative_data else None,
         narrative_metadata=narrative_data
     )
     report.chain = chain_name
@@ -605,21 +552,27 @@ async def get_analysis_narrative(
         for t in cached.get("transactions", [])
     ]
 
-    return await narrative_service.generate_narrative(
-        case_id=analysis_id,
-        wallet_address=cached["wallet_address"],
-        chain=chain_name,
-        attributions=attr_dicts,
-        risk_assessment=risk_dict,
-        evidence=evidence_dicts,
-        transactions=tx_dicts,
-        summary_stats={
-            "total_nodes": cached.get("num_nodes", 0),
-            "total_edges": cached.get("num_edges", 0),
-            "vasp_nodes_found": len(attr_dicts),
-            "max_hop_reached": cached.get("max_hops", 3),
-        }
-    )
+    try:
+        return await narrative_service.generate_narrative(
+            case_id=analysis_id,
+            wallet_address=cached["wallet_address"],
+            chain=chain_name,
+            attributions=attr_dicts,
+            risk_assessment=risk_dict,
+            evidence=evidence_dicts,
+            transactions=tx_dicts,
+            summary_stats={
+                "total_nodes": cached.get("num_nodes", 0),
+                "total_edges": cached.get("num_edges", 0),
+                "vasp_nodes_found": len(attr_dicts),
+                "max_hop_reached": cached.get("max_hops", 3),
+            }
+        )
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=str(e)
+        )
 
 
 @api_router.get("/analysis/{analysis_id}/graph-image")
@@ -731,122 +684,9 @@ async def dispatch_analysis_disclosure_request(
     if analysis_id not in active_analyses_cache:
         raise HTTPException(status_code=404, detail=f"Analysis session '{analysis_id}' not found.")
 
-    cached = active_analyses_cache[analysis_id]
-    suspect_addr = cached["wallet_address"]
-    chain = detect_blockchain(suspect_addr)
-
-    target_vasp = payload.target_vasp.strip() if payload and payload.target_vasp else None
-    if not target_vasp:
-        attrs = cached.get("attributions", [])
-        if attrs:
-            top_a = attrs[0]
-            target_vasp = getattr(top_a, "vasp_name", None) or (top_a.get("vasp_name") if isinstance(top_a, dict) else None)
-    if not target_vasp:
-        target_vasp = "Virtual Asset Service Provider"
-
-    from backend.app.services.vasp.directory_service import directory_service
-    dir_entry = await directory_service.get_by_name(db, target_vasp)
-
-    if dir_entry:
-        official_vasp_name = dir_entry["name"]
-        sahyog_routing_code = dir_entry["sahyog_routing_code"] or f"SAHYOG-VASP-{official_vasp_name.upper().replace(' ', '')}-GLB"
-        mock_contact_endpoint = dir_entry["mock_contact_endpoint"]
-        mock_response_sla = dir_entry["mock_response_sla"]
-    else:
-        official_vasp_name = target_vasp
-        sahyog_routing_code = f"SAHYOG-VASP-{official_vasp_name.upper().replace(' ', '')}-GLB"
-        mock_contact_endpoint = f"https://sahyog.gov.in/api/v1/vasp/{official_vasp_name.lower().replace(' ', '')}/dispatch"
-        mock_response_sla = "24 Hours (Statutory Emergency)"
-
-    import uuid
-    from datetime import datetime, timezone
-    now_utc = datetime.now(timezone.utc)
-    dispatch_id = f"SAHYOG-REQ-{now_utc.year}-{uuid.uuid4().hex[:8].upper()}"
-
-    officer_name = (payload.officer_name if payload and payload.officer_name else (current_user.full_name if current_user else "Investigating Officer"))
-    police_station = (payload.police_station if payload and payload.police_station else "Cyber Crime Police Station")
-    crime_ref = (payload.crime_reference if payload and payload.crime_reference else f"NCRP/{now_utc.year}/CYBER-{analysis_id[:8].upper()}")
-    urgency = payload.urgency if payload and payload.urgency else "CRITICAL_24H"
-
-    ack_message = (
-        f"Request logged — SAHYOG production integration would route this to "
-        f"{official_vasp_name} via the SAHYOG lawful-disclosure API"
-    )
-
-    user_id = current_user.id if current_user else None
-    username = current_user.username if current_user else "investigator"
-    ip_addr = request.client.host if request and request.client else None
-
-    audit_entry = await audit_logger.log_event(
-        action=AuditAction.DISCLOSURE_REQUEST,
-        resource_type=AuditResourceType.ANALYSIS,
-        resource_id=dispatch_id,
-        user_id=user_id,
-        username=username,
-        details={
-            "dispatch_id": dispatch_id,
-            "analysis_id": analysis_id,
-            "suspect_address": suspect_addr,
-            "chain": chain,
-            "target_vasp": official_vasp_name,
-            "sahyog_routing_code": sahyog_routing_code,
-            "mock_contact_endpoint": mock_contact_endpoint,
-            "mock_response_sla": mock_response_sla,
-            "urgency": urgency,
-            "is_simulated": True,
-            "simulation_notice": "SIMULATED INTEGRATION — Mock Lawful Disclosure Dispatch via SAHYOG API",
-            "message": ack_message,
-            "officer_name": officer_name,
-            "police_station": police_station,
-            "crime_reference": crime_ref,
-            "custom_instructions": payload.custom_instructions if payload else None
-        },
-        ip_address=ip_addr,
-        db=db
-    )
-
-    draft_summary = None
-    try:
-        top_attr = cached["attributions"][0] if cached.get("attributions") else None
-        draft_notice = LegalNoticeGenerator.generate_freeze_notice(
-            case_id=analysis_id,
-            wallet_address=suspect_addr,
-            chain=chain,
-            attribution=top_attr,
-            evidence=cached.get("evidence", []),
-            transactions=cached.get("transactions", []),
-            officer_name=officer_name,
-            police_station=police_station,
-            crime_number=crime_ref
-        )
-        draft_summary = {
-            "ref_number": draft_notice.get("ref_number"),
-            "fiu_ind_registration": draft_notice.get("fiu_ind_registration"),
-            "compliance_email": draft_notice.get("compliance_email"),
-            "designated_lea_email": draft_notice.get("designated_lea_email"),
-            "statutory_references": draft_notice.get("statutory_references", [])
-        }
-    except Exception as e:
-        logger.warning(f"Could not build draft summary in analysis disclosure: {e}")
-
-    return DisclosureRequestResponse(
-        is_simulated=True,
-        simulation_notice="SIMULATED INTEGRATION — Mock Lawful Disclosure Dispatch via SAHYOG API",
-        dispatch_id=dispatch_id,
-        case_id=analysis_id,
-        suspect_address=suspect_addr,
-        chain=chain,
-        target_vasp=official_vasp_name,
-        sahyog_routing_code=sahyog_routing_code,
-        mock_contact_endpoint=mock_contact_endpoint,
-        mock_response_sla=mock_response_sla,
-        status="ACKNOWLEDGED_SIMULATED",
-        acknowledgment_message=ack_message,
-        statutory_authority="Section 94 BNSS, 2023 / Section 91 Cr.P.C., 1973",
-        dispatched_by=username,
-        timestamp=now_utc,
-        timeline_event_id=audit_entry.id if audit_entry else None,
-        draft_notice_summary=draft_summary
+    raise HTTPException(
+        status_code=501,
+        detail="External electronic lawful disclosure API gateway is not configured. Generate the court-admissible Section 94 BNSS / Section 91 Cr.P.C. legal notice PDF or transmit directly via the verified VASP Law Enforcement compliance portal."
     )
 
 
@@ -923,22 +763,26 @@ async def download_pdf_dossier(
         for t in cached.get("transactions", [])
     ]
 
-    # Generate narrative & statutory preservation notice
-    narrative_res = await narrative_service.generate_narrative(
-        case_id=analysis_id,
-        wallet_address=cached["wallet_address"],
-        chain=chain_name,
-        attributions=attributions,
-        risk_assessment=risk_assessment,
-        evidence=evidence,
-        transactions=tx_dicts,
-        summary_stats={
-            "total_nodes": cached.get("num_nodes", 0),
-            "total_edges": cached.get("num_edges", 0),
-            "vasp_nodes_found": len(attributions),
-            "max_hop_reached": cached.get("max_hops", 3),
-        }
-    )
+    # Generate narrative (if configured) & statutory preservation notice
+    narrative_res = None
+    try:
+        narrative_res = await narrative_service.generate_narrative(
+            case_id=analysis_id,
+            wallet_address=cached["wallet_address"],
+            chain=chain_name,
+            attributions=attributions,
+            risk_assessment=risk_assessment,
+            evidence=evidence,
+            transactions=tx_dicts,
+            summary_stats={
+                "total_nodes": cached.get("num_nodes", 0),
+                "total_edges": cached.get("num_edges", 0),
+                "vasp_nodes_found": len(attributions),
+                "max_hop_reached": cached.get("max_hops", 3),
+            }
+        )
+    except RuntimeError as err:
+        logger.warning(f"AI narrative omitted from dossier (unconfigured/unavailable): {err}")
 
     top_attr_obj = cached.get("attributions", [None])[0] if cached.get("attributions") else None
     draft_notice = LegalNoticeGenerator.generate_freeze_notice(
@@ -968,7 +812,7 @@ async def download_pdf_dossier(
                 "vasp_nodes_found": len(attributions),
                 "max_hop_reached": cached.get("max_hops", 3),
             },
-            narrative=narrative_res.get("narrative"),
+            narrative=narrative_res.get("narrative") if narrative_res else None,
             draft_notice=draft_notice,
             officer_name=officer_name,
             police_station=police_station,
@@ -995,50 +839,29 @@ async def download_pdf_dossier(
 # ==============================================================================
 
 @api_router.get("/ncrp/cases")
-async def get_preset_ncrp_cases():
-    """Returns sample NCRP cybercrime complaint cases for live demonstration."""
-    return [
-        {
-            "complaint_id": "NCRP-2026-DL-88421",
-            "district": "IFSO Special Cell, Delhi Police",
-            "victim_loss_inr": 2450000.0,
-            "suspect_wallet": "0x28C6c06298d514Db089934071355E5743bf21d60",
-            "chain": "Ethereum",
-            "scam_typology": "Part-Time Task & Telegram Rating Scam",
-            "urgency_level": "CRITICAL",
-            "suggested_vasp": "Binance"
-        },
-        {
-            "complaint_id": "NCRP-2026-MH-41209",
-            "district": "Cyber Crime PS, Cyber Cell Mumbai",
-            "victim_loss_inr": 1800000.0,
-            "suspect_wallet": "TMuA6YMeL4nNFYWAnWUCtqnmEvrCfsugnR",
-            "chain": "Tron",
-            "scam_typology": "Fake Crypto Investment & Forex Trading App",
-            "urgency_level": "HIGH",
-            "suggested_vasp": "Binance Tron"
-        },
-        {
-            "complaint_id": "NCRP-2026-KA-19348",
-            "district": "Cyber Crime Division, Bengaluru CID",
-            "victim_loss_inr": 950000.0,
-            "suspect_wallet": "0xA090e606E30bD747d4E6245a1517EbE430F0057e",
-            "chain": "Ethereum",
-            "scam_typology": "Digital Arrest & Law Enforcement Impersonation Scam",
-            "urgency_level": "HIGH",
-            "suggested_vasp": "Coinbase"
-        },
-        {
-            "complaint_id": "NCRP-2026-TG-77211",
-            "district": "Telangana Cyber Security Bureau (TGCSB)",
-            "victim_loss_inr": 4200000.0,
-            "suspect_wallet": "TWaz1rX9p4xG5k3sXQ3q4o5u4L3K9p4xG5",
-            "chain": "Tron",
-            "scam_typology": "FedEx Courier Drug Parcel Extortion Scam",
-            "urgency_level": "CRITICAL",
-            "suggested_vasp": "WazirX Tron"
-        }
-    ]
+async def get_preset_ncrp_cases(db: AsyncSession = Depends(get_db)):
+    """
+    Returns registered NCRP cybercrime complaints dynamically from the database.
+    If no cases are registered yet, returns an empty list.
+    """
+    from backend.app.models.database import Case
+    stmt = select(Case).order_by(desc(Case.created_at)).limit(50)
+    res = await db.execute(stmt)
+    db_cases = res.scalars().all()
+
+    output = []
+    for c in db_cases:
+        output.append({
+            "complaint_id": c.ncrp_complaint_id or c.id,
+            "district": "Cyber Crime Division",
+            "victim_loss_inr": float(c.victim_loss_inr or 0.0),
+            "suspect_wallet": c.suspect_address,
+            "chain": (c.chain or "ethereum").capitalize(),
+            "scam_typology": c.title or "Cyber Financial Fraud",
+            "urgency_level": c.priority or "HIGH",
+            "suggested_vasp": "Under Investigation"
+        })
+    return output
 
 
 # ==============================================================================

@@ -140,57 +140,14 @@ class BlockchainCache:
 
     @staticmethod
     def build_cache_key(chain: str, address: str, method: str, **kwargs) -> str:
-        addr = address.strip().lower()
-        parts = [f"chain:{chain.lower()}", f"addr:{addr}", f"op:{method}"]
+        chain_lower = chain.strip().lower()
+        addr = address.strip() if chain_lower == "solana" else address.strip().lower()
+        parts = [f"chain:{chain_lower}", f"addr:{addr}", f"op:{method}"]
         for k in sorted(kwargs.keys()):
             v = kwargs[k]
             if v is not None:
                 parts.append(f"{k}:{v}")
         return ":".join(parts)
-
-    def _get_from_disk(self, chain: str, address: str, method: str) -> Optional[List[NormalizedTransaction]]:
-        """Reads pre-cached transactions from disk directory if present."""
-        if not self._disk_cache_dir.exists():
-            return None
-
-        addr_clean = address.strip().lower()
-        chain_clean = chain.strip().lower()
-        prefix = f"{chain_clean}_{addr_clean}"
-
-        matching_files = list(self._disk_cache_dir.glob(f"{prefix}*.json"))
-        if not matching_files:
-            return None
-
-        all_txs: List[NormalizedTransaction] = []
-        seen_hashes = set()
-
-        for filepath in sorted(matching_files):
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if isinstance(data, list):
-                        for item in data:
-                            tx_hash = item.get("tx_hash") or item.get("txID") or ""
-                            unique_key = (tx_hash, item.get("from_address", "").lower(), item.get("to_address", "").lower())
-                            if unique_key in seen_hashes:
-                                continue
-                            seen_hashes.add(unique_key)
-                            all_txs.append(NormalizedTransaction.model_validate(item))
-            except Exception as e:
-                logger.debug(f"Error reading disk cache file {filepath}: {e}")
-
-        if not all_txs:
-            return None
-
-        # Apply method-specific direction filter if needed
-        if method == "outgoing":
-            filtered = [tx for tx in all_txs if tx.from_address.lower() == addr_clean]
-            return filtered if filtered else all_txs
-        elif method == "incoming":
-            filtered = [tx for tx in all_txs if tx.to_address.lower() == addr_clean]
-            return filtered if filtered else all_txs
-
-        return all_txs
 
     async def get_transactions(self, key: str) -> Optional[List[NormalizedTransaction]]:
         await self._ensure_connection()
@@ -215,27 +172,6 @@ class BlockchainCache:
             except Exception as e:
                 logger.error(f"Failed to deserialize cached transactions for {key}: {e}")
 
-        # 3. Disk Cache Fallback (crucial for Phase 8 offline demo hardening)
-        try:
-            parts = key.split(":")
-            key_dict = {}
-            for i in range(0, len(parts) - 1, 2):
-                key_dict[parts[i]] = parts[i + 1]
-
-            chain = key_dict.get("chain", "ethereum")
-            addr = key_dict.get("addr", "")
-            method = key_dict.get("op", "activity")
-
-            if addr:
-                disk_txs = self._get_from_disk(chain, addr, method)
-                if disk_txs:
-                    # Pre-populate in-memory cache for subsequent instant queries
-                    await self.set_transactions(key, disk_txs, ttl=86400)
-                    logger.debug(f"[DISK CACHE HIT] {key} -> loaded {len(disk_txs)} txs from disk")
-                    return disk_txs
-        except Exception as e:
-            logger.debug(f"Disk cache lookup notice for {key}: {e}")
-
         return None
 
     async def set_transactions(
@@ -248,83 +184,36 @@ class BlockchainCache:
         try:
             serialized = json.dumps([tx.model_dump(mode="json") for tx in txs])
         except Exception as e:
-            logger.error(f"Failed to serialize transactions for {key}: {e}")
+            logger.error(f"Failed to serialize transactions for caching: {e}")
             return
 
         if self._connected and self._redis:
             try:
                 await self._redis.set(key, serialized, ex=ttl)
-                return
             except Exception as e:
-                logger.warning(f"Redis SET failed for {key}: {e}; using memory cache.")
+                logger.warning(f"Redis SET failed for {key}: {e}")
                 self._connected = False
 
         await self._in_memory.set(key, serialized, ttl=ttl)
 
-    def is_cached_or_demo(self, chain: str, address: str) -> bool:
-        """Checks whether address has pre-cached transaction data available."""
-        addr_clean = address.strip().lower()
-        if addr_clean in self._prewarmed_addresses:
-            return True
-        if self._disk_cache_dir.exists():
-            matches = list(self._disk_cache_dir.glob(f"{chain.lower()}_{addr_clean}*.json"))
-            if matches:
+    def is_cached(self, chain: str, address: str) -> bool:
+        """Checks if any operations for this address are currently stored in memory cache."""
+        chain_clean = chain.strip().lower()
+        addr_clean = address.strip() if chain_clean == "solana" else address.strip().lower()
+        prefix = f"chain:{chain_clean}:addr:{addr_clean}"
+        for key in list(self._in_memory._cache.keys()):
+            if key.startswith(prefix):
                 return True
         return False
 
-    async def prewarm_demo_cache(self) -> Dict[str, Any]:
-        """
-        Pre-warms in-memory cache from disk for all demo benchmark addresses.
-        Ensures 0ms latency and 0 rate-limit reliance for live judge demos.
-        """
-        from backend.app.core.config import BASE_DIR
-        labels_file = BASE_DIR / "data" / "labels" / "demo_labels.json"
-        if not labels_file.exists():
-            return {"status": "skipped", "reason": f"demo_labels.json not found at {labels_file}"}
-
-        loaded_count = 0
-        total_txs = 0
-
-        try:
-            with open(labels_file, "r", encoding="utf-8") as f:
-                demo_items = json.load(f)
-
-            for item in demo_items:
-                addr = item.get("address", "").strip().lower()
-                chain = item.get("chain", "ethereum").strip().lower()
-                if not addr:
-                    continue
-
-                txs = self._get_from_disk(chain, addr, "activity")
-                if txs:
-                    # Preload outgoing, incoming, and general activity keys
-                    for op in ["outgoing", "incoming", "activity", "get_address_activity"]:
-                        key = self.build_cache_key(chain, addr, op)
-                        await self.set_transactions(key, txs, ttl=86400)
-                    self._prewarmed_addresses.add(addr)
-                    loaded_count += 1
-                    total_txs += len(txs)
-
-            logger.info(f"Pre-warmed blockchain demo cache: {loaded_count} benchmark addresses ({total_txs} transactions loaded)")
-            return {
-                "status": "success",
-                "prewarmed_addresses_count": loaded_count,
-                "total_cached_transactions": total_txs,
-                "prewarmed_list": list(self._prewarmed_addresses)
-            }
-        except Exception as e:
-            logger.error(f"Failed to prewarm demo cache: {e}")
-            return {"status": "error", "error": str(e)}
+    def is_cached_or_demo(self, chain: str, address: str) -> bool:
+        return self.is_cached(chain, address)
 
     def get_stats(self) -> Dict[str, Any]:
         """Returns runtime diagnostic metrics for caching layer."""
-        disk_files = len(list(self._disk_cache_dir.glob("*.json"))) if self._disk_cache_dir.exists() else 0
         return {
             "redis_connected": self._connected,
             "in_memory_keys": self._in_memory.size(),
-            "disk_cache_files": disk_files,
-            "prewarmed_addresses": list(self._prewarmed_addresses),
-            "disk_cache_dir": str(self._disk_cache_dir)
         }
 
     async def clear(self):

@@ -18,7 +18,7 @@ class AnalyzeRequest(BaseModel):
     def validate_address(cls, v: str) -> str:
         from backend.app.core.address_validator import is_valid_crypto_address, normalize_address
         if not is_valid_crypto_address(v):
-            raise ValueError(f"Invalid cryptocurrency address: {v}. Must be Ethereum (0x...) or Tron (T...).")
+            raise ValueError(f"Invalid cryptocurrency address: {v}. Must be Ethereum (0x...), Solana (Base58), Tron (T...), or Bitcoin.")
         return normalize_address(v)
 
 
@@ -33,7 +33,7 @@ class NormalizedTransaction(BaseModel):
     timestamp: datetime
     from_address: str
     to_address: str
-    asset_type: str  # ETH or ERC20
+    asset_type: str  # ETH, ERC20, SOL, SPL, etc.
     token_address: Optional[str] = None
     token_symbol: Optional[str] = "ETH"
     token_decimals: Optional[int] = 18
@@ -44,6 +44,11 @@ class NormalizedTransaction(BaseModel):
     hop: Optional[int] = None
     direction: Optional[str] = None  # INCOMING or OUTGOING relative to wallet
     source_api: Optional[str] = "blockchain_explorer"
+    # Cross-Chain Bridge Attributes
+    is_bridge: bool = False
+    bridge_protocol: Optional[str] = None
+    destination_chain: Optional[str] = None
+    destination_address: Optional[str] = None
 
 
 # ==============================================================================
@@ -54,7 +59,7 @@ class GraphNodeData(BaseModel):
     id: str
     label: str
     address: str
-    role: str  # INPUT_WALLET, INTERMEDIARY_HOP_1, INTERMEDIARY_HOP_2, INTERMEDIARY_HOP_3, KNOWN_VASP, EXTERNAL
+    role: str  # INPUT_WALLET, INTERMEDIARY_HOP_1, INTERMEDIARY_HOP_2, INTERMEDIARY_HOP_3, KNOWN_VASP, BRIDGE_PROTOCOL, EXTERNAL
     hop: int
     is_vasp: bool = False
     vasp_name: Optional[str] = None
@@ -64,6 +69,7 @@ class GraphNodeData(BaseModel):
     total_inflow: float = 0.0
     total_outflow: float = 0.0
     is_contract: bool = False
+    chain: Optional[str] = None
 
 
 class GraphNode(BaseModel):
@@ -79,6 +85,11 @@ class GraphEdgeData(BaseModel):
     amount: float
     timestamp: datetime
     hop: int
+    # Cross-Chain Attributes
+    is_cross_chain: bool = False
+    bridge_protocol: Optional[str] = None
+    source_chain: Optional[str] = None
+    target_chain: Optional[str] = None
 
 
 class GraphEdge(BaseModel):
@@ -88,7 +99,7 @@ class GraphEdge(BaseModel):
 class GraphData(BaseModel):
     nodes: List[GraphNode]
     edges: List[GraphEdge]
-    stats: Dict[str, Any]
+    stats: Dict[str, Any] = Field(default_factory=dict)
 
 
 # ==============================================================================

@@ -55,6 +55,7 @@ export const CaseManagementView: React.FC<CaseManagementViewProps> = ({
   const [selectedCaseDetail, setSelectedCaseDetail] = useState<CaseDetail | null>(null);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [auditTotal, setAuditTotal] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   const isSupervisor = currentUser?.role === 'supervisor';
 
@@ -65,25 +66,31 @@ export const CaseManagementView: React.FC<CaseManagementViewProps> = ({
   const loadData = async () => {
     setIsLoading(true);
     try {
-      // 1. Load cases
+      setError(null);
+      // 1. Load cases directly from database
       const casesData = await api.getCases({
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
         priority: priorityFilter !== 'ALL' ? priorityFilter : undefined,
         chain: chainFilter !== 'ALL' ? chainFilter : undefined,
         search: searchQuery.trim() || undefined,
-      }).catch(() => []);
+      });
       setCases(casesData || []);
 
-      // 2. Load audit logs if supervisor or fallback
-      const auditData = await api.getGlobalAuditLogs({
-        action: actionFilter !== 'ALL' ? actionFilter : undefined,
-        limit: 50,
-      }).catch(() => ({ total: 0, limit: 50, offset: 0, logs: [] }));
+      // 2. Load audit logs
+      try {
+        const auditData = await api.getGlobalAuditLogs({
+          action: actionFilter !== 'ALL' ? actionFilter : undefined,
+          limit: 50,
+        });
 
-      setAuditLogs(auditData.logs || []);
-      setAuditTotal(auditData.total || 0);
-    } catch (err) {
-      console.warn('Error loading case and audit data:', err);
+        setAuditLogs(auditData.logs || []);
+        setAuditTotal(auditData.total || 0);
+      } catch (auditErr) {
+        console.warn('Could not load global audit logs:', auditErr);
+      }
+    } catch (err: any) {
+      console.error('Error loading case and audit data:', err);
+      setError(err.message || 'Failed to communicate with case management service.');
     } finally {
       setIsLoading(false);
     }
@@ -140,7 +147,7 @@ export const CaseManagementView: React.FC<CaseManagementViewProps> = ({
         <div className="flex items-center space-x-2">
           {onSwitchRole && (
             <div className="flex items-center bg-forensic-surfaceRaised border border-forensic-border rounded p-0.5 font-mono text-[10px]">
-              <span className="px-2 text-forensic-textDim font-semibold">Demo Role:</span>
+              <span className="px-2 text-forensic-textDim font-semibold">Active Role:</span>
               <button
                 onClick={() => onSwitchRole('supervisor')}
                 className={`px-2 py-1 rounded transition-colors ${
@@ -174,6 +181,12 @@ export const CaseManagementView: React.FC<CaseManagementViewProps> = ({
         </div>
       </div>
 
+            {error && (
+        <div className="p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-xs font-mono flex items-center justify-between">
+          <span>Database connection or authentication error: {error}</span>
+          <button onClick={loadData} className="underline hover:text-white font-bold">Retry</button>
+        </div>
+      )}
       {/* Cross-case Analytical Metrics Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono">
         <div className="bg-forensic-surface border border-forensic-border rounded p-3 space-y-1">

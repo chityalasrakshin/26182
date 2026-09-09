@@ -99,9 +99,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   // Filter States
   const [selectedHops, setSelectedHops] = useState<Set<number>>(new Set([1, 2, 3]));
   const [selectedEntityTypes, setSelectedEntityTypes] = useState<Set<string>>(
-    new Set(['TARGET', 'VASP', 'INTERMEDIARY', 'EXTERNAL'])
+    new Set(['TARGET', 'VASP', 'INTERMEDIARY', 'BRIDGE', 'EXTERNAL'])
   );
   const [selectedToken, setSelectedToken] = useState<string>('ALL');
+  const [selectedChain, setSelectedChain] = useState<string>('ALL');
   const [minAmount, setMinAmount] = useState<number>(0);
   const [timeRange, setTimeRange] = useState<string>('ALL');
   const [riskFilter, setRiskFilter] = useState<RiskFilterType>('ALL');
@@ -146,6 +147,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         totalObservedVolume: 0,
         primaryToken: 'USDT',
         tokensAvailable: ['ALL'],
+        chainsAvailable: ['ALL'],
       };
     }
 
@@ -156,6 +158,12 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
     let totalVolume = 0;
     const tokens = new Set<string>(['ALL']);
+    const chains = new Set<string>(['ALL']);
+
+    graphData.nodes?.forEach((n: any) => {
+      const c = n.data?.chain;
+      if (c) chains.add(c.toLowerCase());
+    });
 
     graphData.edges?.forEach((e: any) => {
       const amt = Number(e.data?.amount || 0);
@@ -172,6 +180,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       totalObservedVolume: totalVolume,
       primaryToken: tokens.has('USDT') ? 'USDT' : 'ETH',
       tokensAvailable: Array.from(tokens),
+      chainsAvailable: Array.from(chains),
     };
   }, [graphData]);
 
@@ -194,12 +203,21 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     // ─────────────────────────────────────────────────────────────────────
     // 1. BUILD NODES with Filtering & Tag Classification
     // ─────────────────────────────────────────────────────────────────────
+    // 1. BUILD NODES with Filtering & Tag Classification
+    // ─────────────────────────────────────────────────────────────────────
     graphData.nodes.forEach((n: any) => {
       const d = n.data || n;
       const nodeId = d.id || d.address;
       const isRoot = d.role === 'INPUT_WALLET' || d.is_root || d.hop === 0;
       const isVasp = d.is_vasp || d.role === 'KNOWN_VASP';
+      const isBridge = d.role === 'BRIDGE_PROTOCOL' || Boolean(d.bridge_protocol);
       const hop = d.hop ?? 1;
+      const nodeChain = (d.chain || 'ethereum').toLowerCase();
+
+      // Chain filter (root stays visible)
+      if (selectedChain !== 'ALL' && nodeChain !== selectedChain.toLowerCase() && !isRoot) {
+        return;
+      }
 
       // Hop filter
       if (!isRoot && !selectedHops.has(hop)) return;
@@ -208,20 +226,23 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       let entityType = 'EXTERNAL';
       if (isRoot) entityType = 'TARGET';
       else if (isVasp) entityType = 'VASP';
+      else if (isBridge) entityType = 'BRIDGE';
       else if (hop >= 1 && hop <= 3) entityType = 'INTERMEDIARY';
 
-      if (!selectedEntityTypes.has(entityType)) return;
+      if (!selectedEntityTypes.has(entityType) && !isBridge) return;
 
       // View Mode Filtering
-      if (viewMode === 'EVIDENCE' && !isRoot && !isVasp && hop > 2) return;
+      if (viewMode === 'EVIDENCE' && !isRoot && !isVasp && !isBridge && hop > 2) return;
 
       validNodeIds.add(nodeId);
 
-      // Tag classification (exchange, mixer, sanctioned, unknown, target)
+      // Tag classification (target, exchange, mixer, sanctioned, bridge, unknown)
       const rawCat = (d.category || d.entity || d.label || d.role || d.vasp_name || '').toLowerCase();
-      let nodeTag: 'target' | 'exchange' | 'mixer' | 'sanctioned' | 'unknown' = 'unknown';
+      let nodeTag: 'target' | 'exchange' | 'mixer' | 'sanctioned' | 'bridge' | 'unknown' = 'unknown';
       if (isRoot) {
         nodeTag = 'target';
+      } else if (isBridge) {
+        nodeTag = 'bridge';
       } else if (
         isVasp ||
         rawCat.includes('exchange') ||
@@ -254,24 +275,31 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
 
       const shortAddr = `${nodeId.slice(0, 6)}…${nodeId.slice(-4)}`;
+      const chainBadge = nodeChain === 'solana' ? '[SOL] ' : nodeChain === 'tron' ? '[TRX] ' : nodeChain === 'bitcoin' ? '[BTC] ' : nodeChain === 'bsc' ? '[BSC] ' : '';
+
       const label = isRoot
-        ? `⊕ TARGET\n${shortAddr}`
+        ? `⊕ TARGET\n${chainBadge}${shortAddr}`
+        : isBridge
+        ? `[Bridge: ${d.bridge_protocol || 'Bridge'}]\n${shortAddr}`
         : nodeTag === 'exchange'
-        ? `${d.vasp_name?.toUpperCase() || 'EXCHANGE'}\n${shortAddr}`
+        ? `${d.vasp_name?.toUpperCase() || 'EXCHANGE'}\n${chainBadge}${shortAddr}`
         : nodeTag === 'mixer'
         ? `⚠ MIXER\n${shortAddr}`
         : nodeTag === 'sanctioned'
         ? `✖ SANCTIONED\n${shortAddr}`
-        : `${shortAddr}\nHop ${hop}`;
+        : `${chainBadge}${shortAddr}\nHop ${hop}`;
 
       elements.push({
         group: 'nodes',
-        classes: `tag-${nodeTag} ${isRoot ? 'is-root tag-target' : ''} ${isVasp || nodeTag === 'exchange' ? 'is-vasp tag-exchange' : ''}`.trim(),
+        classes: `tag-${nodeTag} chain-${nodeChain} ${isRoot ? 'is-root tag-target' : ''} ${isVasp || nodeTag === 'exchange' ? 'is-vasp tag-exchange' : ''} ${isBridge ? 'is-bridge tag-bridge' : ''}`.trim(),
         data: {
           id: nodeId,
           label: label,
           isRoot: isRoot,
           isVasp: isVasp || nodeTag === 'exchange',
+          isBridge: isBridge,
+          bridgeProtocol: d.bridge_protocol,
+          chain: nodeChain,
           tag: nodeTag,
           category: nodeTag,
           vaspName: d.vasp_name,
@@ -298,6 +326,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       const amt = Number(d.amount || 0);
       const sym = (d.asset_symbol || d.token_symbol || 'ETH').toUpperCase();
       const edgeId = d.id || `edge-${idx}`;
+      const isCrossChain = Boolean(d.is_cross_chain);
+      const bridgeProto = d.bridge_protocol || '';
 
       if (!validNodeIds.has(src) || !validNodeIds.has(tgt)) return;
 
@@ -307,21 +337,28 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       // Min amount filter
       if (minAmount > 0 && amt < minAmount) return;
 
-      const label = amt > 0 ? `${amt >= 1000 ? (amt / 1000).toFixed(1) + 'k' : amt.toFixed(2)} ${sym}` : '';
+      const label = isCrossChain
+        ? `[Bridge: ${bridgeProto || 'Cross-Chain'}] ${amt > 0 ? `${amt >= 1000 ? (amt / 1000).toFixed(1) + 'k' : amt.toFixed(2)} ${sym}` : ''}`
+        : amt > 0 ? `${amt >= 1000 ? (amt / 1000).toFixed(1) + 'k' : amt.toFixed(2)} ${sym}` : '';
 
       elements.push({
         group: 'edges',
+        classes: isCrossChain ? 'is-cross-chain' : '',
         data: {
           id: edgeId,
           source: src,
           target: tgt,
           label: label,
           amount: amt,
-          edgeWidth: edgeWidthFromAmount(amt),
+          edgeWidth: isCrossChain ? 3.5 : edgeWidthFromAmount(amt),
           tokenSymbol: sym,
           txHash: d.tx_hash || '',
           timestamp: d.timestamp || '',
           hop: d.hop || 1,
+          isCrossChain: isCrossChain,
+          bridgeProtocol: bridgeProto,
+          sourceChain: d.source_chain,
+          targetChain: d.target_chain,
         },
       });
     });
@@ -534,6 +571,60 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'overlay-padding': sz(8),
           },
         },
+        // ────────────────── BRIDGE PROTOCOL ──────────────────
+        {
+          selector: 'node[tag = "bridge"], node.tag-bridge, node.is-bridge, node[role = "BRIDGE_PROTOCOL"]',
+          style: {
+            'background-color': isDarkMode ? '#2e1065' : '#ede9fe',
+            'border-color': '#a855f7',
+            'border-width': 3,
+            'border-style': 'dashed',
+            'color': isDarkMode ? '#d8b4fe' : '#6b21a8',
+            'width': sz(70),
+            'height': sz(60),
+            'shape': 'hexagon',
+            'font-weight': 'bold',
+            'font-size': `${fs(10)}px`,
+            'text-valign': 'bottom',
+            'text-margin-y': sz(8),
+            'overlay-color': '#a855f7',
+            'overlay-opacity': 0.08,
+            'overlay-padding': sz(8),
+          },
+        },
+        // ── Chain Accents ──
+        {
+          selector: 'node.chain-solana:not(.is-root):not(.is-vasp):not(.is-bridge)',
+          style: {
+            'border-color': '#8b5cf6',
+            'background-color': isDarkMode ? '#1e1b4b' : '#f5f3ff',
+            'color': isDarkMode ? '#c4b5fd' : '#6d28d9',
+          },
+        },
+        {
+          selector: 'node.chain-tron:not(.is-root):not(.is-vasp):not(.is-bridge)',
+          style: {
+            'border-color': '#ef4444',
+            'background-color': isDarkMode ? '#450a0a' : '#fef2f2',
+            'color': isDarkMode ? '#fca5a5' : '#b91c1c',
+          },
+        },
+        {
+          selector: 'node.chain-bitcoin:not(.is-root):not(.is-vasp):not(.is-bridge)',
+          style: {
+            'border-color': '#f59e0b',
+            'background-color': isDarkMode ? '#451a03' : '#fffbeb',
+            'color': isDarkMode ? '#fcd34d' : '#b45309',
+          },
+        },
+        {
+          selector: 'node.chain-bsc:not(.is-root):not(.is-vasp):not(.is-bridge)',
+          style: {
+            'border-color': '#eab308',
+            'background-color': isDarkMode ? '#422006' : '#fefce8',
+            'color': isDarkMode ? '#fef08a' : '#a16207',
+          },
+        },
         // ────────────────── UNKNOWN / INTERMEDIARY ──────────────────
         {
           selector: 'node[tag = "unknown"], node.tag-unknown',
@@ -622,6 +713,27 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           style: {
             'line-color': isDarkMode ? '#3730a3' : '#a5b4fc',
             'target-arrow-color': isDarkMode ? '#4f46e5' : '#818cf8',
+          },
+        },
+        // ────────────────── CROSS-CHAIN BRIDGED EDGES ──────────────────
+        {
+          selector: 'edge[?isCrossChain], edge.is-cross-chain',
+          style: {
+            'line-color': '#c084fc',
+            'target-arrow-color': '#a855f7',
+            'target-arrow-shape': 'triangle',
+            'line-style': 'dashed',
+            'line-dash-pattern': [7, 4] as any,
+            'width': 3.5,
+            'label': 'data(label)',
+            'color': isDarkMode ? '#f3e8ff' : '#581c87',
+            'font-weight': 'bold',
+            'font-size': `${fs(9)}px`,
+            'text-background-color': isDarkMode ? '#1e1035' : '#ede9fe',
+            'text-background-opacity': 0.95,
+            'text-background-padding': '4px',
+            'text-background-shape': 'roundrectangle',
+            'z-index': 800,
           },
         },
 
@@ -864,6 +976,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     selectedHops,
     selectedEntityTypes,
     selectedToken,
+    selectedChain,
     minAmount,
     timeRange,
     riskFilter,
@@ -907,8 +1020,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
   const handleClearFilters = () => {
     setSelectedHops(new Set([1, 2, 3]));
-    setSelectedEntityTypes(new Set(['TARGET', 'VASP', 'INTERMEDIARY', 'EXTERNAL']));
+    setSelectedEntityTypes(new Set(['TARGET', 'VASP', 'INTERMEDIARY', 'BRIDGE', 'EXTERNAL']));
     setSelectedToken('ALL');
+    setSelectedChain('ALL');
     setMinAmount(0);
     setTimeRange('ALL');
     setRiskFilter('ALL');
@@ -1031,6 +1145,25 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               </button>
             ))}
           </div>
+
+          {/* Quick Chain Filters */}
+          {graphMetrics.chainsAvailable.length > 1 && (
+            <div className="hidden lg:flex items-center bg-forensic-surface border border-forensic-border rounded p-0.5 font-mono text-[10px]">
+              {graphMetrics.chainsAvailable.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setSelectedChain(c)}
+                  className={`px-2 py-1 rounded transition-colors uppercase font-mono ${
+                    selectedChain.toLowerCase() === c.toLowerCase()
+                      ? 'bg-purple-600 text-white font-bold'
+                      : 'text-forensic-textMuted hover:text-forensic-text'
+                  }`}
+                >
+                  {c === 'ALL' ? 'All Networks' : c}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Canvas Actions */}
           <div className="flex items-center space-x-1 border-l border-forensic-border pl-2">
@@ -1163,7 +1296,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                   {[
                     { id: 'TARGET', label: 'Target Suspect Wallet', color: 'text-rose-400' },
                     { id: 'VASP', label: 'VASP Custodial Clusters', color: 'text-teal-400' },
-                    { id: 'INTERMEDIARY', label: 'Intermediary Wallets', color: 'text-purple-400' },
+                    { id: 'BRIDGE', label: 'Cross-Chain Bridges', color: 'text-purple-400' },
+                    { id: 'INTERMEDIARY', label: 'Intermediary Wallets', color: 'text-indigo-400' },
                     { id: 'EXTERNAL', label: 'External Contracts / Unknown', color: 'text-forensic-textDim' },
                   ].map((e) => (
                     <label key={e.id} className="flex items-center space-x-2 cursor-pointer">
@@ -1177,6 +1311,24 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     </label>
                   ))}
                 </div>
+              </div>
+
+              {/* BLOCKCHAIN NETWORK */}
+              <div>
+                <div className="text-[10px] font-mono uppercase text-forensic-textDim font-bold mb-2 tracking-wider">
+                  Blockchain Network
+                </div>
+                <select
+                  value={selectedChain}
+                  onChange={(e) => setSelectedChain(e.target.value)}
+                  className="w-full bg-forensic-surface border border-forensic-border rounded px-2 py-1.5 text-forensic-text font-mono text-xs focus:outline-none focus:border-purple-500"
+                >
+                  {graphMetrics.chainsAvailable.map((c) => (
+                    <option key={c} value={c}>
+                      {c === 'ALL' ? 'All Networks' : c.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* TRANSACTION FILTERS: Token & Min Amount */}

@@ -35,7 +35,6 @@ class TraceJobManager:
         address: str,
         chain: Optional[str] = None,
         max_depth: int = 6,
-        demo_mode: bool = False
     ) -> str:
         job_id = f"trace_{uuid.uuid4().hex[:12]}"
         now = datetime.now(timezone.utc)
@@ -56,7 +55,6 @@ class TraceJobManager:
             "matched_vasps": [],
             "shortest_path": None,
             "leaf_nodes": [],
-            "demo_mode": demo_mode,
             "is_cached": False,
             "error_message": None,
             "summary": "Trace job queued for asynchronous execution."
@@ -134,15 +132,12 @@ class TraceJobManager:
         job_data = self.jobs[job_id]
         address = job_data["address"]
         chain = job_data["chain"] if job_data["chain"] != "auto" else None
-        max_depth = job_data["max_depth"]
-        demo_mode = job_data.get("demo_mode", False)
-
+        max_depth = job_data.get("max_depth", 3)
         orchestrator = TraceOrchestrator(
             seed_address=address,
             chain=chain,
             max_depth=max_depth,
             job_id=job_id,
-            demo_mode=demo_mode,
             event_callback=self.publish_event
         )
         self.orchestrators[job_id] = orchestrator

@@ -40,15 +40,14 @@ class AnalysisWorker:
     """
 
     @classmethod
-    async def run_pipeline(cls, analysis_id: str, wallet_address: str, max_hops: int = 3, demo_mode: bool = False):
-        logger.info(f"Starting investigation pipeline for {wallet_address} (ID: {analysis_id}, demo_mode={demo_mode})")
+    async def run_pipeline(cls, analysis_id: str, wallet_address: str, max_hops: int = 3):
+        logger.info(f"Starting investigation pipeline for {wallet_address} (ID: {analysis_id})")
         
         # Initialize in-memory cache state
         active_analyses_cache[analysis_id] = {
             "status": "FETCHING_DATA",
             "wallet_address": wallet_address,
             "max_hops": max_hops,
-            "demo_mode": demo_mode,
             "started_at": datetime.datetime.utcnow(),
             "graph_data": None,
             "attributions": [],

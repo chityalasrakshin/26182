@@ -1,11 +1,11 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Set, Tuple, Any, Optional
 import networkx as nx
 
 from backend.app.core.config import settings
-from backend.app.core.address_validator import normalize_address
+from backend.app.core.address_validator import normalize_address, detect_blockchain
 from sqlalchemy import select
 from backend.app.models.database import AsyncSessionLocal, Transaction as DBTransaction
 from backend.app.schemas.analysis import (
@@ -17,7 +17,9 @@ from backend.app.schemas.analysis import (
     GraphEdgeData
 )
 from backend.app.services.blockchain.base import BlockchainProvider
+from backend.app.services.blockchain.factory import BlockchainProviderFactory
 from backend.app.services.vasp.matcher import vasp_matcher
+from backend.app.services.bridge.detector import bridge_detector
 
 logger = logging.getLogger(__name__)
 
@@ -42,28 +44,32 @@ class TransactionGraphBuilder:
         self.graph = nx.MultiDiGraph()
         self.all_transactions: List[NormalizedTransaction] = []
         self.node_hops: Dict[str, int] = {}
+        self.node_chains: Dict[str, str] = {}
         self.visited_addresses: Set[str] = set()
 
-    async def build_graph_for_wallet(self, root_wallet: str) -> nx.MultiDiGraph:
+    async def build_graph_for_wallet(self, root_wallet: str, root_chain: Optional[str] = None) -> nx.MultiDiGraph:
         """
         Executes bounded BFS from root wallet up to max_hops.
-        Fetches genuine blockchain transactions for discovered nodes.
+        Fetches genuine blockchain transactions for discovered nodes with multi-chain & bridge support.
         """
+        root_chain = (root_chain or detect_blockchain(root_wallet)).lower()
         root_norm = normalize_address(root_wallet)
         self.graph.clear()
         self.all_transactions.clear()
         self.node_hops.clear()
+        self.node_chains.clear()
         self.visited_addresses.clear()
 
         # Initialize Root Node
         self.node_hops[root_norm] = 0
-        self._add_node_to_graph(root_norm, hop=0)
+        self.node_chains[root_norm] = root_chain
+        self._add_node_to_graph(root_norm, hop=0, chain=root_chain)
 
-        # BFS queue storing (address, current_hop)
-        queue: List[Tuple[str, int]] = [(root_norm, 0)]
+        # BFS queue storing (address, current_hop, current_chain)
+        queue: List[Tuple[str, int, str]] = [(root_norm, 0, root_chain)]
 
         while queue and len(self.graph.nodes) < self.max_nodes:
-            current_address, current_hop = queue.pop(0)
+            current_address, current_hop, current_chain = queue.pop(0)
 
             if current_address in self.visited_addresses:
                 continue
@@ -76,28 +82,95 @@ class TransactionGraphBuilder:
             # 1. Database-First check: Use local transaction store if available
             txs = await self._get_cached_transactions_from_db(current_address, max_tx=self.max_tx_per_address)
 
-            # 2. If not found in DB, fetch from external blockchain explorer API
+            # 2. If not found in DB, fetch from external blockchain explorer / RPC
             if not txs:
+                provider = self.provider if (current_chain == root_chain and self.provider) else BlockchainProviderFactory.get_provider(current_chain)
                 try:
-                    txs = await self.provider.get_address_activity(
+                    txs = await provider.get_address_activity(
                         current_address, 
                         max_tx=self.max_tx_per_address
                     )
                 except PermissionError as e:
-                    # Critical configuration error: propagate so analysis is marked FAILED with clear instruction
                     logger.error(f"API Authorization error for {current_address}: {e}")
                     raise e
                 except Exception as e:
-                    logger.error(f"Failed fetching transactions for {current_address}: {e}")
+                    logger.error(f"Failed fetching transactions for {current_address} on {current_chain}: {e}")
                     continue
 
             for tx in txs:
-                u = tx.from_address
-                v = tx.to_address
+                u = tx.from_address.strip() if current_chain == "solana" else (tx.from_address.lower() if tx.from_address else "")
+                v = tx.to_address.strip() if current_chain == "solana" else (tx.to_address.lower() if tx.to_address else "")
                 if not u or not v:
                     continue
 
-                # Check if we need to add new nodes and whether we hit the max_nodes cap
+                # Inspect for cross-chain bridge activity
+                bridge_info = bridge_detector.inspect(tx, current_chain=current_chain)
+                if bridge_info and bridge_info.is_bridge and bridge_info.destination_address:
+                    dest_chain = (bridge_info.destination_chain or "ethereum").lower()
+                    dest_addr = bridge_info.destination_address.strip() if dest_chain == "solana" else bridge_info.destination_address.lower()
+                    bridge_contract_addr = bridge_info.bridge_contract or v
+                    if current_chain != "solana":
+                        bridge_contract_addr = bridge_contract_addr.lower()
+
+                    bridge_hop = current_hop + 1
+                    dest_hop = bridge_hop + 1
+
+                    # Add bridge contract node
+                    if bridge_contract_addr not in self.node_hops:
+                        self.node_hops[bridge_contract_addr] = bridge_hop
+                        self.node_chains[bridge_contract_addr] = current_chain
+                        self._add_node_to_graph(
+                            bridge_contract_addr,
+                            hop=bridge_hop,
+                            role="BRIDGE_PROTOCOL",
+                            chain=current_chain,
+                            bridge_protocol=bridge_info.protocol
+                        )
+
+                    # Add edge u -> bridge
+                    self.graph.add_edge(
+                        u,
+                        bridge_contract_addr,
+                        key=f"{tx.tx_hash}_{u[:6]}_{bridge_contract_addr[:6]}_{tx.token_symbol}",
+                        tx_hash=tx.tx_hash,
+                        asset_symbol=tx.token_symbol or ("SOL" if current_chain == "solana" else "ETH"),
+                        amount=tx.amount,
+                        timestamp=tx.timestamp,
+                        hop=bridge_hop,
+                        is_cross_chain=False,
+                        source_chain=current_chain,
+                        target_chain=current_chain
+                    )
+
+                    # Add destination recipient node on dest_chain
+                    if dest_addr not in self.node_hops:
+                        self.node_hops[dest_addr] = dest_hop
+                        self.node_chains[dest_addr] = dest_chain
+                        self._add_node_to_graph(dest_addr, hop=dest_hop, chain=dest_chain)
+
+                    # Add cross-chain edge bridge -> dest_addr
+                    self.graph.add_edge(
+                        bridge_contract_addr,
+                        dest_addr,
+                        key=f"bridge_{tx.tx_hash}_{bridge_contract_addr[:6]}_{dest_addr[:6]}",
+                        tx_hash=tx.tx_hash,
+                        asset_symbol=tx.token_symbol or "ETH",
+                        amount=tx.amount,
+                        timestamp=tx.timestamp,
+                        hop=dest_hop,
+                        is_cross_chain=True,
+                        bridge_protocol=bridge_info.protocol,
+                        source_chain=current_chain,
+                        target_chain=dest_chain
+                    )
+
+                    # Enqueue dest_addr if not VASP and depth permits
+                    if dest_hop < self.max_hops and len(self.graph.nodes) < self.max_nodes:
+                        if not vasp_matcher.is_known_vasp(dest_addr, dest_chain):
+                            queue.append((dest_addr, dest_hop, dest_chain))
+                    continue
+
+                # Normal non-bridge transaction
                 u_is_new = u not in self.node_hops
                 v_is_new = v not in self.node_hops
                 
@@ -113,18 +186,19 @@ class TransactionGraphBuilder:
                 # Determine and assign hops
                 if u_is_new:
                     self.node_hops[u] = current_hop + 1
-                    self._add_node_to_graph(u, hop=current_hop + 1)
+                    self.node_chains[u] = current_chain
+                    self._add_node_to_graph(u, hop=current_hop + 1, chain=current_chain)
                     if current_hop + 1 < self.max_hops and len(self.graph.nodes) < self.max_nodes:
-                        # If node is a known VASP endpoint, don't crawl past it (terminal VASP deposit/cold cluster)
-                        if not vasp_matcher.is_known_vasp(u):
-                            queue.append((u, current_hop + 1))
+                        if not vasp_matcher.is_known_vasp(u, current_chain):
+                            queue.append((u, current_hop + 1, current_chain))
 
                 if v_is_new:
                     self.node_hops[v] = current_hop + 1
-                    self._add_node_to_graph(v, hop=current_hop + 1)
+                    self.node_chains[v] = current_chain
+                    self._add_node_to_graph(v, hop=current_hop + 1, chain=current_chain)
                     if current_hop + 1 < self.max_hops and len(self.graph.nodes) < self.max_nodes:
-                        if not vasp_matcher.is_known_vasp(v):
-                            queue.append((v, current_hop + 1))
+                        if not vasp_matcher.is_known_vasp(v, current_chain):
+                            queue.append((v, current_hop + 1, current_chain))
 
                 # Add directed edge representing transfer
                 edge_id = f"{tx.tx_hash}_{u[:6]}_{v[:6]}_{tx.token_symbol}"
@@ -133,10 +207,13 @@ class TransactionGraphBuilder:
                     v,
                     key=edge_id,
                     tx_hash=tx.tx_hash,
-                    asset_symbol=tx.token_symbol or "ETH",
+                    asset_symbol=tx.token_symbol or ("SOL" if current_chain == "solana" else "ETH"),
                     amount=tx.amount,
                     timestamp=tx.timestamp,
-                    hop=current_hop + 1
+                    hop=current_hop + 1,
+                    is_cross_chain=False,
+                    source_chain=current_chain,
+                    target_chain=current_chain
                 )
 
         logger.info(f"Graph built: {len(self.graph.nodes)} nodes, {len(self.graph.edges)} edges.")
@@ -182,27 +259,40 @@ class TransactionGraphBuilder:
             logger.warning(f"Failed to query local DB transactions for {address}: {e}")
             return []
 
-    def _add_node_to_graph(self, address: str, hop: int):
+    def _add_node_to_graph(
+        self,
+        address: str,
+        hop: int,
+        role: Optional[str] = None,
+        chain: Optional[str] = None,
+        bridge_protocol: Optional[str] = None
+    ):
         """Helper to register node attributes."""
-        vasp_info = vasp_matcher.match_address(address)
+        node_chain = chain or self.node_chains.get(address, "ethereum")
+        self.node_chains[address] = node_chain
+        vasp_info = vasp_matcher.match_address(address, node_chain)
         is_vasp = vasp_info is not None
 
-        if hop == 0:
-            role = "INPUT_WALLET"
-        elif is_vasp:
-            role = "KNOWN_VASP"
-        elif hop == 1:
-            role = "INTERMEDIARY_HOP_1"
-        elif hop == 2:
-            role = "INTERMEDIARY_HOP_2"
-        elif hop == 3:
-            role = "INTERMEDIARY_HOP_3"
-        else:
-            role = "EXTERNAL"
+        if role is None:
+            if hop == 0:
+                role = "INPUT_WALLET"
+            elif is_vasp:
+                role = "KNOWN_VASP"
+            elif hop == 1:
+                role = "INTERMEDIARY_HOP_1"
+            elif hop == 2:
+                role = "INTERMEDIARY_HOP_2"
+            elif hop == 3:
+                role = "INTERMEDIARY_HOP_3"
+            else:
+                role = "EXTERNAL"
 
-        short_label = f"{address[:6]}...{address[-4:]}"
-        if is_vasp:
-            short_label = f"[{vasp_info['vasp_name']}] {short_label}"
+        if role == "BRIDGE_PROTOCOL":
+            short_label = f"[Bridge: {bridge_protocol or 'Bridge'}]"
+        elif is_vasp:
+            short_label = f"[{vasp_info['vasp_name']}] {address[:6]}...{address[-4:]}"
+        else:
+            short_label = f"{address[:6]}...{address[-4:]}"
 
         self.graph.add_node(
             address,
@@ -210,11 +300,13 @@ class TransactionGraphBuilder:
             address=address,
             role=role,
             hop=hop,
+            chain=node_chain,
             is_vasp=is_vasp,
             vasp_name=vasp_info["vasp_name"] if vasp_info else None,
             vasp_confidence=vasp_info["confidence"] if vasp_info else None,
             address_type=vasp_info["address_type"] if vasp_info else None,
-            notes=vasp_info["notes"] if vasp_info else None
+            notes=vasp_info["notes"] if vasp_info else None,
+            bridge_protocol=bridge_protocol
         )
 
     def export_cytoscape_data(self, root_wallet: str) -> GraphData:
@@ -247,8 +339,12 @@ class TransactionGraphBuilder:
                         tx_hash=data.get("tx_hash", ""),
                         asset_symbol=data.get("asset_symbol", "ETH"),
                         amount=amt,
-                        timestamp=data.get("timestamp", datetime.utcnow()),
-                        hop=data.get("hop", 1)
+                        timestamp=data.get("timestamp", datetime.now(timezone.utc)),
+                        hop=data.get("hop", 1),
+                        is_cross_chain=data.get("is_cross_chain", False),
+                        bridge_protocol=data.get("bridge_protocol"),
+                        source_chain=data.get("source_chain"),
+                        target_chain=data.get("target_chain")
                     )
                 )
             )
@@ -267,6 +363,7 @@ class TransactionGraphBuilder:
                         vasp_name=data.get("vasp_name"),
                         vasp_confidence=data.get("vasp_confidence"),
                         address_type=data.get("address_type"),
+                        chain=data.get("chain"),
                         tx_count=stats["tx_count"],
                         total_inflow=stats["inflow"],
                         total_outflow=stats["outflow"]
@@ -279,6 +376,7 @@ class TransactionGraphBuilder:
             "total_nodes": len(nodes),
             "total_edges": len(edges),
             "vasp_nodes_found": sum(1 for n in nodes if n.data.is_vasp),
+            "cross_chain_edges": sum(1 for e in edges if e.data.is_cross_chain),
             "max_hop_reached": max([n.data.hop for n in nodes], default=0)
         }
 

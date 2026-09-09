@@ -12,6 +12,7 @@ export const NCRPTriageView: React.FC<NCRPTriageViewProps> = ({ onSelectCase }) 
   const [cases, setCases] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [filterTypology, setFilterTypology] = useState<string>('ALL');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadCases() {
@@ -19,8 +20,9 @@ export const NCRPTriageView: React.FC<NCRPTriageViewProps> = ({ onSelectCase }) 
         setLoading(true);
         const data = await api.getNCRPCases();
         setCases(data || []);
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed loading NCRP complaints:', err);
+        setError(err.message || 'Failed to load NCRP incidents from database.');
       } finally {
         setLoading(false);
       }
@@ -67,6 +69,12 @@ export const NCRPTriageView: React.FC<NCRPTriageViewProps> = ({ onSelectCase }) 
         </div>
       </div>
 
+            {error && (
+        <div className="p-3 bg-red-500/10 border-b border-red-500/20 text-red-400 text-xs font-mono flex items-center justify-between">
+          <span>Failed to load live NCRP complaints: {error}</span>
+          <button onClick={() => window.location.reload()} className="underline hover:text-white">Retry</button>
+        </div>
+      )}
       {/* Incident Queue Table */}
       <div className="overflow-x-auto">
         <table className="w-full text-left text-xs border-collapse">

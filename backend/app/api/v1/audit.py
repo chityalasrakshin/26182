@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.core.auth import get_current_supervisor
+from backend.app.core.auth import get_current_investigator, get_current_supervisor
 from backend.app.models.database import get_db, User
 from backend.app.schemas.audit import AuditLogResponse, AuditLogListResponse
 from backend.app.services.audit.logger import audit_logger
@@ -23,7 +23,7 @@ async def query_global_audit_logs(
     case_id: Optional[str] = Query(default=None, description="Filter by case ID"),
     limit: int = Query(default=50, ge=1, le=200, description="Page limit"),
     offset: int = Query(default=0, ge=0, description="Page offset"),
-    current_supervisor: User = Depends(get_current_supervisor),
+    current_user: User = Depends(get_current_investigator),
     db: AsyncSession = Depends(get_db)
 ):
     """

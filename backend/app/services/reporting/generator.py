@@ -33,9 +33,16 @@ class ReportGenerator:
         narrative_metadata: Optional[Dict[str, Any]] = None,
         draft_disclosure_notice: Optional[Dict[str, Any]] = None
     ) -> InvestigationReportSchema:
+        critical_txs = [t.model_dump() if hasattr(t, "model_dump") else t for t in (critical_txs or [])]
         top_attr = attributions[0] if attributions else None
         chain_type = detect_blockchain(wallet_address)
-        chain_name = "Ethereum Mainnet (ETH / ERC-20)" if chain_type == "ethereum" else "Tron Network (TRX / TRC-20 USDT)" if chain_type == "tron" else "Multi-Chain Blockchain"
+        chain_name = (
+            "Ethereum Mainnet (ETH / ERC-20)" if chain_type == "ethereum"
+            else "Solana Mainnet (SOL / SPL Tokens)" if chain_type == "solana"
+            else "Tron Network (TRX / TRC-20 USDT)" if chain_type == "tron"
+            else "Bitcoin Network (BTC)" if chain_type == "bitcoin"
+            else "Multi-Chain Blockchain"
+        )
 
         data_sources = [
             f"{chain_name} Public Explorer JSON-RPC / REST APIs (Etherscan v2 / TronGrid Pro)",
@@ -69,28 +76,8 @@ class ReportGenerator:
             "Treaties (MLAT) directed to relevant VASP compliance divisions."
         )
 
-        # Generate narrative if not provided
-        if not narrative:
-            payload = {
-                "case_id": case_id,
-                "target_wallet": wallet_address,
-                "blockchain": chain_name,
-                "graph_metrics": summary_stats,
-                "top_attribution": top_attr.model_dump() if top_attr and hasattr(top_attr, "model_dump") else (top_attr if isinstance(top_attr, dict) else None),
-                "risk_assessment": risk_assessment.model_dump() if risk_assessment and hasattr(risk_assessment, "model_dump") else (risk_assessment if isinstance(risk_assessment, dict) else None),
-                "evidence_samples": [e.model_dump() if hasattr(e, "model_dump") else e for e in evidence[:5]],
-                "critical_transactions_summary": critical_txs[:8],
-                "estimative_mapping": {
-                    "probability_term": map_score_to_estimative_term(top_attr.score if top_attr else 0.0),
-                    "confidence_level": top_attr.evidence_strength if top_attr else "Low"
-                }
-            }
-            narrative = narrative_service._generate_deterministic_brief(payload)
-            narrative_metadata = {
-                "model": "deterministic-intel-brief-v1",
-                "confidence": top_attr.evidence_strength if top_attr else "Low",
-                "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
-            }
+        # Narrative is populated dynamically when synthesized via LLM
+        # No static/deterministic placeholder is injected.
 
         # Generate draft disclosure notice if not provided
         if not draft_disclosure_notice:
@@ -197,7 +184,56 @@ class ReportGenerator:
             f"",
             f"---",
             f"",
-            f"## 4. TAMPER-EVIDENT AUDIT TRAIL & TRANSACTION PROOFS",
+        ])
+
+        # Cross-Chain Movement & Asset Flight Analysis
+        cross_chain_items = []
+        for tx in (report.critical_transactions or []):
+            is_b = getattr(tx, "is_bridge", False) if hasattr(tx, "is_bridge") else (tx.get("is_bridge", False) if isinstance(tx, dict) else False)
+            proto = getattr(tx, "bridge_protocol", None) if hasattr(tx, "bridge_protocol") else (tx.get("bridge_protocol") if isinstance(tx, dict) else None)
+            is_cc = getattr(tx, "is_cross_chain", False) if hasattr(tx, "is_cross_chain") else (tx.get("is_cross_chain", False) if isinstance(tx, dict) else False)
+            if is_b or proto or is_cc:
+                cross_chain_items.append(tx)
+
+        if cross_chain_items:
+            lines.extend([
+                f"## 4. CROSS-CHAIN MOVEMENT & ASSET FLIGHT ANALYSIS",
+                f"",
+                f"> ⚡ **Cross-Chain Capital Dispersion**: On-chain telemetry detected capital flight across liquidity bridges and cross-chain messaging protocols.",
+                f"",
+                f"| # | Bridge Protocol | Source Chain & Sender | Destination Chain & Recipient | Amount / Asset | Tx Hash |",
+                f"| :---: | :--- | :--- | :--- | :---: | :--- |"
+            ])
+            for i, ctx in enumerate(cross_chain_items, 1):
+                if hasattr(ctx, "tx_hash"):
+                    proto = ctx.bridge_protocol or "Bridge Protocol"
+                    src_c = getattr(ctx, "source_chain", getattr(ctx, "chain", "ETH"))
+                    dst_c = getattr(ctx, "destination_chain", getattr(ctx, "target_chain", "SOL"))
+                    src_w = ctx.from_address or "-"
+                    dst_w = getattr(ctx, "destination_address", ctx.to_address) or "-"
+                    amt_num = float(ctx.amount) if ctx.amount is not None else 0.0
+                    sym = ctx.token_symbol or ""
+                    tx_h = ctx.tx_hash or "-"
+                else:
+                    proto = ctx.get("bridge_protocol") or "Bridge Protocol"
+                    src_c = ctx.get("source_chain") or ctx.get("chain", "ETH")
+                    dst_c = ctx.get("destination_chain") or ctx.get("target_chain", "SOL")
+                    src_w = ctx.get("from", ctx.get("from_address", "-"))
+                    dst_w = ctx.get("destination_address") or ctx.get("to", ctx.get("to_address", "-"))
+                    amt_val = ctx.get("amount", 0.0)
+                    amt_num = float(amt_val) if amt_val is not None else 0.0
+                    sym = ctx.get("token_symbol") or ctx.get("asset") or ""
+                    tx_h = ctx.get("tx_hash", "-")
+
+                amt = f"{amt_num:,.2f} {sym}".strip()
+                src_str = f"**{str(src_c).upper()}**: `{src_w[:6]}...{src_w[-4:]}`" if len(src_w) > 10 else f"**{str(src_c).upper()}**: `{src_w}`"
+                dst_str = f"**{str(dst_c).upper()}**: `{dst_w[:6]}...{dst_w[-4:]}`" if len(dst_w) > 10 else f"**{str(dst_c).upper()}**: `{dst_w}`"
+                lines.append(f"| {i} | **{proto}** | {src_str} | {dst_str} | `{amt}` | `{tx_h[:10]}...` |")
+            lines.extend([f"", f"---", f""])
+
+        sec_num = 5 if cross_chain_items else 4
+        lines.extend([
+            f"## {sec_num}. TAMPER-EVIDENT AUDIT TRAIL & TRANSACTION PROOFS",
             f""
         ])
 

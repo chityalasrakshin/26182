@@ -20,7 +20,7 @@ sys.path.insert(0, str(BASE_DIR))
 
 CACHE_DIR = BASE_DIR / "data" / "cache" / "transactions"
 LABELS_FILE = BASE_DIR / "data" / "labels" / "demo_labels.json"
-DB_PATH = BASE_DIR / "crypto_trace.db"
+DB_PATH = BASE_DIR / "data" / "crypto_trace.db"
 
 
 def ensure_demo_caches():

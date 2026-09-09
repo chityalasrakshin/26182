@@ -15,8 +15,8 @@ class VASPDirectoryResponse(BaseModel):
     jurisdiction: str
     country: str
     known_deposit_cluster_labels: List[str] = Field(default_factory=list)
-    mock_contact_endpoint: str
-    mock_response_sla: str
+    mock_contact_endpoint: Optional[str] = None
+    mock_response_sla: Optional[str] = None
     fiu_registration_number: Optional[str] = None
     sahyog_routing_code: Optional[str] = None
     compliance_email: Optional[str] = None
@@ -24,7 +24,7 @@ class VASPDirectoryResponse(BaseModel):
     compliance_portal: Optional[str] = None
     nodal_officer: Optional[str] = None
     is_fiu_registered: bool = False
-    is_simulated: bool = True
+    is_simulated: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

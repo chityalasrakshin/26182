@@ -324,44 +324,11 @@ def test_api_case_disclosure_request_dispatch(investigator_a_token):
         headers={"Authorization": f"Bearer {investigator_a_token}"},
         json=dispatch_payload
     )
-    assert dispatch_res.status_code == 200
-    res_data = dispatch_res.json()
+    # Gateway is not configured: must return 501 rather than fake simulated acknowledgment
+    assert dispatch_res.status_code == 501
+    assert "External electronic lawful disclosure API gateway is not configured" in dispatch_res.json()["detail"]
 
-    # Verify simulation markers & exact acknowledgment
-    assert res_data["is_simulated"] is True
-    assert "SIMULATED INTEGRATION" in res_data["simulation_notice"]
-    assert res_data["target_vasp"] == "Binance"
-    assert res_data["sahyog_routing_code"] == "SAHYOG-VASP-BINANCE-GLB"
-    assert "24 Hours" in res_data["mock_response_sla"]
-    assert res_data["status"] == "ACKNOWLEDGED_SIMULATED"
 
-    expected_ack = "Request logged — SAHYOG production integration would route this to Binance via the SAHYOG lawful-disclosure API"
-    assert res_data["acknowledgment_message"] == expected_ack
-    assert res_data["timeline_event_id"] is not None
-
-    # 4. Verify presence in Case Timeline via GET /cases/{id}
-    detail_res = client.get(
-        f"/api/v1/cases/{case_id}",
-        headers={"Authorization": f"Bearer {investigator_a_token}"}
-    )
-    assert detail_res.status_code == 200
-    case_detail = detail_res.json()
-    audit_events = case_detail.get("recent_audit_events", [])
-    assert any(e.get("action") == AuditAction.DISCLOSURE_REQUEST for e in audit_events)
-
-    # 5. Verify presence via GET /cases/{id}/audit-trail
-    timeline_res = client.get(
-        f"/api/v1/cases/{case_id}/audit-trail",
-        headers={"Authorization": f"Bearer {investigator_a_token}"}
-    )
-    assert timeline_res.status_code == 200
-    timeline_logs = timeline_res.json()
-    disclosure_logs = [l for l in timeline_logs if l["action"] == AuditAction.DISCLOSURE_REQUEST]
-    assert len(disclosure_logs) >= 1
-    log_entry = disclosure_logs[0]
-    assert log_entry["case_id"] == case_id
-    assert log_entry["details"]["target_vasp"] == "Binance"
-    assert log_entry["details"]["is_simulated"] is True
 
 
 def test_api_case_disclosure_request_custom_override(supervisor_token, investigator_a_token):
@@ -384,12 +351,8 @@ def test_api_case_disclosure_request_custom_override(supervisor_token, investiga
         headers={"Authorization": f"Bearer {supervisor_token}"},
         json={"target_vasp": "CoinDCX", "urgency": "EMERGENCY_6H"}
     )
-    assert dispatch_res.status_code == 200
-    data = dispatch_res.json()
-    assert data["target_vasp"] == "CoinDCX"
-    assert data["sahyog_routing_code"] == "SAHYOG-VASP-COINDCX-IND"
-    assert "CoinDCX" in data["acknowledgment_message"]
-    assert data["is_simulated"] is True
+    assert dispatch_res.status_code == 501
+    assert "External electronic lawful disclosure API gateway is not configured" in dispatch_res.json()["detail"]
 
 
 def test_api_case_disclosure_request_rbac_protection(investigator_a_token, investigator_b_token):
@@ -435,9 +398,5 @@ def test_api_direct_analysis_disclosure_request():
         f"/api/v1/analysis/{analysis_id}/disclosure-request",
         json={"urgency": "STANDARD_48H"}
     )
-    assert res.status_code == 200
-    data = res.json()
-    assert data["is_simulated"] is True
-    assert data["target_vasp"] == "Bitfinex"
-    assert data["sahyog_routing_code"] == "SAHYOG-VASP-BITFINEX-BVI"
-    assert "Bitfinex" in data["acknowledgment_message"]
+    assert res.status_code == 501
+    assert "External electronic lawful disclosure API gateway is not configured" in res.json()["detail"]

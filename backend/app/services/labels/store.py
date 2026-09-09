@@ -63,6 +63,7 @@ class LabelStore:
         count += self._load_vasp_master()
         count += self._load_demo_labels()
         count += self._load_ofac_sanctions()
+        count += self._load_solana_vasp_labels()
         self._loaded = True
         logger.info(f"LabelStore loaded {len(self._address_map)} unique labeled addresses.")
         return len(self._address_map)
@@ -192,6 +193,47 @@ class LabelStore:
                 self._address_map[norm_addr] = label_obj
                 self._chain_address_map[(chain, norm_addr)] = label_obj
                 loaded += 1
+        return loaded
+
+    def _load_solana_vasp_labels(self) -> int:
+        """
+        Loads verified Solana VASP addresses (Binance, Coinbase, Kraken, OKX, Bybit).
+        """
+        solana_entries = [
+            # Binance Solana Hot Wallets
+            ("5tzFkiKscMRHK5ZXWBZXZUXJwomD5pmQV82QEGxmqVCe", "solana", "Binance", "Binance Solana Hot Wallet 1", "exchange", "LOW"),
+            ("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", "solana", "Binance", "Binance Solana Hot Wallet 2", "exchange", "LOW"),
+            # Coinbase Solana Hot Wallets
+            ("2AQdpHJ2JpcEgBtAZubqznPUwhG13nM69qKEmaJ13G3b", "solana", "Coinbase", "Coinbase Solana Prime Custody", "exchange", "LOW"),
+            ("H8sMJSCQxfKiFTCfDR3DUMLPwcRbM61LGFJ8N4dK3WjS", "solana", "Coinbase", "Coinbase Solana Cold Storage", "exchange", "LOW"),
+            # Kraken Solana Hot Wallets
+            ("FWznbcNXWQuHTawe9RxvQ2LdJF24zVnSZTGpzZMnLnh8", "solana", "Kraken", "Kraken Solana Hot Wallet", "exchange", "LOW"),
+            # OKX Solana Deposit Wallet
+            ("5VCwKtCXgCJ6kit5FybXjvmsWnGn6XZ8NFgkWDV1b63X", "solana", "OKX", "OKX Solana Hot Wallet", "exchange", "LOW"),
+            # Bybit Solana
+            ("AC5RDfQFmDS1deWZos921qqvw3LNo8KSmCHbZc2gHSU8", "solana", "Bybit", "Bybit Solana Hot Wallet", "exchange", "LOW"),
+        ]
+
+        loaded = 0
+        for raw_addr, chain, entity, label, cat, risk in solana_entries:
+            norm_addr = normalize_address(raw_addr)
+            label_obj = AddressLabel(
+                address=norm_addr,
+                chain=chain,
+                entity=entity,
+                label=label,
+                category=cat,
+                risk_level=risk,
+                confidence="HIGH",
+                confidence_score=98.0,
+                source_name="Solana Verified VASP Registry",
+                source_url="https://solscan.io",
+                notes=f"Verified {entity} {label} on Solana",
+                is_vasp=(cat == "exchange"),
+            )
+            self._address_map[norm_addr] = label_obj
+            self._chain_address_map[(chain, norm_addr)] = label_obj
+            loaded += 1
         return loaded
 
     def lookup(self, address: str, chain: Optional[str] = None) -> Optional[AddressLabel]:

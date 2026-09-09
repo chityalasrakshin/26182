@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
@@ -15,6 +16,20 @@ class Settings(BaseSettings):
     TRONGRID_API_KEY: str = Field(default="", description="TronGrid API Key for Tron/TRC-20 tracing")
     CHAIN_ID: str = Field(default="1", description="EVM Chain ID (1 for Ethereum Mainnet)")
     
+    # Solana Configuration
+    SOLANA_RPC_URL: str = Field(
+        default="https://api.mainnet-beta.solana.com",
+        description="Primary Solana JSON-RPC endpoint"
+    )
+    SOLSCAN_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Optional Solscan API key for enhanced transaction resolution"
+    )
+    SOLANA_REQUEST_TIMEOUT_SECONDS: float = Field(
+        default=12.0,
+        description="Solana RPC request timeout in seconds"
+    )
+
     # Optional / Fallback Blockchain Providers
     BLOCKCHAIR_API_KEY: str = Field(default="", description="Blockchair API Key (optional)")
     BITQUERY_API_KEY: str = Field(default="", description="Bitquery GraphQL API Key (optional)")
@@ -34,7 +49,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=1440, description="JWT token expiry in minutes")
 
     # Database
-    DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./crypto_trace.db", description="Database connection URL")
+    DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./data/crypto_trace.db", description="Database connection URL")
     
     # Redis Cache & Queue
     REDIS_URL: str = Field(default="redis://localhost:6379/0", description="Redis connection URL for cache and queues")

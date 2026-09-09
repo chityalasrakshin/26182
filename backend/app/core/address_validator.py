@@ -4,6 +4,7 @@ from typing import Optional
 
 ETH_ADDRESS_REGEX = re.compile(r"^(?:0x|0X)[0-9a-fA-F]{40}$")
 TRON_ADDRESS_REGEX = re.compile(r"^T[1-9A-HJ-NP-za-km-z]{33}$")
+SOL_ADDRESS_REGEX = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
 # Bitcoin address patterns:
 # Legacy P2PKH: starts with 1, 25-34 chars Base58
@@ -165,7 +166,7 @@ def get_btc_address_type(address: str) -> Optional[str]:
 def detect_blockchain(address: str) -> str:
     """
     Detects blockchain network from address format.
-    Returns 'ethereum', 'tron', or 'bitcoin'.
+    Returns 'ethereum', 'tron', 'bitcoin', or 'solana'.
     """
     if not address or not isinstance(address, str):
         raise ValueError("Address must be a non-empty string.")
@@ -177,10 +178,12 @@ def detect_blockchain(address: str) -> str:
         return "tron"
     elif is_valid_btc_address(clean):
         return "bitcoin"
+    elif is_valid_sol_address(clean):
+        return "solana"
     else:
         raise ValueError(
             f"Unrecognized cryptocurrency address format: {address}. "
-            f"Supported: Ethereum (0x...), Tron (T...), Bitcoin (1.../3.../bc1...)."
+            f"Supported: Ethereum (0x...), Tron (T...), Bitcoin (1.../3.../bc1...), Solana (Base58 32-44 chars)."
         )
 
 
@@ -193,7 +196,7 @@ def detect_evm_chain(chain_name: str) -> Optional[str]:
 
 
 def is_valid_crypto_address(address: str) -> bool:
-    """Validates if address is a valid Ethereum, Tron, or Bitcoin address."""
+    """Validates if address is a valid Ethereum, Tron, Bitcoin, or Solana address."""
     if not address or not isinstance(address, str):
         return False
     clean = address.strip()
@@ -201,6 +204,7 @@ def is_valid_crypto_address(address: str) -> bool:
         is_valid_eth_address(clean)
         or is_valid_tron_address(clean)
         or is_valid_btc_address(clean)
+        or is_valid_sol_address(clean)
     )
 
 
@@ -219,6 +223,27 @@ def is_valid_tron_address(address: str) -> bool:
     return bool(TRON_ADDRESS_REGEX.match(clean))
 
 
+def is_valid_sol_address(address: str) -> bool:
+    """
+    Validates Solana Base58 public key (32-44 characters, ed25519 32-byte pubkey).
+    Disambiguates against Tron and Bitcoin Base58 addresses.
+    """
+    if not address or not isinstance(address, str):
+        return False
+    clean = address.strip()
+    # Exclude Tron addresses which also use Base58 but start with 'T' and length 34
+    if clean.startswith("T") and len(clean) == 34:
+        return False
+    # Exclude Bitcoin addresses (1, 3, bc1)
+    if clean.startswith("1") or clean.startswith("3") or clean.startswith("bc1"):
+        return False
+    if not SOL_ADDRESS_REGEX.match(clean):
+        return False
+    # Ed25519 public key decoded from Base58 must be exactly 32 bytes
+    decoded = b58decode(clean)
+    return decoded is not None and len(decoded) == 32
+
+
 def normalize_address(address: str) -> str:
     """Normalizes address according to its blockchain standard."""
     chain = detect_blockchain(address)
@@ -230,6 +255,9 @@ def normalize_address(address: str) -> str:
         if clean.startswith("bc1"):
             return clean.lower()
         # Legacy and P2SH are case-sensitive Base58
+        return clean
+    elif chain == "solana":
+        # Solana Base58 addresses are case-sensitive
         return clean
     return clean  # Tron addresses are case-sensitive Base58
 

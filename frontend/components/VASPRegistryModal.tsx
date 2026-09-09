@@ -244,7 +244,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
 
           {directoryLoading ? (
             <div className="flex items-center justify-center py-20 text-forensic-textDim">
-              <span>Loading mock SAHYOG compliance directory...</span>
+              <span>Loading verified VASP compliance directory...</span>
             </div>
           ) : directoryItems.length === 0 ? (
             <div className="text-center py-16 text-forensic-textDim">
@@ -276,9 +276,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                       </span>
                     </div>
 
-                    <span className="px-2 py-0.5 rounded text-[9px] font-mono bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                      MOCK INTEGRATION
-                    </span>
+
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-[10px] bg-forensic-bg/60 p-2 rounded border border-forensic-border font-mono">
@@ -317,10 +315,14 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                       <span>LEA Contact:</span>
                       <span className="text-blue-400">{vasp.designated_lea_email || vasp.compliance_email}</span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span>Mock Dispatch API:</span>
-                      <span className="text-amber-400/80 truncate max-w-[200px]">{vasp.mock_contact_endpoint}</span>
-                    </div>
+                    {vasp.compliance_portal && (
+                      <div className="flex items-center justify-between">
+                        <span>Compliance Portal:</span>
+                        <a href={vasp.compliance_portal} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline truncate max-w-[200px]">
+                          {vasp.compliance_portal.replace(/^https?:\/\//, '')}
+                        </a>
+                      </div>
+                    )}
                   </div>
 
                   {vasp.known_deposit_cluster_labels?.length > 0 && (

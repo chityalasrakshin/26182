@@ -103,8 +103,9 @@ class Neo4jGraphClient:
             return False
 
         label_obj = label_info or label_store.lookup(address, chain)
+        norm_address = address.strip() if chain.lower() == "solana" else address.lower()
         props = {
-            "address": address.lower(),
+            "address": norm_address,
             "chain": chain.lower(),
             "is_vasp": bool(label_obj and label_obj.is_vasp),
             "vasp_name": label_obj.entity if (label_obj and label_obj.is_vasp) else "",
@@ -154,8 +155,8 @@ class Neo4jGraphClient:
         if not self._connected or not self._driver:
             return False
 
-        from_addr = tx.from_address.lower()
-        to_addr = tx.to_address.lower()
+        from_addr = tx.from_address.strip() if chain.lower() == "solana" else tx.from_address.lower()
+        to_addr = tx.to_address.strip() if chain.lower() == "solana" else tx.to_address.lower()
 
         # Ensure both endpoints exist
         self.upsert_wallet_node(from_addr, chain)
@@ -191,6 +192,75 @@ class Neo4jGraphClient:
             return True
         except Exception as e:
             logger.error(f"Error ingesting transaction edge {tx.tx_hash}: {e}")
+            return False
+
+    def ingest_cross_chain_transfer(
+        self,
+        from_addr: str,
+        from_chain: str,
+        to_addr: str,
+        to_chain: str,
+        protocol: str,
+        tx_hash: str,
+        amount: float,
+        asset: str,
+        timestamp: Optional[datetime] = None
+    ) -> bool:
+        """
+        Ingests a cross-chain bridging event into Neo4j:
+        MERGE (u:Wallet {address: $from_addr})
+        ON CREATE SET u.chain = $from_chain
+        MERGE (v:Wallet {address: $to_addr})
+        ON CREATE SET v.chain = $to_chain
+        CREATE (u)-[r:BRIDGED_TO {
+            protocol: $protocol,
+            tx_hash: $tx_hash,
+            amount: $amount,
+            asset: $asset,
+            from_chain: $from_chain,
+            to_chain: $to_chain,
+            timestamp: $timestamp
+        }]->(v)
+        """
+        if not self._connected or not self._driver:
+            return False
+
+        u_norm = from_addr.strip() if from_chain.lower() == "solana" else from_addr.strip().lower()
+        v_norm = to_addr.strip() if to_chain.lower() == "solana" else to_addr.strip().lower()
+
+        rel_query = """
+        MERGE (u:Wallet {address: $from_addr})
+        ON CREATE SET u.chain = $from_chain
+        MERGE (v:Wallet {address: $to_addr})
+        ON CREATE SET v.chain = $to_chain
+        CREATE (u)-[r:BRIDGED_TO {
+            protocol: $protocol,
+            tx_hash: $tx_hash,
+            amount: $amount,
+            asset: $asset,
+            from_chain: $from_chain,
+            to_chain: $to_chain,
+            timestamp: $timestamp
+        }]->(v)
+        """
+        params = {
+            "from_addr": u_norm,
+            "from_chain": from_chain.lower(),
+            "to_addr": v_norm,
+            "to_chain": to_chain.lower(),
+            "protocol": protocol,
+            "tx_hash": tx_hash,
+            "amount": float(amount or 0.0),
+            "asset": asset or "NATIVE",
+            "timestamp": timestamp.isoformat() if timestamp else datetime.utcnow().isoformat(),
+        }
+
+        try:
+            with self._driver.session() as session:
+                session.run(rel_query, params)
+            return True
+        except Exception as e:
+            logger.error(f"Error ingesting cross-chain transfer {tx_hash}: {e}")
             return False
 
     def find_shortest_path_to_vasp(

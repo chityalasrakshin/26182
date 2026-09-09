@@ -1,9 +1,17 @@
+import os
+import sys
+from pathlib import Path
+
+# Ensure project root is in sys.path so 'backend.*' imports succeed regardless of working directory
+_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pathlib import Path
 
 from backend.app.core.config import settings
 from backend.app.models.database import init_db, AsyncSessionLocal
@@ -131,14 +139,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"VASP directory auto-seed notice: {e}")
 
-    # 7. Pre-warm offline demo benchmark cache (Phase 8 Demo Hardening)
-    try:
-        from backend.app.services.blockchain.cache import blockchain_cache
-        prewarm_res = await blockchain_cache.prewarm_demo_cache()
-        logger.info(f"Phase 8 demo cache pre-warm ready: {prewarm_res.get('prewarmed_addresses_count', 0)} benchmark addresses ({prewarm_res.get('total_cached_transactions', 0)} txs).")
-    except Exception as e:
-        logger.warning(f"Demo cache pre-warm notice: {e}")
-
     yield
     logger.info("Shutting down service...")
 
@@ -190,7 +190,9 @@ async def root():
 @app.get("/judge-docs", include_in_schema=False)
 @app.get("/docs.html", include_in_schema=False)
 async def serve_judge_docs():
-    docs_path = Path(__file__).resolve().parent.parent.parent / "docs.html"
+    docs_path = Path(__file__).resolve().parent.parent.parent / "frontend" / "public" / "docs.html"
+    if not docs_path.exists():
+        docs_path = Path(__file__).resolve().parent.parent.parent / "docs.html"
     if docs_path.exists():
         return FileResponse(docs_path, media_type="text/html")
     return {"error": "docs.html not found"}

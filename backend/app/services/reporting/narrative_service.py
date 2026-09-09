@@ -51,7 +51,7 @@ class LLMNarrativeService:
     """
 
     def __init__(self, api_key: Optional[str] = None, model: str = "claude-3-5-sonnet-20241022"):
-        self.api_key = api_key or settings.ANTHROPIC_API_KEY or settings.CLAUDE_API_KEY
+        self.api_key = api_key if api_key is not None else (settings.ANTHROPIC_API_KEY or settings.CLAUDE_API_KEY)
         self.model = model
         self.endpoint = "https://api.anthropic.com/v1/messages"
 
@@ -117,37 +117,30 @@ class LLMNarrativeService:
             }
         }
 
-        # Attempt Claude API synthesis if key is present
-        if self.api_key and not self.api_key.startswith("mock-") and len(self.api_key) > 10:
-            try:
-                narrative_text = await self._call_claude_api(structured_payload)
-                if narrative_text:
-                    bluf = self._extract_bluf(narrative_text)
-                    return {
-                        "narrative": narrative_text,
-                        "bluf": bluf,
-                        "model": self.model,
-                        "confidence": evidence_strength,
-                        "probability_term": prob_term,
-                        "generated_at": datetime.now(timezone.utc).isoformat(),
-                        "mode": "claude_api"
-                    }
-            except Exception as e:
-                logger.warning(f"Claude API call failed or timed out ({e}). Falling back to deterministic intelligence brief generator.")
+        # Claude API synthesis
+        if not self.api_key or len(self.api_key.strip()) < 10:
+            raise RuntimeError(
+                "Anthropic Claude API key is not configured. "
+                "Please set ANTHROPIC_API_KEY in .env to generate court-ready AI investigation narratives."
+            )
 
-        # Fallback to deterministic intelligence brief engine
-        deterministic_brief = self._generate_deterministic_brief(structured_payload)
-        bluf = self._extract_bluf(deterministic_brief)
-
-        return {
-            "narrative": deterministic_brief,
-            "bluf": bluf,
-            "model": "deterministic-intel-brief-v1",
-            "confidence": evidence_strength,
-            "probability_term": prob_term,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "mode": "deterministic_fallback"
-        }
+        try:
+            narrative_text = await self._call_claude_api(structured_payload)
+            if not narrative_text:
+                raise RuntimeError("Claude API returned an empty narrative response.")
+            bluf = self._extract_bluf(narrative_text)
+            return {
+                "narrative": narrative_text,
+                "bluf": bluf,
+                "model": self.model,
+                "confidence": evidence_strength,
+                "probability_term": prob_term,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "mode": "claude_api"
+            }
+        except Exception as e:
+            logger.error(f"Claude API call failed: {e}")
+            raise RuntimeError(f"Claude API call failed: {e}") from e
 
     async def _call_claude_api(self, payload: Dict[str, Any]) -> Optional[str]:
         """Calls Anthropic Claude Messages API with strict non-decisional prompt."""
@@ -203,7 +196,7 @@ class LLMNarrativeService:
                     return content_blocks[0]["text"].strip()
             else:
                 logger.error(f"Anthropic API returned status {response.status_code}: {response.text}")
-                return None
+                raise RuntimeError(f"Anthropic Claude API call failed (HTTP {response.status_code}): {response.text}")
 
     def _generate_deterministic_brief(self, payload: Dict[str, Any]) -> str:
         """

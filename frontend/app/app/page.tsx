@@ -53,7 +53,6 @@ export default function InvestigationAppPage() {
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [streamingHop, setStreamingHop] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [demoMode, setDemoMode] = useState<boolean>(true);
 
   // Modals state
   const [showCaseIntakeModal, setShowCaseIntakeModal] = useState<boolean>(false);
@@ -76,22 +75,15 @@ export default function InvestigationAppPage() {
   }, []);
 
   const initUser = async () => {
-    const stored = api.getStoredUser();
-    if (stored) {
-      setCurrentUser(stored);
-    } else {
-      // Auto-login as default investigator for effortless evaluator experience
-      try {
-        const user = await api.login('investigator', 'investigator123');
-        setCurrentUser(user);
-      } catch {
-        setCurrentUser({
-          access_token: 'demo-token',
-          token_type: 'bearer',
-          role: 'investigator',
-          username: 'investigator',
-          full_name: 'Cyber Crime Investigating Officer',
-        });
+    try {
+      const user = await api.login('investigator', 'investigator123');
+      setCurrentUser(user);
+    } catch (e) {
+      const stored = api.getStoredUser();
+      if (stored) {
+        setCurrentUser(stored);
+      } else {
+        console.error('Failed to authenticate investigator session:', e);
       }
     }
   };
@@ -166,7 +158,7 @@ export default function InvestigationAppPage() {
       if (!traceJobId) {
         try {
           const detectedChain = walletAddress.startsWith('0x') ? 'ethereum' : walletAddress.startsWith('T') ? 'tron' : 'bitcoin';
-          const traceJob = await api.startTrace(walletAddress, detectedChain, maxHops, demoMode);
+          const traceJob = await api.startTrace(walletAddress, detectedChain, maxHops);
           traceJobId = traceJob.job_id;
         } catch (e) {
           console.warn('Direct trace launch notice:', e);
@@ -180,7 +172,7 @@ export default function InvestigationAppPage() {
       }
 
       // 2. Start Full Ingestion Analysis
-      const initialStatus = await api.startAnalysis(walletAddress, maxHops, demoMode);
+      const initialStatus = await api.startAnalysis(walletAddress, maxHops);
       setAnalysisStatus(initialStatus);
 
       const analysisId = initialStatus.analysis_id;
@@ -414,8 +406,6 @@ export default function InvestigationAppPage() {
             <WalletSearch
               onAnalyze={handleStartAnalysis}
               isLoading={isLoading || isStreaming}
-              demoMode={demoMode}
-              onToggleDemoMode={() => setDemoMode(!demoMode)}
             />
 
             {analysisStatus && <LiveProgress status={analysisStatus} />}

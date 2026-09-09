@@ -15,13 +15,17 @@ export interface NormalizedTransaction {
   is_error: boolean;
   hop?: number;
   direction?: 'INCOMING' | 'OUTGOING';
+  is_bridge?: boolean;
+  bridge_protocol?: string | null;
+  destination_chain?: string | null;
+  destination_address?: string | null;
 }
 
 export interface GraphNodeData {
   id: string;
   label: string;
   address: string;
-  role: 'INPUT_WALLET' | 'INTERMEDIARY_HOP_1' | 'INTERMEDIARY_HOP_2' | 'INTERMEDIARY_HOP_3' | 'KNOWN_VASP' | 'EXTERNAL';
+  role: 'INPUT_WALLET' | 'INTERMEDIARY_HOP_1' | 'INTERMEDIARY_HOP_2' | 'INTERMEDIARY_HOP_3' | 'KNOWN_VASP' | 'BRIDGE_PROTOCOL' | 'EXTERNAL';
   hop: number;
   is_vasp: boolean;
   vasp_name?: string | null;
@@ -31,6 +35,7 @@ export interface GraphNodeData {
   total_inflow: number;
   total_outflow: number;
   is_contract?: boolean;
+  chain?: string | null;
 }
 
 export interface GraphNode {
@@ -46,6 +51,10 @@ export interface GraphEdgeData {
   amount: number;
   timestamp: string;
   hop: number;
+  is_cross_chain?: boolean;
+  bridge_protocol?: string | null;
+  source_chain?: string | null;
+  target_chain?: string | null;
 }
 
 export interface GraphEdge {
@@ -266,8 +275,8 @@ export interface VASPDirectoryItem {
   jurisdiction: string;
   country: string;
   known_deposit_cluster_labels: string[];
-  mock_contact_endpoint: string;
-  mock_response_sla: string;
+  mock_contact_endpoint?: string | null;
+  mock_response_sla?: string | null;
   fiu_registration_number?: string | null;
   sahyog_routing_code?: string | null;
   compliance_email?: string | null;
