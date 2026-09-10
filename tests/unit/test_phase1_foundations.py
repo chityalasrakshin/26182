@@ -22,7 +22,7 @@ def store():
 
 def test_label_store_initialization(store):
     """Test that LabelStore loads master VASP CSV, demo labels, and OFAC list."""
-    assert len(store._address_map) > 1000
+    assert len(store._address_map) > 2500
     assert store._loaded is True
 
 
@@ -40,14 +40,58 @@ def test_label_store_demo_labels(store):
     assert tornado is not None
     assert tornado.category == "mixer"
     assert tornado.risk_level == "CRITICAL"
+    assert tornado.confidence_score == 100.0
 
 
 def test_label_store_ofac_sanctions(store):
-    """Test lookup of OFAC sanctions list entries."""
+    """Test lookup of OFAC sanctions list entries across multiple blockchains."""
+    # Lazarus Group (Ronin Bridge exploiter - Ethereum)
     lazarus = store.lookup("0x098b716b8aaf21512996dc57eb0615e2383e2f96")
     assert lazarus is not None
     assert lazarus.risk_level == "CRITICAL"
-    assert "sanction" in lazarus.category.lower() or "scam" in lazarus.category.lower()
+    assert "sanction" in lazarus.category.lower()
+    assert lazarus.confidence_score == 100.0
+
+    # Garantex (Sanctioned Russian Exchange - is_vasp=True)
+    garantex = store.lookup("0x2649b2830fc3aa003a276b6c035c834375bfe5a4")
+    assert garantex is not None
+    assert garantex.entity == "Garantex"
+    assert garantex.risk_level == "CRITICAL"
+    assert garantex.is_vasp is True
+
+    # Hydra Market (Bitcoin)
+    hydra = store.lookup("149vaAYqWbZsQjMsGGCtVafjnhXWgk3vGu")
+    assert hydra is not None
+    assert hydra.entity == "Hydra Market"
+    assert hydra.chain == "bitcoin"
+    assert hydra.risk_level == "CRITICAL"
+
+    # Blender.io (Bitcoin Mixer)
+    blender = store.lookup("3NDzzVxiLBUs1WPvVGRfCYDTAD2Ua2PvW4")
+    assert blender is not None
+    assert blender.entity == "Blender.io"
+    assert blender.category == "mixer"
+    assert blender.risk_level == "CRITICAL"
+
+    # Tron OFAC Sanctioned Address
+    tron_sdn = store.lookup("TNiq9AXBp9EjUqhDhrwrfvAA8U3GUQZH81")
+    assert tron_sdn is not None
+    assert tron_sdn.chain == "tron"
+    assert tron_sdn.risk_level == "CRITICAL"
+
+
+def test_label_store_emergency_fallback(tmp_path):
+    """Verify that LabelStore falls back gracefully to emergency baseline if ofac_sdn.json is absent."""
+    fallback_store = LabelStore(data_dir=tmp_path)
+    # Emergency baseline should load Tornado Cash and Lazarus
+    tornado = fallback_store.lookup("0xd90e2f925da726b50c4ed8d0fb90ad053324f31b")
+    assert tornado is not None
+    assert tornado.risk_level == "CRITICAL"
+    assert tornado.category == "mixer"
+
+    lazarus = fallback_store.lookup("0x098b716b8aaf21512996dc57eb0615e2383e2f96")
+    assert lazarus is not None
+    assert lazarus.risk_level == "CRITICAL"
 
 
 def test_blockchain_provider_factory_routing():

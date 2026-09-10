@@ -23,7 +23,7 @@ async def query_global_audit_logs(
     case_id: Optional[str] = Query(default=None, description="Filter by case ID"),
     limit: int = Query(default=50, ge=1, le=200, description="Page limit"),
     offset: int = Query(default=0, ge=0, description="Page offset"),
-    current_user: User = Depends(get_current_investigator),
+    current_user: User = Depends(get_current_supervisor),
     db: AsyncSession = Depends(get_db)
 ):
     """

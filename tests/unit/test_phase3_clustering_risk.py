@@ -595,3 +595,166 @@ def test_api_composite_heuristic_analyze(client):
     assert summary["cluster"] is not None
     assert summary["cluster"]["cluster_size"] >= 2
     assert summary["metrics"]["is_clustered"] is True
+
+
+# ==============================================================================
+# 7. Tests for Elliptic++ & FATF Risk Alignment and Layer Capping
+# ==============================================================================
+
+def test_risk_scorer_velocity_layer_cap():
+    """
+    Verify VELOCITY_LAYER cap (25):
+    RAPID_FORWARDING (20) + SUSPICIOUS_VELOCITY (10) = 30 raw, strictly capped to 25.
+    """
+    g = nx.MultiDiGraph()
+    root = "0xvelocity_test"
+    g.add_node(root, hop=0)
+
+    t0 = datetime.now(timezone.utc)
+    # Intermediary forwarding in 5 mins -> triggers RAPID_FORWARDING (20 pts)
+    g.add_node("0xinter_hop1", hop=1)
+    g.add_edge(root, "0xinter_hop1", tx_hash="tx_v1", amount=1.23, timestamp=t0)
+    g.add_edge("0xinter_hop1", "0xdest_v1", tx_hash="tx_v2", amount=1.23, timestamp=t0 + timedelta(minutes=5))
+
+    # 6+ edges in < 2 hours -> triggers SUSPICIOUS_VELOCITY (10 pts raw)
+    for i in range(5):
+        g.add_edge(root, f"0xdest_other_{i}", tx_hash=f"tx_other_{i}", amount=1.234 + i, timestamp=t0 + timedelta(minutes=10 + i * 5))
+
+    assessment = RiskClassifier.evaluate_risk(g, root)
+
+    velocity_pts = 0
+    for ind in assessment.indicators:
+        if any(term in ind for term in ["Rapid pass-through", "Suspicious velocity"]):
+            if "[+" in ind and "pts]" in ind:
+                pt_str = ind.split("[+")[1].split("pts]")[0]
+                if pt_str.isdigit():
+                    velocity_pts += int(pt_str)
+
+    assert velocity_pts == CATEGORY_CAPS["VELOCITY_LAYER"]  # Exactly 25
+
+
+def test_risk_scorer_recurrence_layer_cap():
+    """
+    Verify RECURRENCE_LAYER cap (10):
+    REPEATED_DESTINATION (8) + ROUND_AMOUNT_PATTERN (5) = 13 raw, strictly capped to 10.
+    """
+    g = nx.MultiDiGraph()
+    root = "0xrecurrence_test"
+    target = "0xrepeat_target"
+    g.add_node(root, hop=0)
+    g.add_node(target, hop=1)
+
+    t0 = datetime.now(timezone.utc)
+    # Add 4 transfers with round amounts to the same destination over 4 days
+    for i in range(4):
+        g.add_edge(root, target, tx_hash=f"tx_rec_{i}", amount=10.0, timestamp=t0 + timedelta(days=i))
+
+    assessment = RiskClassifier.evaluate_risk(g, root)
+
+    recurrence_pts = 0
+    for ind in assessment.indicators:
+        if any(term in ind for term in ["Repeated destination", "Round amount"]):
+            if "[+" in ind and "pts]" in ind:
+                pt_str = ind.split("[+")[1].split("pts]")[0]
+                if pt_str.isdigit():
+                    recurrence_pts += int(pt_str)
+
+    assert recurrence_pts == CATEGORY_CAPS["RECURRENCE_LAYER"]  # Exactly 10
+
+
+def test_risk_scorer_entity_risk_layer_cap():
+    """
+    Verify ENTITY_RISK_LAYER cap (50):
+    SANCTIONED (45) + MIXER (30) + SCAM (35) = 110 raw, capped to 50.
+    """
+    g = nx.MultiDiGraph()
+    root = "0xentity_test"
+    g.add_node(root, hop=0)
+    g.add_node("0xsanc", hop=1)
+    g.add_node("0xmix", hop=1)
+    g.add_node("0xscam", hop=1)
+
+    t0 = datetime.now(timezone.utc)
+    g.add_edge(root, "0xsanc", tx_hash="tx_s1", amount=1.1, timestamp=t0 + timedelta(days=1))
+    g.add_edge(root, "0xmix", tx_hash="tx_m1", amount=1.2, timestamp=t0 + timedelta(days=2))
+    g.add_edge(root, "0xscam", tx_hash="tx_sc1", amount=1.3, timestamp=t0 + timedelta(days=3))
+
+    known = {
+        "0xsanc": "SANCTIONED",
+        "0xmix": "MIXER",
+        "0xscam": "SCAM"
+    }
+    assessment = RiskClassifier.evaluate_risk(g, root, known_entities=known)
+
+    entity_pts = 0
+    for ind in assessment.indicators:
+        if any(term in ind for term in ["SANCTIONED", "Mixer", "scam"]):
+            if "[+" in ind and "pts]" in ind:
+                pt_str = ind.split("[+")[1].split("pts]")[0]
+                if pt_str.isdigit():
+                    entity_pts += int(pt_str)
+
+    assert entity_pts == CATEGORY_CAPS["ENTITY_RISK_LAYER"]  # 50
+    assert any("layer capped" in ind for ind in assessment.indicators)
+
+
+def test_risk_scorer_ofac_label_store_integration():
+    """
+    Verify that an address present in LabelStore (OFAC SDN) is automatically detected
+    without requiring manual known_entities injection.
+    """
+    g = nx.MultiDiGraph()
+    root = "0xinvestigation_target"
+    # Hydra Market OFAC SDN address (verified present in ofac_sdn.json / LabelStore baseline)
+    ofac_addr = "149vaAYqWbZsQjMsGGCtVafjnhXWgk3vGu"
+    g.add_node(root, hop=0)
+    g.add_node(ofac_addr, hop=1)
+    g.add_edge(root, ofac_addr, tx_hash="tx_ofac_direct", amount=5.0, timestamp=datetime.now(timezone.utc))
+
+    assessment = RiskClassifier.evaluate_risk(g, root)
+    indicators_str = " ".join(assessment.indicators)
+    assert "SANCTIONED" in indicators_str
+    assert assessment.score >= 45.0
+    assert assessment.risk_level in ("MEDIUM", "HIGH", "CRITICAL")
+
+
+def test_risk_scorer_strict_100_saturation():
+    """
+    When all 4 layers are completely saturated (Velocity=25, Dispersion=25, Recurrence=10, Entity=50 = 110 raw),
+    the composite risk score must be bounded strictly to 100.0.
+    """
+    g = nx.MultiDiGraph()
+    root = "0xheavy_illicit"
+    g.add_node(root, hop=0)
+    t0 = datetime.now(timezone.utc)
+
+    # 1. Entity Layer (50 cap): SANCTIONED (45) + MIXER (30 raw -> 5 eff = 50)
+    g.add_node("0xsanc_sat", hop=1)
+    g.add_node("0xmix_sat", hop=1)
+    g.add_edge(root, "0xsanc_sat", tx_hash="tx_s", amount=10.0, timestamp=t0)
+    g.add_edge(root, "0xmix_sat", tx_hash="tx_m", amount=10.0, timestamp=t0 + timedelta(minutes=1))
+
+    # 2. Velocity Layer (25 cap): RAPID_FORWARDING (20) + SUSPICIOUS_VELOCITY (10 raw -> 5 eff = 25)
+    # Rapid forwarding: 0xsanc_sat sends within 10 min of receipt
+    g.add_node("0xrapid_dest", hop=2)
+    g.add_edge("0xsanc_sat", "0xrapid_dest", tx_hash="tx_rf", amount=10.0, timestamp=t0 + timedelta(minutes=5))
+
+    # 3. Dispersion Layer (25 cap): HIGH_FAN_OUT (12) + HIGH_FAN_IN (12) + PEEL_CHAIN/SWEEP (1 eff = 25)
+    # Root out-degree >= 5
+    for i in range(5):
+        g.add_edge(root, f"0xfan_out_{i}", tx_hash=f"tx_fan_out_{i}", amount=10.0, timestamp=t0 + timedelta(minutes=2 + i))
+    # 0xaggregator in-degree >= 5
+    g.add_node("0xaggregator", hop=1)
+    for i in range(5):
+        g.add_edge(f"0xfan_in_src_{i}", "0xaggregator", tx_hash=f"tx_fan_in_{i}", amount=10.0, timestamp=t0 + timedelta(minutes=2 + i))
+
+    # 4. Recurrence Layer (10 cap): REPEATED_DESTINATION (8) + ROUND_AMOUNT_PATTERN (5 raw -> 2 eff = 10)
+    # 0xsanc_sat received 3 transfers of round amounts (10.0)
+    g.add_edge(root, "0xsanc_sat", tx_hash="tx_s_rep1", amount=10.0, timestamp=t0 + timedelta(minutes=8))
+    g.add_edge(root, "0xsanc_sat", tx_hash="tx_s_rep2", amount=10.0, timestamp=t0 + timedelta(minutes=9))
+
+    known = {"0xsanc_sat": "SANCTIONED", "0xmix_sat": "MIXER"}
+    assessment = RiskClassifier.evaluate_risk(g, root, known_entities=known)
+
+    assert assessment.score == 100.0
+    assert assessment.risk_level == "CRITICAL"

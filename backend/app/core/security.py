@@ -119,7 +119,7 @@ def create_access_token(
 
 def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     """
-    Decodes and validates a JWT token. Returns payload dict or None if invalid.
+    Decodes and validates a JWT token. Returns payload dict or None if invalid or expired.
     """
     if not token:
         return None
@@ -143,6 +143,8 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
                     sec_key,
                     algorithms=[settings.JWT_ALGORITHM]
                 )
+            except getattr(jwt, "ExpiredSignatureError", JWTError):
+                return None
             except JWTError:
                 pass
 
@@ -157,19 +159,10 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
                     payload = json.loads(_b64url_decode(p_b64).decode("utf-8"))
                     exp = payload.get("exp")
                     if exp and datetime.now(timezone.utc).timestamp() > exp:
-                        continue
+                        return None
                     return payload
         except Exception:
             pass
 
-    # If parsing as unverified payload is possible, fallback gracefully for active user
-    try:
-        parts = token.split(".")
-        if len(parts) == 3:
-            payload = json.loads(_b64url_decode(parts[1]).decode("utf-8"))
-            if payload.get("sub"):
-                return payload
-    except Exception:
-        pass
-
     return None
+

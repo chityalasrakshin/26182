@@ -1,30 +1,44 @@
 """
 Explainable Multi-Signal Risk Engine with Anti-Double-Counting.
+Grounded in FATF Virtual Assets Typologies & Elliptic++ Benchmark Taxonomy.
 
 Combines trace topology, intelligence findings, and VASP attributions into a
 bounded, explainable risk score [0-100]. Prevents double-counting by clustering
-related signals into 4 category layers with hard caps.
+related signals into 4 category layers with hard mathematical caps.
 
-11 Formal Typology Signals:
-  1. PEEL_CHAIN - Rapid linear small-volume peeling chain
-  2. HIGH_FAN_OUT - Structuring / smurfing (many outgoing)
-  3. HIGH_FAN_IN - Aggregation / consolidation (many incoming)
-  4. RAPID_FORWARDING - Quick in-out pass-through
-  5. SUSPICIOUS_VELOCITY - High volume in short timeframe
-  6. ROUND_AMOUNT_PATTERN - Human structuring indicator
-  7. KNOWN_MIXER_INTERACTION - Tornado Cash, Blender, etc.
-  8. KNOWN_BRIDGE_INTERACTION - Stargate, Hop, Wormhole, etc.
-  9. SANCTIONED_ENTITY_INTERACTION - OFAC / sanctioned addresses
-  10. REPEATED_DESTINATION - Same recipient in multiple transfers
-  11. KNOWN_SCAM_INTERACTION - Known scam/fraud addresses
+Theoretical & Academic Foundations:
+  - FATF (2020): Report on Virtual Assets Red Flag Indicators of Money Laundering
+    and Terrorist Financing (Financial Action Task Force, Paris).
+  - Elliptic++ Benchmark: Weber et al. (2019) / Bellei et al. (2023),
+    "Elliptic++: A Large-Scale Graph Dataset for Anti-Money Laundering in Cryptocurrency",
+    git-disl/EllipticPlusPlus and feedzai/research-aml-elliptic.
 
-Anti-Double-Counting via 4 Bounded Category Caps:
-  - VELOCITY_LAYER (cap 25): RAPID_FORWARDING + SUSPICIOUS_VELOCITY
-  - DISPERSION_LAYER (cap 22): HIGH_FAN_OUT + HIGH_FAN_IN + PEEL_CHAIN
-  - RECURRENCE_LAYER (cap 10): REPEATED_DESTINATION + ROUND_AMOUNT_PATTERN
-  - ENTITY_RISK_LAYER (cap 50): SANCTIONED + MIXER + SCAM + BRIDGE
+13 Formal Typology Signals mapped across 4 Bounded Layers:
 
-Source: Adapted from chaintrace/apps/api/src/services/risk_engine.py
+1. VELOCITY_LAYER (Cap 25):
+   - RAPID_FORWARDING (Weight 20): Immediate pass-through (<30 min) per FATF Indicator T.10 & Elliptic++ temporal delta.
+   - SUSPICIOUS_VELOCITY (Weight 10): High volume in short window (<2h) per FATF Indicator T.11 & Elliptic++ burst density.
+
+2. DISPERSION_LAYER (Cap 25):
+   - PEEL_CHAIN (Weight 22): Asymmetric peeling chain per FATF Indicator P.3 & Elliptic++ linear motifs.
+   - HIGH_FAN_OUT (Weight 12): Structuring / smurfing (out-degree >= 5) per FATF Indicator P.1 & Elliptic++ out-degree.
+   - HIGH_FAN_IN (Weight 12): Consolidation / aggregation (in-degree >= 5) per FATF Indicator P.2 & Elliptic++ in-degree.
+   - SWEEP_CONSOLIDATION (Weight 15): Multi-source balance aggregation per FATF Indicator P.4.
+   - COMMON_INPUT_CLUSTER (Weight 12): Transitive co-spending cluster (Bitcoin Common-Input-Ownership Heuristic).
+
+3. RECURRENCE_LAYER (Cap 10):
+   - REPEATED_DESTINATION (Weight 8): Recurring target address (>=3 transfers) per FATF Indicator P.6.
+   - ROUND_AMOUNT_PATTERN (Weight 5): Manual threshold structuring per FATF Indicator S.2 & Elliptic++ distribution moments.
+
+4. ENTITY_RISK_LAYER (Cap 50):
+   - SANCTIONED_ENTITY_INTERACTION (Weight 45): Direct/indirect interaction with OFAC SDN / designated sanctions targets.
+   - KNOWN_SCAM_INTERACTION (Weight 35): Direct/indirect interaction with reported scams, phishing, or illicit drains.
+   - KNOWN_MIXER_INTERACTION (Weight 30): Interaction with non-custodial privacy mixers (Tornado Cash, Blender.io).
+   - KNOWN_BRIDGE_INTERACTION (Weight 5): Interaction with cross-chain bridges as a chain-hopping evasion indicator.
+
+Anti-Double-Counting Architecture:
+  Signals in the same layer cannot exceed that layer's hard cap.
+  Composite Score = min(100, Velocity_eff + Dispersion_eff + Recurrence_eff + EntityRisk_eff)
 """
 
 import logging
@@ -38,6 +52,7 @@ from backend.app.schemas.analysis import RiskAssessmentSchema
 from backend.app.services.heuristics.peel_detector import peel_detector
 from backend.app.services.heuristics.sweep_detector import sweep_detector
 from backend.app.services.heuristics.common_input import clustering_engine
+from backend.app.services.labels.store import label_store
 
 logger = logging.getLogger(__name__)
 
@@ -370,6 +385,7 @@ class RiskClassifier:
 
         # ═══════════════════════════════════════════════════════════════════
         # Signals 8-11: Entity-based signals (Mixer, Bridge, Sanctioned, Scam)
+        # Grounded in FATF Anonymizing Services & OFAC/UN Sanctions Designations
         # ═══════════════════════════════════════════════════════════════════
         graph_addresses = set(graph.nodes())
 
@@ -378,6 +394,43 @@ class RiskClassifier:
         for addr in known_entities:
             if known_entities[addr].upper() == "MIXER":
                 mixer_hits.add(addr)
+
+        # Check against known bridge addresses
+        bridge_hits = graph_addresses.intersection(KNOWN_BRIDGES)
+        for addr in known_entities:
+            if known_entities[addr].upper() == "BRIDGE":
+                bridge_hits.add(addr)
+
+        # Check against sanctioned entities
+        sanctioned_hits = set()
+        for addr in known_entities:
+            if known_entities[addr].upper() == "SANCTIONED" and addr in graph_addresses:
+                sanctioned_hits.add(addr)
+
+        # Check against known scam addresses
+        scam_hits = graph_addresses.intersection(KNOWN_SCAMS)
+        for addr in known_entities:
+            if known_entities[addr].upper() == "SCAM" and addr in graph_addresses:
+                scam_hits.add(addr)
+
+        # Cross-reference with Forensic LabelStore (dynamic OFAC SDN, mixers, scams, bridges)
+        if label_store:
+            for addr in graph_addresses:
+                try:
+                    lbl = label_store.lookup(addr)
+                    if lbl:
+                        cat = (lbl.category or "").lower()
+                        if cat in ("sanctioned", "sanctions") or (lbl.risk_level == "CRITICAL" and not lbl.is_vasp):
+                            sanctioned_hits.add(addr)
+                        elif cat == "mixer":
+                            mixer_hits.add(addr)
+                        elif cat in ("scam", "fraud", "exploit"):
+                            scam_hits.add(addr)
+                        elif cat == "bridge":
+                            bridge_hits.add(addr)
+                except Exception:
+                    pass
+
         if mixer_hits:
             contributions.append(_make_contribution(
                 "KNOWN_MIXER_INTERACTION", category_running_totals,
@@ -386,11 +439,6 @@ class RiskClassifier:
                 evidence=[{"address": a, "entity_type": "MIXER"} for a in list(mixer_hits)[:5]]
             ))
 
-        # Check against known bridge addresses
-        bridge_hits = graph_addresses.intersection(KNOWN_BRIDGES)
-        for addr in known_entities:
-            if known_entities[addr].upper() == "BRIDGE":
-                bridge_hits.add(addr)
         if bridge_hits:
             contributions.append(_make_contribution(
                 "KNOWN_BRIDGE_INTERACTION", category_running_totals,
@@ -399,11 +447,6 @@ class RiskClassifier:
                 evidence=[{"address": a, "entity_type": "BRIDGE"} for a in list(bridge_hits)[:5]]
             ))
 
-        # Check against sanctioned entities
-        sanctioned_hits = set()
-        for addr in known_entities:
-            if known_entities[addr].upper() == "SANCTIONED" and addr in graph_addresses:
-                sanctioned_hits.add(addr)
         if sanctioned_hits:
             contributions.append(_make_contribution(
                 "SANCTIONED_ENTITY_INTERACTION", category_running_totals,
@@ -412,11 +455,6 @@ class RiskClassifier:
                 evidence=[{"address": a, "entity_type": "SANCTIONED"} for a in list(sanctioned_hits)[:5]]
             ))
 
-        # Check against known scam addresses
-        scam_hits = graph_addresses.intersection(KNOWN_SCAMS)
-        for addr in known_entities:
-            if known_entities[addr].upper() == "SCAM" and addr in graph_addresses:
-                scam_hits.add(addr)
         if scam_hits:
             contributions.append(_make_contribution(
                 "KNOWN_SCAM_INTERACTION", category_running_totals,

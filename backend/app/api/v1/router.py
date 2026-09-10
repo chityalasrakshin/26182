@@ -43,6 +43,11 @@ from backend.app.schemas.heuristics import (
     ClusterQueryResponse,
     SweepDetectionResult,
     PeelChainDetectionResult,
+    ChangeAddressDetectionResult,
+    DepositForwardingResult,
+    GraphCommunityResult,
+    DepositForwardingRequest,
+    CommunityDetectionRequest,
     HeuristicAnalyzeRequest,
     HeuristicAnalysisSummary
 )
@@ -50,6 +55,8 @@ from backend.app.services.heuristics import (
     clustering_engine,
     sweep_detector,
     peel_detector,
+    change_detector,
+    account_deposit_clusterer,
     heuristics_engine
 )
 from backend.app.workers.analysis_worker import AnalysisWorker, active_analyses_cache
@@ -1380,6 +1387,18 @@ async def detect_peeling_chains(
     return chains
 
 
+@api_router.post("/heuristics/change-detection", response_model=List[ChangeAddressDetectionResult])
+async def detect_change_addresses(
+    transactions: List[UTXOTransaction]
+):
+    """
+    Detects change return addresses across 2-output Bitcoin transactions
+    using Optimal Change, Round Value, Address Reuse, and Script Consistency heuristics.
+    """
+    results = change_detector.analyze_transactions(transactions)
+    return results
+
+
 @api_router.post("/heuristics/analyze", response_model=HeuristicAnalysisSummary)
 async def analyze_heuristics(
     req: HeuristicAnalyzeRequest
@@ -1412,6 +1431,42 @@ async def analyze_heuristics(
         queried_address=req.address
     )
     return summary
+
+
+@api_router.post("/heuristics/deposit-forwarding", response_model=List[DepositForwardingResult])
+async def detect_deposit_forwarding(
+    req: DepositForwardingRequest
+):
+    """
+    Detects customer deposit proxies and exchange sweep forwarding patterns
+    for account-based blockchains (Ethereum, Tron, Polygon, BSC).
+    """
+    results = account_deposit_clusterer.detect_deposit_forwarding(
+        transactions=req.transactions,
+        min_forwarding_ratio=req.min_forwarding_ratio,
+        chain=req.chain
+    )
+    return results
+
+
+@api_router.post("/heuristics/community-detection")
+async def detect_communities_endpoint(
+    req: CommunityDetectionRequest
+):
+    """
+    Applies NetworkX Louvain modularity clustering to partition an account-based
+    transaction graph into discrete communities and laundering rings.
+    """
+    communities, mod_score = account_deposit_clusterer.detect_communities(
+        transactions=req.transactions,
+        chain=req.chain
+    )
+    return {
+        "communities": [c.model_dump() for c in communities],
+        "modularity_score": mod_score,
+        "total_communities": len(communities),
+        "chain": req.chain
+    }
 
 
 

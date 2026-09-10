@@ -143,6 +143,71 @@ class PeelChainDetectionResult(BaseModel):
 
 
 # ==============================================================================
+# Change Address Detection (VincenzoImp / Bitcoin Forensics)
+# ==============================================================================
+
+class ChangeAddressDetectionResult(BaseModel):
+    """Results from change-address disambiguation on UTXO transactions."""
+    tx_hash: str
+    chain: str = "bitcoin"
+    timestamp: datetime
+    payment_address: str = Field(..., description="Inferred merchant or recipient payment destination")
+    payment_amount_btc: float = Field(..., description="Payment volume in BTC")
+    change_address: str = Field(..., description="Inferred sender change return address")
+    change_amount_btc: float = Field(..., description="Change volume in BTC returned to sender")
+    heuristic_rule: str = Field(
+        ...,
+        description="Triggered rule: OPTIMAL_CHANGE, ROUND_PAYMENT, ADDRESS_REUSE, SCRIPT_TYPE_CONSISTENCY, or COMPOSITE"
+    )
+    confidence_score: float = Field(default=0.85, ge=0.0, le=1.0)
+    explanation: str
+
+
+# ==============================================================================
+# Account-Based Clustering (EVM / Tron Forensics)
+# ==============================================================================
+
+class DepositForwardingResult(BaseModel):
+    """Results from detecting deposit-address sweeps to exchange hot wallets."""
+    intermediate_address: str = Field(..., description="Customer deposit proxy or intermediate forwarder")
+    destination_vasp: str = Field(..., description="Attributed exchange/VASP name (e.g., Binance, Bybit, Coinbase)")
+    destination_address: str = Field(..., description="Target exchange hot wallet address")
+    chain: str = "ethereum"
+    inbound_amount: float = Field(..., description="Total inbound funds received by deposit proxy")
+    forwarded_amount: float = Field(..., description="Total funds swept into exchange hot wallet")
+    forwarding_ratio: float = Field(..., description="Ratio of forwarded funds to inbound funds (0.80 - 1.0)")
+    inbound_tx_hashes: List[str] = Field(default_factory=list)
+    forwarding_tx_hashes: List[str] = Field(default_factory=list)
+    confidence_score: float = Field(default=0.95, ge=0.0, le=1.0)
+    is_deposit_proxy: bool = True
+    explanation: str
+
+
+class GraphCommunityResult(BaseModel):
+    """A community/cluster of tightly interconnected addresses identified via NetworkX Louvain modularity."""
+    community_id: str = Field(..., description="Canonical community identifier (e.g., COMMUNITY-1)")
+    members: List[str] = Field(default_factory=list, description="All wallet addresses in this community")
+    size: int = Field(default=1, description="Number of addresses in community")
+    total_internal_volume: float = Field(default=0.0, description="Total observable transaction volume within community")
+    dominant_entity: Optional[str] = Field(default=None, description="Dominant identified entity or cluster role")
+    dominant_category: Optional[str] = Field(default=None, description="exchange, mixer, sanctioned, or syndicate")
+    modularity_contribution: float = Field(default=0.0, description="Community modularity score contribution")
+
+
+class DepositForwardingRequest(BaseModel):
+    """Request to detect deposit-to-exchange forwarding patterns."""
+    transactions: List[Dict[str, Any]]
+    chain: str = "ethereum"
+    min_forwarding_ratio: float = 0.80
+
+
+class CommunityDetectionRequest(BaseModel):
+    """Request to detect transaction communities via NetworkX Louvain algorithm."""
+    transactions: List[Dict[str, Any]]
+    chain: str = "ethereum"
+
+
+# ==============================================================================
 # Composite Heuristic Analysis Request & Response
 # ==============================================================================
 
@@ -160,5 +225,10 @@ class HeuristicAnalysisSummary(BaseModel):
     cluster: Optional[AddressCluster] = None
     sweeps_detected: List[SweepDetectionResult] = Field(default_factory=list)
     peel_chains_detected: List[PeelChainDetectionResult] = Field(default_factory=list)
+    change_detected: List[ChangeAddressDetectionResult] = Field(default_factory=list)
+    deposit_forwarding_detected: List[DepositForwardingResult] = Field(default_factory=list)
+    communities_detected: List[GraphCommunityResult] = Field(default_factory=list)
+    modularity_score: Optional[float] = None
     metrics: Dict[str, Any] = Field(default_factory=dict)
     summary: str
+
