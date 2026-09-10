@@ -306,6 +306,8 @@ export interface VASPDirectoryItem {
   known_deposit_cluster_labels: string[];
   mock_contact_endpoint?: string | null;
   mock_response_sla?: string | null;
+  contact_endpoint?: string | null;
+  response_sla?: string | null;
   fiu_registration_number?: string | null;
   sahyog_routing_code?: string | null;
   compliance_email?: string | null;
@@ -328,6 +330,8 @@ export interface DisclosureRequestResponse {
   sahyog_routing_code: string;
   mock_contact_endpoint: string;
   mock_response_sla: string;
+  contact_endpoint?: string;
+  response_sla?: string;
   status: string;
   acknowledgment_message: string;
   statutory_authority: string;

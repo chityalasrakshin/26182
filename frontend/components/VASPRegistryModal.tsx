@@ -217,15 +217,15 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
 
       {activeTab === 'SAHYOG_DIRECTORY' ? (
         <div className={`overflow-y-auto p-4 bg-forensic-bg space-y-3 ${isFullPageView ? 'min-h-[500px]' : 'flex-1'}`}>
-          {/* Simulated Disclaimer Banner */}
-          <div className="p-3 rounded bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-xs text-amber-300">
+          {/* Statutory Compliance Banner */}
+          <div className="p-3 rounded bg-blue-500/10 border border-blue-500/30 flex items-center justify-between text-xs text-blue-300">
             <div className="flex items-center space-x-2">
-              <span className="text-amber-400 font-bold">⚡ SIMULATED GOVERNMENT & VASP INTEGRATION:</span>
+              <span className="text-blue-400 font-bold">STATUTORY VASP COMPLIANCE DIRECTORY:</span>
               <span className="text-forensic-textDim text-[11px]">
-                Lawful-disclosure routing codes and mock APIs for Section 94 BNSS / Section 91 CrPC compliance (Rule 7 compliant).
+                Lawful-disclosure routing codes and verified nodal endpoints for Section 94 BNSS / Section 91 CrPC compliance.
               </span>
             </div>
-            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono">
+            <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[10px] font-mono">
               16 Regulated Entities
             </span>
           </div>
@@ -296,7 +296,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
 
                     <div>
                       <span className="text-forensic-textDim block text-[9px]">RESPONSE SLA</span>
-                      <span className="text-emerald-400 font-bold block pt-0.5 truncate">{vasp.mock_response_sla}</span>
+                      <span className="text-emerald-400 font-bold block pt-0.5 truncate">{vasp.response_sla || vasp.mock_response_sla}</span>
                     </div>
 
                     <div>

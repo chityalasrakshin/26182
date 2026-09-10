@@ -39,7 +39,7 @@ export const AttributionCard: React.FC<AttributionCardProps> = ({ attributions, 
     return 'UNRESOLVED';
   };
 
-  const taintRatio = taintSummary?.overall_taint_ratio ?? 0.85;
+  const taintRatio = taintSummary?.overall_taint_ratio ?? 0.0;
   const traceableVol = taintSummary?.total_traceable ?? 0;
   const unclassifiedVol = taintSummary?.total_unclassified ?? 0;
   const totalVol = taintSummary?.total_volume ?? (traceableVol + unclassifiedVol);

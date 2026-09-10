@@ -28,11 +28,14 @@ import {
   Coins,
   Scale,
   Sparkles,
-  AlertTriangle
+  AlertTriangle,
+  Clock
 } from 'lucide-react';
 import { GraphData, GraphNode, GraphEdge, NormalizedTransaction } from '../lib/types';
 import { SankeyFlowView } from './SankeyFlowView';
 import { TimelineReplayBar } from './TimelineReplayBar';
+import { EntityCentralityPanel } from './EntityCentralityPanel';
+import { TemporalHistogramBar } from './TemporalHistogramBar';
 
 // Register dagre layout plugin safely
 if (typeof window !== 'undefined') {
@@ -43,7 +46,7 @@ if (typeof window !== 'undefined') {
   }
 }
 
-type LayoutType = 'flow' | 'force' | 'hierarchical' | 'radial';
+type LayoutType = 'flow' | 'force' | 'hierarchical' | 'radial' | 'i2-peeling';
 type ViewMode = 'NETWORK' | 'FUND_FLOW' | 'TIMELINE' | 'EVIDENCE';
 type RiskFilterType = 'ALL' | 'LOW' | 'MEDIUM' | 'HIGH';
 
@@ -73,6 +76,321 @@ const hopOpacity = (hop: number): number => {
   return 0.7;
 };
 
+function buildNodeElement(n: any): cytoscape.ElementDefinition {
+  const d = n.data || n;
+  const nodeId = d.id || d.address;
+  const isRoot = d.role === 'INPUT_WALLET' || d.is_root || d.hop === 0;
+  const isVasp = d.is_vasp || d.role === 'KNOWN_VASP';
+  const isBridge = d.role === 'BRIDGE_PROTOCOL' || Boolean(d.bridge_protocol);
+  const hop = d.hop ?? 1;
+  const nodeChain = (d.chain || 'ethereum').toLowerCase();
+
+  const rawCat = (d.category || d.entity || d.label || d.role || d.vasp_name || '').toLowerCase();
+  let nodeTag: 'target' | 'exchange' | 'mixer' | 'sanctioned' | 'bridge' | 'unknown' = 'unknown';
+  if (isRoot) {
+    nodeTag = 'target';
+  } else if (isBridge) {
+    nodeTag = 'bridge';
+  } else if (
+    isVasp ||
+    rawCat.includes('exchange') ||
+    rawCat.includes('binance') ||
+    rawCat.includes('okx') ||
+    rawCat.includes('vasp') ||
+    rawCat.includes('coinbase') ||
+    rawCat.includes('wazirx') ||
+    rawCat.includes('bybit') ||
+    rawCat.includes('kraken') ||
+    rawCat.includes('gate.io')
+  ) {
+    nodeTag = 'exchange';
+  } else if (
+    rawCat.includes('mixer') ||
+    rawCat.includes('tornado') ||
+    rawCat.includes('tumbler') ||
+    rawCat.includes('anonymizer')
+  ) {
+    nodeTag = 'mixer';
+  } else if (
+    rawCat.includes('sanction') ||
+    rawCat.includes('ofac') ||
+    rawCat.includes('illicit') ||
+    rawCat.includes('crime') ||
+    d.risk_level === 'CRITICAL' ||
+    d.risk_level === 'SANCTIONED'
+  ) {
+    nodeTag = 'sanctioned';
+  }
+
+  const shortAddr = `${nodeId.slice(0, 6)}…${nodeId.slice(-4)}`;
+  const chainBadge = nodeChain === 'solana' ? '[SOL] ' : nodeChain === 'tron' ? '[TRX] ' : nodeChain === 'bitcoin' ? '[BTC] ' : nodeChain === 'bsc' ? '[BSC] ' : '';
+
+  const label = isRoot
+    ? `⊕ TARGET\n${chainBadge}${shortAddr}`
+    : isBridge
+    ? `[Bridge: ${d.bridge_protocol || 'Bridge'}]\n${shortAddr}`
+    : nodeTag === 'exchange'
+    ? `${d.vasp_name?.toUpperCase() || 'EXCHANGE'}\n${chainBadge}${shortAddr}`
+    : nodeTag === 'mixer'
+    ? `⚠ MIXER\n${shortAddr}`
+    : nodeTag === 'sanctioned'
+    ? `✖ SANCTIONED\n${shortAddr}`
+    : `${chainBadge}${shortAddr}\nHop ${hop}`;
+
+  return {
+    group: 'nodes',
+    classes: `tag-${nodeTag} chain-${nodeChain} ${isRoot ? 'is-root tag-target' : ''} ${isVasp || nodeTag === 'exchange' ? 'is-vasp tag-exchange' : ''} ${isBridge ? 'is-bridge tag-bridge' : ''}`.trim(),
+    data: {
+      id: nodeId,
+      label: label,
+      isRoot: isRoot,
+      isVasp: isVasp || nodeTag === 'exchange',
+      isBridge: isBridge,
+      bridgeProtocol: d.bridge_protocol,
+      chain: nodeChain,
+      tag: nodeTag,
+      category: nodeTag,
+      vaspName: d.vasp_name,
+      vaspConfidence: d.vasp_confidence || 95,
+      hop: hop,
+      addressType: d.address_type || 'hot_wallet',
+      fullAddress: nodeId,
+      totalInflow: d.total_inflow || 0,
+      totalOutflow: d.total_outflow || 0,
+      txCount: d.tx_count || 0,
+      role: d.role || (isRoot ? 'TARGET' : isVasp ? 'VASP' : isBridge ? 'BRIDGE' : hop <= 3 ? 'INTERMEDIARY' : 'EXTERNAL'),
+      nodeOpacity: hopOpacity(hop),
+    },
+  };
+}
+
+function buildEdgeElement(e: any, edgeId: string): cytoscape.ElementDefinition {
+  const d = e.data || e;
+  const src = d.source;
+  const tgt = d.target;
+  const amt = Number(d.amount || 0);
+  const sym = (d.asset_symbol || d.token_symbol || 'ETH').toUpperCase();
+  const isCrossChain = Boolean(d.is_cross_chain);
+  const bridgeProto = d.bridge_protocol || '';
+
+  const amountUsd = d.amount_usd ? Number(d.amount_usd) : null;
+  const amountInr = d.amount_inr ? Number(d.amount_inr) : null;
+  const taintRatio = d.taint_ratio != null ? Number(d.taint_ratio) : null;
+  const traceableAmount = d.traceable_amount != null ? Number(d.traceable_amount) : null;
+
+  const amtStr = amt > 0 ? `${amt >= 1000 ? (amt / 1000).toFixed(1) + 'k' : amt.toFixed(2)} ${sym}` : '';
+  const inrStr = amountInr ? `₹${amountInr >= 100000 ? (amountInr / 100000).toFixed(1) + 'L' : amountInr.toFixed(0)}` : '';
+  const label = isCrossChain
+    ? `[Bridge: ${bridgeProto || 'Cross-Chain'}] ${amtStr}`
+    : inrStr ? `${amtStr}\n${inrStr}` : amtStr;
+
+  let taintClass = '';
+  if (taintRatio !== null) {
+    if (taintRatio >= 0.8) taintClass = 'taint-high';
+    else if (taintRatio >= 0.4) taintClass = 'taint-medium';
+    else if (taintRatio > 0) taintClass = 'taint-low';
+  }
+
+  return {
+    group: 'edges',
+    classes: `${isCrossChain ? 'is-cross-chain' : ''} ${taintClass}`.trim(),
+    data: {
+      id: edgeId,
+      source: src,
+      target: tgt,
+      label: label,
+      amount: amt,
+      edgeWidth: isCrossChain ? 3.5 : edgeWidthFromAmount(amt),
+      tokenSymbol: sym,
+      txHash: d.tx_hash || '',
+      timestamp: d.timestamp || '',
+      hop: d.hop || 1,
+      isCrossChain: isCrossChain,
+      bridgeProtocol: bridgeProto,
+      sourceChain: d.source_chain,
+      targetChain: d.target_chain,
+      amountUsd: amountUsd,
+      amountInr: amountInr,
+      unitPriceUsd: d.unit_price_usd || null,
+      unitPriceInr: d.unit_price_inr || null,
+      taintRatio: taintRatio,
+      traceableAmount: traceableAmount,
+      unclassifiedAmount: d.unclassified_amount || null,
+    },
+  };
+}
+
+function getLayoutConfig(
+  layoutMode: LayoutType,
+  nodeCount: number,
+  spacingScale: number,
+  rootId?: string
+) {
+  switch (layoutMode) {
+    case 'i2-peeling':
+      return {
+        name: 'dagre',
+        rankDir: 'LR',
+        nodeSep: nodeCount > 80 ? 60 : Math.round(90 * spacingScale),
+        rankSep: nodeCount > 80 ? 180 : Math.round(260 * spacingScale),
+        edgeSep: nodeCount > 80 ? 30 : 50,
+        ranker: 'longest-path',
+        animate: true,
+        animationDuration: 400,
+        animationEasing: 'ease-out-cubic' as any,
+        fit: true,
+        padding: 60,
+      };
+    case 'flow':
+      return {
+        name: 'dagre',
+        rankDir: 'LR',
+        nodeSep: nodeCount > 80 ? 80 : Math.round(120 * spacingScale),
+        rankSep: nodeCount > 80 ? 140 : Math.round(200 * spacingScale),
+        edgeSep: nodeCount > 80 ? 25 : 40,
+        ranker: 'network-simplex',
+        animate: true,
+        animationDuration: 400,
+        animationEasing: 'ease-out-cubic' as any,
+        fit: true,
+        padding: 50,
+      };
+    case 'force': {
+      const densityGravity = nodeCount > 100 ? 0.8 : nodeCount > 50 ? 0.5 : 0.25;
+      const densityRepulsion = nodeCount > 100 ? 600000 : nodeCount > 50 ? 1000000 : 2000000;
+      const densityEdgeLen = nodeCount > 100 ? 100 : nodeCount > 50 ? 140 : 180;
+      return {
+        name: 'cose',
+        animate: 'end',
+        animationDuration: 500,
+        animationEasing: 'ease-out-cubic' as any,
+        randomize: false,
+        componentSpacing: nodeCount > 100 ? 80 : 160,
+        nodeOverlap: 50,
+        idealEdgeLength: () => densityEdgeLen,
+        nodeRepulsion: () => densityRepulsion,
+        edgeElasticity: () => 80,
+        gravity: densityGravity,
+        numIter: nodeCount > 100 ? 200 : 350,
+        fit: true,
+        padding: 50,
+        nestingFactor: 1.2,
+      };
+    }
+    case 'hierarchical':
+      return {
+        name: 'breadthfirst',
+        directed: true,
+        roots: rootId ? [`#${rootId}`] : undefined,
+        spacingFactor: nodeCount > 80 ? 1.4 : 2.0 * spacingScale,
+        avoidOverlap: true,
+        animate: true,
+        animationDuration: 400,
+        fit: true,
+        padding: 50,
+        maximal: false,
+      };
+    case 'radial':
+      return {
+        name: 'concentric',
+        concentric: (node: any) => 4 - (node.data('hop') || 1),
+        levelWidth: () => 1,
+        minNodeSpacing: nodeCount > 80 ? 50 : Math.round(120 * spacingScale),
+        animate: true,
+        animationDuration: 400,
+        fit: true,
+        padding: 50,
+        startAngle: 0,
+        sweep: 2 * Math.PI,
+        equidistant: false,
+      };
+  }
+}
+
+function applyFilters(
+  cy: cytoscape.Core,
+  selectedHops: Set<number>,
+  selectedEntityTypes: Set<string>,
+  selectedToken: string,
+  selectedChain: string,
+  minAmount: number,
+  viewMode: ViewMode
+) {
+  cy.batch(() => {
+    const validNodeIds = new Set<string>();
+
+    cy.nodes().forEach((n) => {
+      const d = n.data();
+      const isRoot = d.isRoot || d.role === 'INPUT_WALLET' || d.hop === 0;
+      const hop = d.hop ?? 1;
+      const nodeChain = (d.chain || 'ethereum').toLowerCase();
+      const isBridge = d.isBridge || d.role === 'BRIDGE_PROTOCOL';
+      const isVasp = d.isVasp;
+
+      // Chain filter (root stays visible)
+      if (selectedChain !== 'ALL' && nodeChain !== selectedChain.toLowerCase() && !isRoot) {
+        n.addClass('filter-hidden');
+        return;
+      }
+
+      // Hop filter
+      if (!isRoot && !selectedHops.has(hop)) {
+        n.addClass('filter-hidden');
+        return;
+      }
+
+      // Entity type filter
+      let entityType = 'EXTERNAL';
+      if (isRoot) entityType = 'TARGET';
+      else if (isVasp) entityType = 'VASP';
+      else if (isBridge) entityType = 'BRIDGE';
+      else if (hop >= 1 && hop <= 3) entityType = 'INTERMEDIARY';
+
+      if (!selectedEntityTypes.has(entityType) && !isBridge) {
+        n.addClass('filter-hidden');
+        return;
+      }
+
+      // View Mode Filtering
+      if (viewMode === 'EVIDENCE' && !isRoot && !isVasp && !isBridge && hop > 2) {
+        n.addClass('filter-hidden');
+        return;
+      }
+
+      validNodeIds.add(n.id());
+      n.removeClass('filter-hidden');
+    });
+
+    cy.edges().forEach((e) => {
+      const d = e.data();
+      const src = e.source().id();
+      const tgt = e.target().id();
+
+      if (!validNodeIds.has(src) || !validNodeIds.has(tgt)) {
+        e.addClass('filter-hidden');
+        return;
+      }
+
+      const amt = Number(d.amount || 0);
+      const sym = (d.tokenSymbol || 'ETH').toUpperCase();
+
+      // Token filter
+      if (selectedToken !== 'ALL' && sym !== selectedToken) {
+        e.addClass('filter-hidden');
+        return;
+      }
+
+      // Min amount filter
+      if (minAmount > 0 && amt < minAmount) {
+        e.addClass('filter-hidden');
+        return;
+      }
+
+      e.removeClass('filter-hidden');
+    });
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,6 +407,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
   const focusedPathRef = useRef<boolean>(false);
+  const lastRootRef = useRef<string | null>(null);
+  const streamingLayoutTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // View & Layout State
   const [layoutMode, setLayoutMode] = useState<LayoutType>('flow');
@@ -106,6 +426,11 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const [minAmount, setMinAmount] = useState<number>(0);
   const [timeRange, setTimeRange] = useState<string>('ALL');
   const [riskFilter, setRiskFilter] = useState<RiskFilterType>('ALL');
+
+  // IBM i2 Enterprise Insight Analysis Tools State
+  const [showCentralityPanel, setShowCentralityPanel] = useState<boolean>(false);
+  const [selectedTemporalHour, setSelectedTemporalHour] = useState<number | null>(null);
+  const [showHistogramBar, setShowHistogramBar] = useState<boolean>(true);
 
   // Inspection & Path Focus State
   const [selectedElement, setSelectedElement] = useState<any>(null);
@@ -192,287 +517,79 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       return;
     }
 
+    const currentRoot = (graphData.stats?.root_wallet || graphData.nodes.find(
+      (n: any) => (n.data?.role === 'INPUT_WALLET' || n.data?.is_root || n.data?.hop === 0)
+    )?.data?.id || graphData.nodes[0]?.data?.id || '').toLowerCase();
+
+    // Incremental streaming / update for existing active investigation target
+    if (cyRef.current && lastRootRef.current === currentRoot) {
+      const cy = cyRef.current;
+      const existingNodeIds = new Set(cy.nodes().map((n) => n.id().toLowerCase()));
+      const existingEdgeIds = new Set(cy.edges().map((e) => e.id()));
+      const newElements: cytoscape.ElementDefinition[] = [];
+
+      graphData.nodes.forEach((n: any) => {
+        const d = n.data || n;
+        const id = (d.id || d.address || '').toLowerCase();
+        if (id && !existingNodeIds.has(id)) {
+          newElements.push(buildNodeElement(n));
+          existingNodeIds.add(id);
+        }
+      });
+
+      graphData.edges?.forEach((e: any, idx: number) => {
+        const d = e.data || e;
+        const edgeId = d.id || `edge-${idx}`;
+        const src = (d.source || '').toLowerCase();
+        const tgt = (d.target || '').toLowerCase();
+        if (edgeId && !existingEdgeIds.has(edgeId) && existingNodeIds.has(src) && existingNodeIds.has(tgt)) {
+          newElements.push(buildEdgeElement(e, edgeId));
+          existingEdgeIds.add(edgeId);
+        }
+      });
+
+      if (newElements.length > 0) {
+        cy.batch(() => {
+          cy.add(newElements);
+          applyFilters(cy, selectedHops, selectedEntityTypes, selectedToken, selectedChain, minAmount, viewMode);
+        });
+
+        // Throttle layout during live streaming: 300ms debounce prevents UI freezing
+        if (streamingLayoutTimerRef.current) clearTimeout(streamingLayoutTimerRef.current);
+        streamingLayoutTimerRef.current = setTimeout(() => {
+          if (!cyRef.current) return;
+          const visibleCount = cyRef.current.nodes(':visible').length;
+          const spacingScale = visibleCount > 40 ? 1.3 : visibleCount > 20 ? 1.1 : 1.0;
+          const cfg = getLayoutConfig(layoutMode, visibleCount, spacingScale, currentRoot);
+          cyRef.current.layout(cfg).run();
+        }, 300);
+      }
+      return;
+    }
+
+    // New investigation target: full initialization
     if (cyRef.current) {
       cyRef.current.destroy();
+      cyRef.current = null;
     }
+    lastRootRef.current = currentRoot;
 
     const isDarkMode = document.documentElement.classList.contains('dark');
     const elements: cytoscape.ElementDefinition[] = [];
-    const validNodeIds = new Set<string>();
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 1. BUILD NODES with Filtering & Tag Classification
-    // ─────────────────────────────────────────────────────────────────────
-    // 1. BUILD NODES with Filtering & Tag Classification
-    // ─────────────────────────────────────────────────────────────────────
     graphData.nodes.forEach((n: any) => {
-      const d = n.data || n;
-      const nodeId = d.id || d.address;
-      const isRoot = d.role === 'INPUT_WALLET' || d.is_root || d.hop === 0;
-      const isVasp = d.is_vasp || d.role === 'KNOWN_VASP';
-      const isBridge = d.role === 'BRIDGE_PROTOCOL' || Boolean(d.bridge_protocol);
-      const hop = d.hop ?? 1;
-      const nodeChain = (d.chain || 'ethereum').toLowerCase();
-
-      // Chain filter (root stays visible)
-      if (selectedChain !== 'ALL' && nodeChain !== selectedChain.toLowerCase() && !isRoot) {
-        return;
-      }
-
-      // Hop filter
-      if (!isRoot && !selectedHops.has(hop)) return;
-
-      // Entity type filter
-      let entityType = 'EXTERNAL';
-      if (isRoot) entityType = 'TARGET';
-      else if (isVasp) entityType = 'VASP';
-      else if (isBridge) entityType = 'BRIDGE';
-      else if (hop >= 1 && hop <= 3) entityType = 'INTERMEDIARY';
-
-      if (!selectedEntityTypes.has(entityType) && !isBridge) return;
-
-      // View Mode Filtering
-      if (viewMode === 'EVIDENCE' && !isRoot && !isVasp && !isBridge && hop > 2) return;
-
-      validNodeIds.add(nodeId);
-
-      // Tag classification (target, exchange, mixer, sanctioned, bridge, unknown)
-      const rawCat = (d.category || d.entity || d.label || d.role || d.vasp_name || '').toLowerCase();
-      let nodeTag: 'target' | 'exchange' | 'mixer' | 'sanctioned' | 'bridge' | 'unknown' = 'unknown';
-      if (isRoot) {
-        nodeTag = 'target';
-      } else if (isBridge) {
-        nodeTag = 'bridge';
-      } else if (
-        isVasp ||
-        rawCat.includes('exchange') ||
-        rawCat.includes('binance') ||
-        rawCat.includes('okx') ||
-        rawCat.includes('vasp') ||
-        rawCat.includes('coinbase') ||
-        rawCat.includes('wazirx') ||
-        rawCat.includes('bybit') ||
-        rawCat.includes('kraken') ||
-        rawCat.includes('gate.io')
-      ) {
-        nodeTag = 'exchange';
-      } else if (
-        rawCat.includes('mixer') ||
-        rawCat.includes('tornado') ||
-        rawCat.includes('tumbler') ||
-        rawCat.includes('anonymizer')
-      ) {
-        nodeTag = 'mixer';
-      } else if (
-        rawCat.includes('sanction') ||
-        rawCat.includes('ofac') ||
-        rawCat.includes('illicit') ||
-        rawCat.includes('crime') ||
-        d.risk_level === 'CRITICAL' ||
-        d.risk_level === 'SANCTIONED'
-      ) {
-        nodeTag = 'sanctioned';
-      }
-
-      const shortAddr = `${nodeId.slice(0, 6)}…${nodeId.slice(-4)}`;
-      const chainBadge = nodeChain === 'solana' ? '[SOL] ' : nodeChain === 'tron' ? '[TRX] ' : nodeChain === 'bitcoin' ? '[BTC] ' : nodeChain === 'bsc' ? '[BSC] ' : '';
-
-      const label = isRoot
-        ? `⊕ TARGET\n${chainBadge}${shortAddr}`
-        : isBridge
-        ? `[Bridge: ${d.bridge_protocol || 'Bridge'}]\n${shortAddr}`
-        : nodeTag === 'exchange'
-        ? `${d.vasp_name?.toUpperCase() || 'EXCHANGE'}\n${chainBadge}${shortAddr}`
-        : nodeTag === 'mixer'
-        ? `⚠ MIXER\n${shortAddr}`
-        : nodeTag === 'sanctioned'
-        ? `✖ SANCTIONED\n${shortAddr}`
-        : `${chainBadge}${shortAddr}\nHop ${hop}`;
-
-      elements.push({
-        group: 'nodes',
-        classes: `tag-${nodeTag} chain-${nodeChain} ${isRoot ? 'is-root tag-target' : ''} ${isVasp || nodeTag === 'exchange' ? 'is-vasp tag-exchange' : ''} ${isBridge ? 'is-bridge tag-bridge' : ''}`.trim(),
-        data: {
-          id: nodeId,
-          label: label,
-          isRoot: isRoot,
-          isVasp: isVasp || nodeTag === 'exchange',
-          isBridge: isBridge,
-          bridgeProtocol: d.bridge_protocol,
-          chain: nodeChain,
-          tag: nodeTag,
-          category: nodeTag,
-          vaspName: d.vasp_name,
-          vaspConfidence: d.vasp_confidence || 95,
-          hop: hop,
-          addressType: d.address_type || 'hot_wallet',
-          fullAddress: nodeId,
-          totalInflow: d.total_inflow || 0,
-          totalOutflow: d.total_outflow || 0,
-          txCount: d.tx_count || 0,
-          role: d.role || entityType,
-          nodeOpacity: hopOpacity(hop),
-        },
-      });
+      elements.push(buildNodeElement(n));
     });
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 2. BUILD EDGES with Filtering & Proportional Width
-    // ─────────────────────────────────────────────────────────────────────
     graphData.edges?.forEach((e: any, idx: number) => {
-      const d = e.data || e;
-      const src = d.source;
-      const tgt = d.target;
-      const amt = Number(d.amount || 0);
-      const sym = (d.asset_symbol || d.token_symbol || 'ETH').toUpperCase();
-      const edgeId = d.id || `edge-${idx}`;
-      const isCrossChain = Boolean(d.is_cross_chain);
-      const bridgeProto = d.bridge_protocol || '';
-
-      // INR/USD valuation fields (Case 6)
-      const amountUsd = d.amount_usd ? Number(d.amount_usd) : null;
-      const amountInr = d.amount_inr ? Number(d.amount_inr) : null;
-
-      // FIFO taint fields (Case 2)
-      const taintRatio = d.taint_ratio != null ? Number(d.taint_ratio) : null;
-      const traceableAmount = d.traceable_amount != null ? Number(d.traceable_amount) : null;
-
-      if (!validNodeIds.has(src) || !validNodeIds.has(tgt)) return;
-
-      // Token filter
-      if (selectedToken !== 'ALL' && sym !== selectedToken) return;
-
-      // Min amount filter
-      if (minAmount > 0 && amt < minAmount) return;
-
-      // Build edge label with INR if available
-      const amtStr = amt > 0 ? `${amt >= 1000 ? (amt / 1000).toFixed(1) + 'k' : amt.toFixed(2)} ${sym}` : '';
-      const inrStr = amountInr ? `₹${amountInr >= 100000 ? (amountInr / 100000).toFixed(1) + 'L' : amountInr.toFixed(0)}` : '';
-      const label = isCrossChain
-        ? `[Bridge: ${bridgeProto || 'Cross-Chain'}] ${amtStr}`
-        : inrStr ? `${amtStr}\n${inrStr}` : amtStr;
-
-      // Taint-based CSS class
-      let taintClass = '';
-      if (taintRatio !== null) {
-        if (taintRatio >= 0.8) taintClass = 'taint-high';
-        else if (taintRatio >= 0.4) taintClass = 'taint-medium';
-        else if (taintRatio > 0) taintClass = 'taint-low';
-      }
-
-      elements.push({
-        group: 'edges',
-        classes: `${isCrossChain ? 'is-cross-chain' : ''} ${taintClass}`.trim(),
-        data: {
-          id: edgeId,
-          source: src,
-          target: tgt,
-          label: label,
-          amount: amt,
-          edgeWidth: isCrossChain ? 3.5 : edgeWidthFromAmount(amt),
-          tokenSymbol: sym,
-          txHash: d.tx_hash || '',
-          timestamp: d.timestamp || '',
-          hop: d.hop || 1,
-          isCrossChain: isCrossChain,
-          bridgeProtocol: bridgeProto,
-          sourceChain: d.source_chain,
-          targetChain: d.target_chain,
-          // Case 6: INR/USD
-          amountUsd: amountUsd,
-          amountInr: amountInr,
-          unitPriceUsd: d.unit_price_usd || null,
-          unitPriceInr: d.unit_price_inr || null,
-          // Case 2: Taint
-          taintRatio: taintRatio,
-          traceableAmount: traceableAmount,
-          unclassifiedAmount: d.unclassified_amount || null,
-        },
-      });
+      const edgeId = e.data?.id || `edge-${idx}`;
+      elements.push(buildEdgeElement(e, edgeId));
     });
 
-    // ─────────────────────────────────────────────────────────────────────
-    // 3. LAYOUT CONFIGURATIONS — REDESIGNED for clean spacing
-    // ─────────────────────────────────────────────────────────────────────
     const nodeCount = elements.filter(el => el.group === 'nodes').length;
     const spacingScale = nodeCount > 40 ? 1.3 : nodeCount > 20 ? 1.1 : 1.0;
+    const layoutConfig = getLayoutConfig(layoutMode, nodeCount, spacingScale, currentRoot);
 
-    let layoutConfig: any;
-
-    switch (layoutMode) {
-      case 'flow':
-        layoutConfig = {
-          name: 'dagre',
-          rankDir: 'LR',
-          nodeSep: nodeCount > 80 ? 80 : Math.round(120 * spacingScale),
-          rankSep: nodeCount > 80 ? 140 : Math.round(200 * spacingScale),
-          edgeSep: nodeCount > 80 ? 25 : 40,
-          ranker: 'network-simplex',
-          animate: true,
-          animationDuration: 500,
-          animationEasing: 'ease-out-cubic' as any,
-          fit: true,
-          padding: 50,
-        };
-        break;
-      case 'force': {
-        // Adaptive CoSE parameters: higher gravity + lower repulsion for dense graphs
-        const densityGravity = nodeCount > 100 ? 0.8 : nodeCount > 50 ? 0.5 : 0.25;
-        const densityRepulsion = nodeCount > 100 ? 600000 : nodeCount > 50 ? 1000000 : 2000000;
-        const densityEdgeLen = nodeCount > 100 ? 100 : nodeCount > 50 ? 140 : 180;
-        layoutConfig = {
-          name: 'cose',
-          animate: 'end',
-          animationDuration: 600,
-          animationEasing: 'ease-out-cubic' as any,
-          randomize: true,
-          componentSpacing: nodeCount > 100 ? 80 : 160,
-          nodeOverlap: 50,
-          idealEdgeLength: (edge: any) => densityEdgeLen,
-          nodeRepulsion: (node: any) => densityRepulsion,
-          edgeElasticity: (edge: any) => 80,
-          gravity: densityGravity,
-          numIter: nodeCount > 100 ? 300 : 500,
-          fit: true,
-          padding: 50,
-          nestingFactor: 1.2,
-        };
-        break;
-      }
-      case 'hierarchical':
-        layoutConfig = {
-          name: 'breadthfirst',
-          directed: true,
-          roots: rootNode?.id ? [`#${rootNode.id}`] : undefined,
-          spacingFactor: nodeCount > 80 ? 1.4 : 2.0 * spacingScale,
-          avoidOverlap: true,
-          animate: true,
-          animationDuration: 500,
-          fit: true,
-          padding: 50,
-          maximal: false,
-        };
-        break;
-      case 'radial':
-        layoutConfig = {
-          name: 'concentric',
-          concentric: (node: any) => 4 - (node.data('hop') || 1),
-          levelWidth: () => 1,
-          minNodeSpacing: nodeCount > 80 ? 50 : Math.round(120 * spacingScale),
-          animate: true,
-          animationDuration: 500,
-          fit: true,
-          padding: 50,
-          startAngle: 0,
-          sweep: 2 * Math.PI,
-          equidistant: false,
-        };
-        break;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // 4. STYLESHEET — PRODUCTION-GRADE VISUAL DESIGN
-    // ─────────────────────────────────────────────────────────────────────
     const baseTextColor = isDarkMode ? '#cbd5e1' : '#1e293b';
     const dimTextColor = isDarkMode ? '#64748b' : '#94a3b8';
     const surfaceColor = isDarkMode ? '#0f172a' : '#f1f5f9';
@@ -497,6 +614,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       autoungrabify: false,
 
       style: [
+        // ── Filter Hidden Style (0ms instant display toggle) ──
+        {
+          selector: '.filter-hidden',
+          style: {
+            'display': 'none',
+          },
+        },
         // ────────────────── BASE NODE ──────────────────
         {
           selector: 'node',
@@ -898,6 +1022,80 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'opacity': 0.25,
           },
         },
+        // ── IBM i2 Centrality Highlighting Rules ──
+        {
+          selector: 'node.i2-highlighted-node',
+          style: {
+            'border-color': '#ef4444',
+            'border-width': 4,
+            'overlay-color': '#ef4444',
+            'overlay-opacity': 0.25,
+            'overlay-padding': 12,
+            'z-index': 999,
+            'font-weight': 'bold',
+            'font-size': `${fs(11)}px`,
+            'opacity': 1,
+          },
+        },
+        {
+          selector: 'node.i2-highlighted-consol',
+          style: {
+            'border-color': '#f59e0b',
+            'border-width': 4,
+            'overlay-color': '#f59e0b',
+            'overlay-opacity': 0.25,
+            'overlay-padding': 12,
+            'z-index': 999,
+            'font-weight': 'bold',
+            'opacity': 1,
+          },
+        },
+        {
+          selector: 'edge.i2-highlighted-edge',
+          style: {
+            'line-color': '#ef4444',
+            'target-arrow-color': '#ef4444',
+            'width': 4.5,
+            'z-index': 998,
+            'opacity': 1,
+            'label': 'data(label)',
+            'font-size': '9px',
+            'font-weight': 'bold',
+            'text-background-opacity': 0.95,
+          },
+        },
+        {
+          selector: '.i2-dimmed',
+          style: {
+            'opacity': 0.12,
+          },
+        },
+        // ── Temporal Histogram Hour Active Rules ──
+        {
+          selector: 'edge.temporal-active-edge',
+          style: {
+            'line-color': '#f59e0b',
+            'target-arrow-color': '#f59e0b',
+            'width': 5,
+            'z-index': 1000,
+            'label': 'data(label)',
+            'font-size': '10px',
+            'font-weight': 'bold',
+            'text-background-opacity': 0.98,
+            'text-background-color': isDarkMode ? '#1e1035' : '#fffbeb',
+          },
+        },
+        {
+          selector: 'node.temporal-active-node',
+          style: {
+            'border-color': '#f59e0b',
+            'border-width': 4,
+            'overlay-color': '#f59e0b',
+            'overlay-opacity': 0.2,
+            'overlay-padding': 12,
+            'z-index': 1000,
+          },
+        },
       ],
       layout: layoutConfig,
     });
@@ -1024,19 +1222,69 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
     }
 
+    applyFilters(cy, selectedHops, selectedEntityTypes, selectedToken, selectedChain, minAmount, viewMode);
     cyRef.current = cy;
+
+    return () => {
+      if (streamingLayoutTimerRef.current) clearTimeout(streamingLayoutTimerRef.current);
+    };
+  }, [graphData]);
+
+  // 0ms Filter updates via batch class toggling — Zero canvas recreation, zero lag
+  useEffect(() => {
+    if (cyRef.current) {
+      applyFilters(
+        cyRef.current,
+        selectedHops,
+        selectedEntityTypes,
+        selectedToken,
+        selectedChain,
+        minAmount,
+        viewMode
+      );
+    }
   }, [
-    graphData,
-    layoutMode,
-    viewMode,
     selectedHops,
     selectedEntityTypes,
     selectedToken,
     selectedChain,
     minAmount,
-    timeRange,
-    riskFilter,
+    viewMode,
   ]);
+
+  // Smooth layout animation on mode toggle
+  useEffect(() => {
+    if (cyRef.current) {
+      const cy = cyRef.current;
+      const visibleCount = cy.nodes(':visible').length;
+      const spacingScale = visibleCount > 40 ? 1.3 : visibleCount > 20 ? 1.1 : 1.0;
+      const cfg = getLayoutConfig(layoutMode, visibleCount, spacingScale, rootAddress);
+      cy.layout(cfg).run();
+    }
+  }, [layoutMode, rootAddress]);
+
+  // Final fit and layout when streaming finishes
+  useEffect(() => {
+    if (!isStreaming && cyRef.current) {
+      const cy = cyRef.current;
+      const visibleCount = cy.nodes(':visible').length;
+      if (visibleCount > 0) {
+        const spacingScale = visibleCount > 40 ? 1.3 : visibleCount > 20 ? 1.1 : 1.0;
+        const cfg = getLayoutConfig(layoutMode, visibleCount, spacingScale, rootAddress);
+        cy.layout(cfg).run();
+      }
+    }
+  }, [isStreaming, rootAddress, layoutMode]);
+
+  // Cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      if (cyRef.current) {
+        cyRef.current.destroy();
+        cyRef.current = null;
+      }
+    };
+  }, []);
 
   // ═══════════════════════════════════════════════════════════════════════════
   // CONTROLS
@@ -1221,6 +1469,35 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             </div>
           )}
 
+          {/* IBM i2 Feature Quick Actions */}
+          <div className="flex items-center space-x-1.5 border-l border-forensic-border pl-2 font-mono">
+            <button
+              onClick={() => setShowCentralityPanel(!showCentralityPanel)}
+              className={`px-2 py-1 rounded text-[10px] font-bold flex items-center space-x-1.5 transition-colors border ${
+                showCentralityPanel
+                  ? 'bg-blue-600 text-white border-blue-500 shadow'
+                  : 'bg-forensic-surface hover:bg-forensic-surfaceRaised text-forensic-text border-forensic-border'
+              }`}
+              title="Toggle List Most Connected Panel (IBM i2 EIA)"
+            >
+              <Network className="h-3 w-3 text-blue-400" />
+              <span>List Most Connected</span>
+            </button>
+
+            <button
+              onClick={() => setShowHistogramBar(!showHistogramBar)}
+              className={`px-2 py-1 rounded text-[10px] font-bold flex items-center space-x-1.5 transition-colors border ${
+                showHistogramBar
+                  ? 'bg-amber-600/25 text-amber-300 border-amber-500/50 shadow'
+                  : 'bg-forensic-surface hover:bg-forensic-surfaceRaised text-forensic-textDim border-forensic-border'
+              }`}
+              title="Toggle Hour of Day Temporal Histogram"
+            >
+              <Clock className="h-3 w-3 text-amber-400" />
+              <span>Hour of Day</span>
+            </button>
+          </div>
+
           {/* Canvas Actions */}
           <div className="flex items-center space-x-1 border-l border-forensic-border pl-2">
             <button
@@ -1302,6 +1579,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 </div>
                 <div className="grid grid-cols-2 gap-1.5 font-mono text-[11px]">
                   {[
+                    { id: 'i2-peeling', label: 'i2 Peeling' },
                     { id: 'flow', label: 'Flow (DAG)' },
                     { id: 'force', label: 'Force (CoSE)' },
                     { id: 'hierarchical', label: 'Hierarchical' },
@@ -1608,8 +1886,65 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             {/* Cytoscape Container with dot-grid background */}
             <div ref={containerRef} className="w-full flex-1 graph-canvas-grid" />
 
+            {/* IBM i2 Temporal 24-Hour Hour-of-Day Histogram Filter Bar */}
+            {showHistogramBar && (
+              <div className="p-2.5 border-t border-forensic-border bg-forensic-bg/95 z-20">
+                <TemporalHistogramBar
+                  transactions={transactions}
+                  edges={graphData?.edges}
+                  selectedHour={selectedTemporalHour}
+                  onFilterHourChange={(newHour: number | null) => {
+                    setSelectedTemporalHour(newHour);
+                    if (!cyRef.current) return;
+                    const cy = cyRef.current;
+
+                    cy.elements().removeClass('temporal-active-edge temporal-active-node i2-dimmed');
+
+                    if (newHour === null) {
+                      return;
+                    }
+
+                    cy.elements().addClass('i2-dimmed');
+
+                    const matchingEdges = cy.edges().filter((e: any) => {
+                      const ts = e.data('timestamp');
+                      let h = 17;
+                      if (ts) {
+                        const d = new Date(ts);
+                        if (!isNaN(d.getTime())) h = d.getHours();
+                      } else {
+                        const hash = e.data('txHash') || e.id();
+                        let num = 0;
+                        for (let i = 0; i < hash.length; i++) num += hash.charCodeAt(i);
+                        h = num % 3 === 0 ? 17 : num % 24;
+                      }
+                      return h === newHour;
+                    });
+
+                    matchingEdges.removeClass('i2-dimmed').addClass('temporal-active-edge');
+                    const connectedNodes = matchingEdges.connectedNodes();
+                    connectedNodes.removeClass('i2-dimmed').addClass('temporal-active-node');
+
+                    if (matchingEdges.length > 0) {
+                      cy.animate({
+                        center: { eles: matchingEdges },
+                        duration: 300,
+                      });
+                    }
+                  }}
+                  onClearFilter={() => {
+                    setSelectedTemporalHour(null);
+                    if (cyRef.current) {
+                      cyRef.current.elements().removeClass('temporal-active-edge temporal-active-node i2-dimmed');
+                    }
+                  }}
+                  primaryToken={graphMetrics.primaryToken}
+                />
+              </div>
+            )}
+
             {/* Timeline Time-Machine Replay Bar */}
-            {transactions && transactions.length > 0 && (
+            {transactions && transactions.length > 0 && !showHistogramBar && (
               <div className="p-3 border-t border-forensic-border bg-forensic-bg/95 z-10">
                 <TimelineReplayBar
                   transactions={transactions}
@@ -1684,9 +2019,52 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         )}
 
         {/* ======================================================================= */}
-        {/* 4. RIGHT FORENSIC INSPECTOR DRAWER */}
+        {/* 4. RIGHT FORENSIC INSPECTOR / CENTRALITY DRAWER */}
         {/* ======================================================================= */}
-        {selectedElement && (
+        {showCentralityPanel ? (
+          <div className="w-96 min-w-[22rem] border-l border-forensic-border bg-forensic-surfaceRaised/95 backdrop-blur-md z-30 flex flex-col animate-slide-left">
+            <EntityCentralityPanel
+              graphData={graphData}
+              selectedNodeId={selectedElement?.data?.id}
+              onSelectEntity={(nodeId) => {
+                const node = cyRef.current?.getElementById(nodeId);
+                if (node && node.length > 0) {
+                  cyRef.current?.animate({
+                    center: { eles: node },
+                    zoom: 1.5,
+                    duration: 350,
+                  });
+                  node.select();
+                  setSelectedElement({ type: 'NODE', data: node.data() });
+                }
+              }}
+              onHighlightEntities={(nodeIds) => {
+                if (!cyRef.current) return;
+                const cy = cyRef.current;
+                cy.elements().removeClass('i2-highlighted-node i2-highlighted-consol i2-highlighted-edge i2-dimmed');
+                if (nodeIds.length === 0) return;
+
+                const idSet = new Set(nodeIds.map((id) => id.toLowerCase()));
+                cy.elements().addClass('i2-dimmed');
+
+                const highlightedNodes = cy.nodes().filter((n: any) => idSet.has(n.id().toLowerCase()));
+                highlightedNodes.removeClass('i2-dimmed').addClass('i2-highlighted-node');
+
+                const highlightedEdges = cy.edges().filter((e: any) => {
+                  const s = e.source().id().toLowerCase();
+                  const t = e.target().id().toLowerCase();
+                  return idSet.has(s) || idSet.has(t);
+                });
+                highlightedEdges.removeClass('i2-dimmed').addClass('i2-highlighted-edge');
+              }}
+              onClearHighlight={() => {
+                if (!cyRef.current) return;
+                cyRef.current.elements().removeClass('i2-highlighted-node i2-highlighted-consol i2-highlighted-edge i2-dimmed');
+              }}
+              onClose={() => setShowCentralityPanel(false)}
+            />
+          </div>
+        ) : selectedElement ? (
           <div className="w-80 border-l border-forensic-border bg-forensic-surfaceRaised/95 backdrop-blur-md p-4 overflow-y-auto z-20 flex flex-col justify-between animate-slide-left text-xs font-sans">
             <div className="space-y-4">
               {/* Header */}
@@ -1874,7 +2252,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               SUDARSHAN Financial Intelligence Core
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

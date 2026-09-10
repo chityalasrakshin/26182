@@ -48,8 +48,12 @@ export const WalletOverview: React.FC<WalletOverviewProps> = ({
 
   const totalInr = graphData?.stats?.total_amount_inr ?? 0;
   const totalUsd = graphData?.stats?.total_amount_usd ?? 0;
-  const taintRatio = graphData?.stats?.taint_summary?.overall_taint_ratio ?? 0.85;
+  const taintRatio = graphData?.stats?.taint_summary?.overall_taint_ratio ?? 0.0;
   const primaryVasp = attributions.length > 0 ? attributions[0] : null;
+
+  const isHighRisk = primaryVasp !== null || taintRatio >= 0.5 || totalInr >= 1000000;
+  const flightRiskLabel = (graphData?.stats?.total_edges ?? 0) === 0 ? 'LOW' : isHighRisk ? 'HIGH' : 'MODERATE';
+  const flightRiskColor = flightRiskLabel === 'HIGH' ? 'bg-rose-500/15 border-rose-500/30 text-rose-400' : flightRiskLabel === 'MODERATE' ? 'bg-amber-500/15 border-amber-500/30 text-amber-400' : 'bg-teal-500/15 border-teal-500/30 text-teal-400';
 
   const formatINR = (val: number) => {
     if (val >= 10000000) return '₹' + (val / 10000000).toFixed(2) + ' Cr';
@@ -116,9 +120,9 @@ export const WalletOverview: React.FC<WalletOverviewProps> = ({
             </div>
           )}
 
-          <div className='flex items-center space-x-1 px-2 py-1 rounded bg-rose-500/15 border border-rose-500/30 text-rose-400 text-[11px] font-bold'>
+          <div className={`flex items-center space-x-1 px-2 py-1 rounded border text-[11px] font-bold ${flightRiskColor}`}>
             <Flame className='h-3.5 w-3.5' />
-            <span>Flight Risk: HIGH</span>
+            <span>Flight Risk: {flightRiskLabel}</span>
           </div>
         </div>
       </div>
@@ -131,10 +135,10 @@ export const WalletOverview: React.FC<WalletOverviewProps> = ({
           </div>
           <div className='mt-1.5'>
             <div className='text-base font-bold text-amber-400'>
-              {totalInr > 0 ? formatINR(totalInr) : '₹12,45,800 INR'}
+              {totalInr > 0 ? formatINR(totalInr) : '₹0.00 INR'}
             </div>
             <span className='text-[10px] text-forensic-textDim'>
-              {totalUsd > 0 ? formatUSD(totalUsd) : ',920 USD'}
+              {totalUsd > 0 ? formatUSD(totalUsd) : '$0.00 USD'}
             </span>
           </div>
         </div>
@@ -146,10 +150,10 @@ export const WalletOverview: React.FC<WalletOverviewProps> = ({
           </div>
           <div className='mt-1.5'>
             <div className='text-base font-bold text-emerald-400'>
-              {totalInr > 0 ? formatINR(totalInr * 0.85) : '₹10,58,930 INR'}
+              {totalInr > 0 ? formatINR(totalInr * (taintRatio > 0 ? taintRatio : 1.0)) : '₹0.00 INR'}
             </div>
             <span className='text-[10px] text-forensic-textDim'>
-              Sec 91 Statutory Seizure Ready
+              {totalInr > 0 ? 'Sec 91 Statutory Seizure Ready' : 'Awaiting transfer detection'}
             </span>
           </div>
         </div>
@@ -161,10 +165,10 @@ export const WalletOverview: React.FC<WalletOverviewProps> = ({
           </div>
           <div className='mt-1.5'>
             <div className='text-base font-bold text-rose-400'>
-              {(taintRatio * 100).toFixed(1)}% Tainted
+              {taintRatio > 0 ? `${(taintRatio * 100).toFixed(1)}% Tainted` : '0.0% Taint'}
             </div>
             <span className='text-[10px] text-forensic-textDim'>
-              Proven Stolen Fund Flow
+              {taintRatio > 0 ? 'Proven Stolen Fund Flow' : 'No dirty flow identified'}
             </span>
           </div>
         </div>

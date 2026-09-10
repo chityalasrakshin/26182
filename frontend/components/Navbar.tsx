@@ -10,6 +10,7 @@ import {
   ListFilter,
   Briefcase,
   Plus,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { UserAuth } from '../lib/types';
 
@@ -17,6 +18,7 @@ export type ActiveTabType =
   | 'WORKSPACE'
   | 'CASES_AUDIT'
   | 'GRAPH_STUDIO'
+  | 'FORENSIC_LEDGER'
   | 'NCRP_TRIAGE';
 
 interface NavbarProps {
@@ -111,6 +113,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               {hasActiveTarget && (
                 <span className="w-1.5 h-1.5 rounded-full bg-forensic-teal animate-pulse" />
               )}
+            </button>
+
+            <button onClick={() => onSelectTab('FORENSIC_LEDGER')} className={tabClass('FORENSIC_LEDGER')}>
+              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
+              <span>Off-Chain Ledger</span>
             </button>
 
             <button onClick={() => onSelectTab('NCRP_TRIAGE')} className={tabClass('NCRP_TRIAGE')}>

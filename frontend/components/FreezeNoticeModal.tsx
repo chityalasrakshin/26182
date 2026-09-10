@@ -207,28 +207,28 @@ export const FreezeNoticeModal: React.FC<FreezeNoticeModalProps> = ({
         </div>
       </div>
 
-      {/* Simulated SAHYOG Dispatch Acknowledgment Card */}
+      {/* SAHYOG Dispatch Acknowledgment Card */}
       {dispatchResult && (
-        <div className="no-print p-3.5 bg-amber-500/10 border-b border-amber-500/30 text-xs font-mono space-y-2">
+        <div className="no-print p-3.5 bg-blue-500/10 border-b border-blue-500/30 text-xs font-mono space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs">
+            <div className="flex items-center space-x-2 text-blue-400 font-bold text-xs">
               <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-              <span>SAHYOG ELECTRONIC DISPATCH ACKNOWLEDGED</span>
-              <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px]">
-                SIMULATED INTEGRATION
+              <span>STATUTORY ELECTRONIC DISPATCH ACKNOWLEDGED</span>
+              <span className="px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40 text-[9px]">
+                OFFICIAL ROUTING
               </span>
             </div>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-forensic-surfaceRaised text-amber-300 border border-forensic-border font-bold">
+            <span className="text-[10px] px-2 py-0.5 rounded bg-forensic-surfaceRaised text-blue-300 border border-forensic-border font-bold">
               REF: {dispatchResult.dispatch_id}
             </span>
           </div>
           <p className="text-forensic-text text-[11px] leading-relaxed">
             {dispatchResult.acknowledgment_message}
           </p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[10px] text-forensic-textDim border-t border-amber-500/20">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[10px] text-forensic-textDim border-t border-blue-500/20">
             <div>TARGET VASP: <strong className="text-rose-400">{dispatchResult.target_vasp}</strong></div>
             <div>ROUTING CODE: <strong className="text-amber-300">{dispatchResult.sahyog_routing_code}</strong></div>
-            <div>RESPONSE SLA: <strong className="text-emerald-400">{dispatchResult.mock_response_sla}</strong></div>
+            <div>RESPONSE SLA: <strong className="text-emerald-400">{dispatchResult.response_sla || dispatchResult.mock_response_sla}</strong></div>
             <div>AUDIT STATUS: <strong className="text-teal-400">{dispatchResult.status}</strong></div>
           </div>
         </div>

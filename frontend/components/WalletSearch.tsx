@@ -87,12 +87,19 @@ export const WalletSearch: React.FC<WalletSearchProps> = ({
   }, []);
 
   const cleanAddr = address.trim();
-  const detectedChain = cleanAddr.startsWith('0x')
+  const isEth = /^0x[0-9a-fA-F]{40}$/.test(cleanAddr);
+  const isTron = /^T[1-9A-HJ-NP-za-km-z]{33}$/.test(cleanAddr);
+  const isBtc = /^(1[a-km-zA-HJ-NP-Z1-9]{25,34}|3[a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[a-zA-HJ-NP-Z0-9]{25,90})$/.test(cleanAddr);
+  const isSol = !isTron && !isBtc && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(cleanAddr);
+
+  const detectedChain = isEth
     ? 'Ethereum Mainnet'
-    : cleanAddr.startsWith('T')
+    : isTron
     ? 'Tron Network (TRC-20)'
-    : (cleanAddr.startsWith('1') || cleanAddr.startsWith('3') || cleanAddr.startsWith('bc1'))
+    : isBtc
     ? 'Bitcoin Mainnet'
+    : isSol
+    ? 'Solana Mainnet'
     : null;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -100,16 +107,12 @@ export const WalletSearch: React.FC<WalletSearchProps> = ({
     setError(null);
 
     if (!cleanAddr) {
-      setError('Please input a valid target Ethereum (0x...), Tron (T...), or Bitcoin wallet address.');
+      setError('Please input a valid target Ethereum (0x...), Tron (T...), Bitcoin (1/3/bc1), or Solana address.');
       return;
     }
 
-    const isEth = /^0x[0-9a-fA-F]{40}$/.test(cleanAddr);
-    const isTron = /^T[1-9A-HJ-NP-za-km-z]{33}$/.test(cleanAddr);
-    const isBtc = /^(1[a-km-zA-HJ-NP-Z1-9]{25,34}|3[a-km-zA-HJ-NP-Z1-9]{25,34}|bc1[a-zA-HJ-NP-Z0-9]{25,90})$/.test(cleanAddr);
-
-    if (!isEth && !isTron && !isBtc) {
-      setError('Invalid format: Target must be an Ethereum hex address (0x...), Tron Base58 (T...), or Bitcoin address (1/3/bc1).');
+    if (!isEth && !isTron && !isBtc && !isSol) {
+      setError('Invalid format: Target must be an Ethereum hex address (0x...), Tron Base58 (T...), Bitcoin address (1/3/bc1), or Solana Base58 (32-44 chars).');
       return;
     }
 

@@ -16,6 +16,7 @@ import { VASPRegistryModal } from '../../components/VASPRegistryModal';
 import { CaseIntakeModal } from '../../components/CaseIntakeModal';
 import { CaseManagementView } from '../../components/CaseManagementView';
 import { WalletOverview } from '../../components/WalletOverview';
+import { ForensicLocationLedger } from '../../components/ForensicLocationLedger';
 import { api } from '../../lib/api';
 import {
   AnalysisStatus,
@@ -38,6 +39,27 @@ import {
   Download,
 } from 'lucide-react';
 
+function detectChain(address: string): 'ethereum' | 'tron' | 'bitcoin' | 'solana' {
+  if (address.startsWith('0x')) return 'ethereum';
+  if (address.startsWith('T') && address.length === 34) return 'tron';
+  if (address.startsWith('1') || address.startsWith('3') || address.startsWith('bc1')) return 'bitcoin';
+  return 'solana';
+}
+
+function getExplorerUrl(address: string): string {
+  const chain = detectChain(address);
+  switch (chain) {
+    case 'ethereum':
+      return `https://etherscan.io/address/${address}`;
+    case 'tron':
+      return `https://tronscan.org/#/address/${address}`;
+    case 'bitcoin':
+      return `https://mempool.space/address/${address}`;
+    case 'solana':
+      return `https://solscan.io/account/${address}`;
+  }
+}
+
 export default function InvestigationAppPage() {
   const [activeTab, setActiveTab] = useState<ActiveTabType>('WORKSPACE');
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus | null>(null);
@@ -55,6 +77,8 @@ export default function InvestigationAppPage() {
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [streamingHop, setStreamingHop] = useState<number>(1);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [lastSearchedAddress, setLastSearchedAddress] = useState<string>('');
 
   // Modals state
   const [showCaseIntakeModal, setShowCaseIntakeModal] = useState<boolean>(false);
@@ -94,14 +118,9 @@ export default function InvestigationAppPage() {
     try {
       const auth = await api.login(newRole, `${newRole}123`);
       setCurrentUser(auth);
-    } catch {
-      setCurrentUser({
-        access_token: 'demo-token',
-        token_type: 'bearer',
-        role: newRole,
-        username: newRole,
-        full_name: newRole === 'supervisor' ? 'Senior Cyber Crime Supervisor' : 'Cyber Crime Investigating Officer',
-      });
+    } catch (err: any) {
+      console.error(`Role switch to ${newRole} failed:`, err);
+      alert(`Role switch failed: ${err.message || 'Unable to authenticate with server.'}`);
     }
   };
 
@@ -125,6 +144,8 @@ export default function InvestigationAppPage() {
     setIsLoading(true);
     setIsStreaming(true);
     setStreamingHop(1);
+    setAnalysisError(null);
+    setLastSearchedAddress(walletAddress);
     setGraphData({
       nodes: [
         {
@@ -159,7 +180,7 @@ export default function InvestigationAppPage() {
       let traceJobId = existingJobId;
       if (!traceJobId) {
         try {
-          const detectedChain = walletAddress.startsWith('0x') ? 'ethereum' : walletAddress.startsWith('T') ? 'tron' : 'bitcoin';
+          const detectedChain = detectChain(walletAddress);
           const traceJob = await api.startTrace(walletAddress, detectedChain, maxHops);
           traceJobId = traceJob.job_id;
         } catch (e) {
@@ -206,6 +227,7 @@ export default function InvestigationAppPage() {
             if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
             setIsLoading(false);
             setIsStreaming(false);
+            setAnalysisError(current.error_message || 'Transaction analysis pipeline failed for target address.');
           }
         } catch (pollErr) {
           console.error('Polling error:', pollErr);
@@ -214,7 +236,7 @@ export default function InvestigationAppPage() {
     } catch (err: any) {
       setIsLoading(false);
       setIsStreaming(false);
-      alert(`Analysis initialization failed: ${err.message}`);
+      setAnalysisError(`Analysis initialization failed: ${err.message || 'Server connection error'}`);
     }
   };
 
@@ -331,24 +353,26 @@ export default function InvestigationAppPage() {
             if (vName) {
               setAttributions((prev) => {
                 if (prev.some((a) => a.vasp_name === vName)) return prev;
+                const hopCount = d.hop || 1;
+                const dynamicScore = typeof d.score === 'number' ? d.score : Math.max(50, 95 - (hopCount - 1) * 10);
                 return [
                   ...prev,
                   {
                     vasp_name: vName,
-                    score: 98.0,
-                    evidence_strength: 'High',
+                    score: dynamicScore,
+                    evidence_strength: d.evidence_strength || (hopCount <= 2 ? 'High' : 'Medium'),
                     rank: prev.length + 1,
-                    summary: `Live trace path attributed to ${vName} deposit cluster in ${d.hop || 1} hops.`,
+                    summary: d.summary || `Direct trace path identified to ${vName} deposit cluster at hop ${hopCount}.`,
                     metrics: {
-                      shortest_hop: d.hop || 1,
-                      total_cluster_flow: 1000000,
-                      total_interactions: 5,
-                      breakdown: {
-                        proximity_score: 95,
-                        flow_score: 90,
-                        frequency_score: 85,
-                        behavioral_score: 92,
-                        recency_score: 94,
+                      shortest_hop: hopCount,
+                      total_cluster_flow: Number(d.amount || 0),
+                      total_interactions: Number(d.tx_count || 1),
+                      breakdown: d.breakdown || {
+                        proximity_score: Math.max(10, 100 - hopCount * 15),
+                        flow_score: 80,
+                        frequency_score: 75,
+                        behavioral_score: 80,
+                        recency_score: 85,
                       },
                     },
                   },
@@ -410,6 +434,26 @@ export default function InvestigationAppPage() {
               isLoading={isLoading || isStreaming}
             />
 
+            {analysisError && (
+              <div className="bg-red-500/10 border border-red-500/30 text-red-300 p-4 rounded flex items-center justify-between font-mono text-xs transition-colors shadow-sm">
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2 font-bold text-red-400">
+                    <span className="text-sm">⚠️</span>
+                    <span className="uppercase tracking-wider">Analysis Diagnostic Notice</span>
+                  </div>
+                  <p className="text-forensic-textDim">{analysisError}</p>
+                </div>
+                {lastSearchedAddress && (
+                  <button
+                    onClick={() => handleStartAnalysis(lastSearchedAddress)}
+                    className="px-3 py-1.5 bg-red-600/30 hover:bg-red-600/50 text-red-200 border border-red-500/40 rounded font-semibold text-xs transition-colors shrink-0 ml-4"
+                  >
+                    Retry Analysis
+                  </button>
+                )}
+              </div>
+            )}
+
             {analysisStatus && <LiveProgress status={analysisStatus} />}
 
             {analysisStatus && (
@@ -421,7 +465,7 @@ export default function InvestigationAppPage() {
                       <span>•</span>
                       <span>STATUS: <strong className="text-forensic-teal">{isStreaming ? 'STREAMING VIA WEBSOCKET' : 'ACTIVE INVESTIGATION'}</strong></span>
                       <span>•</span>
-                      <span>CHAIN: <strong className="text-blue-500">{analysisStatus.wallet_address.startsWith('0x') ? 'ETHEREUM' : analysisStatus.wallet_address.startsWith('T') ? 'TRON' : 'BITCOIN'}</strong></span>
+                      <span>CHAIN: <strong className="text-blue-500">{detectChain(analysisStatus.wallet_address).toUpperCase()}</strong></span>
                     </div>
 
                     <div className="flex items-center space-x-2 pt-0.5">
@@ -436,13 +480,7 @@ export default function InvestigationAppPage() {
                         {copied ? <Check className="h-3.5 w-3.5 text-forensic-teal" /> : <Copy className="h-3.5 w-3.5" />}
                       </button>
                       <a
-                        href={
-                          analysisStatus.wallet_address.startsWith('0x')
-                            ? `https://etherscan.io/address/${analysisStatus.wallet_address}`
-                            : analysisStatus.wallet_address.startsWith('T')
-                            ? `https://tronscan.org/#/address/${analysisStatus.wallet_address}`
-                            : `https://mempool.space/address/${analysisStatus.wallet_address}`
-                        }
+                        href={getExplorerUrl(analysisStatus.wallet_address)}
                         target="_blank"
                         rel="noreferrer"
                         className="p-1 text-blue-500 hover:underline"
@@ -535,7 +573,7 @@ export default function InvestigationAppPage() {
             {analysisStatus && (
               <WalletOverview
                 walletAddress={analysisStatus.wallet_address}
-                chain={analysisStatus.wallet_address.startsWith('0x') ? 'ethereum' : analysisStatus.wallet_address.startsWith('T') ? 'tron' : 'bitcoin'}
+                chain={detectChain(analysisStatus.wallet_address)}
                 graphData={graphData}
                 attributions={attributions}
               />
@@ -547,12 +585,7 @@ export default function InvestigationAppPage() {
                 <div className="lg:col-span-5 space-y-4">
                   <AttributionCard attributions={attributions} />
                   <RiskCard
-                    riskAssessment={analysisStatus?.risk_assessment || {
-                      risk_level: 'MEDIUM',
-                      score: 68.5,
-                      indicators: ['Layering through intermediary wallets', 'Proximity to high-volume VASP hot wallet'],
-                      explanation: 'Wallet exhibits multi-hop outbound transaction dispersion toward exchange custody.',
-                    }}
+                    riskAssessment={analysisStatus?.risk_assessment || null}
                     attributions={attributions}
                     onOpenFreezeModal={() => setShowFreezeModal(true)}
                     onOpenDisclosureModal={() => setShowFreezeModal(true)}
@@ -628,6 +661,20 @@ export default function InvestigationAppPage() {
               streamingHop={streamingHop}
             />
             <TransactionLedger transactions={transactions} />
+          </div>
+        )}
+
+        {/* TAB: FORENSIC OFF-CHAIN LOCATION LEDGER */}
+        {activeTab === 'FORENSIC_LEDGER' && (
+          <div className="space-y-4 animate-fade-in">
+            <ForensicLocationLedger
+              transactions={transactions}
+              nodes={graphData?.nodes}
+              onSelectWallet={(addr) => handleStartAnalysis(addr, 3)}
+              onLocateOnMap={(lat, lon) => {
+                window.open(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=12/${lat}/${lon}`, '_blank');
+              }}
+            />
           </div>
         )}
 
