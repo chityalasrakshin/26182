@@ -484,4 +484,113 @@ export const api = {
     });
     return handleResponse<AuditLogListResponse>(res);
   },
+
+  // ==============================================================================
+  // Case 5: One-Click Judicial Court Dossier (.ZIP Export)
+  // ==============================================================================
+
+  async downloadCourtDossier(
+    caseOrAnalysisId: string,
+    officerName?: string,
+    policeStation?: string
+  ): Promise<void> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const params = new URLSearchParams();
+    if (officerName) params.append('officer_name', officerName);
+    if (policeStation) params.append('police_station', policeStation);
+
+    // Try cases route first, then analysis route
+    let res = await fetch(`${API_BASE_URL}/cases/${encodeURIComponent(caseOrAnalysisId)}/export-dossier?${params.toString()}`, {
+      headers,
+      cache: 'no-store',
+    });
+
+    if (!res.ok && res.status === 404) {
+      res = await fetch(`${API_BASE_URL}/analysis/${encodeURIComponent(caseOrAnalysisId)}/dossier?${params.toString()}`, {
+        headers,
+        cache: 'no-store',
+      });
+    }
+
+    if (!res.ok) {
+      let errorDetail = 'Court dossier download failed';
+      try {
+        const data = await res.json();
+        errorDetail = data.detail || errorDetail;
+      } catch {
+        errorDetail = res.statusText || errorDetail;
+      }
+      throw new Error(errorDetail);
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `court_dossier_${caseOrAnalysisId.slice(0, 8).toUpperCase()}.zip`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  },
+
+  // ==============================================================================
+  // Case 4: NCRP 1930 Bulk CSV Batch Triage & Golden-Hour Priority Scoring
+  // ==============================================================================
+
+  async submitNcrpBatchTriage(complaints: any[]): Promise<any> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/ncrp/batch-triage`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ complaints }),
+    });
+    return handleResponse<any>(res);
+  },
+
+  async uploadNcrpCsvBatchTriage(file: File): Promise<any> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch(`${API_BASE_URL}/ncrp/batch-triage/upload`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    return handleResponse<any>(res);
+  },
+
+  async getNcrpBatchStatus(batchId: string): Promise<any> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/ncrp/batch-triage/${encodeURIComponent(batchId)}/status`, {
+      headers,
+      cache: 'no-store',
+    });
+    return handleResponse<any>(res);
+  },
+
+  async getNcrpBatchResults(batchId: string): Promise<any> {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE_URL}/ncrp/batch-triage/${encodeURIComponent(batchId)}/results`, {
+      headers,
+      cache: 'no-store',
+    });
+    return handleResponse<any>(res);
+  },
 };

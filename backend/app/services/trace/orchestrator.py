@@ -30,6 +30,8 @@ from backend.app.services.blockchain.cache import blockchain_cache
 from backend.app.services.labels.store import label_store, AddressLabel
 from backend.app.services.graph.neo4j_client import neo4j_client
 from backend.app.services.bridge.detector import bridge_detector
+from backend.app.services.valuation.price_service import get_price_service
+from backend.app.services.attribution.fifo_taint import compute_fifo_taint
 
 logger = logging.getLogger(__name__)
 
@@ -637,25 +639,91 @@ class TraceOrchestrator:
                 )
             )
 
+        # Compute FIFO taint across all edges from seed address
+        raw_txs = []
         for u, v, k, data in self.nx_graph.edges(keys=True, data=True):
+            raw_txs.append({
+                "tx_hash": data.get("tx_hash") or str(k),
+                "from_address": u,
+                "to_address": v,
+                "amount": float(data.get("amount", 0.0)),
+                "asset": data.get("asset_symbol", "ETH"),
+                "hop": int(data.get("hop", 1)),
+                "timestamp": str(data.get("timestamp") or datetime.now(timezone.utc)),
+            })
+
+        taint_map = {}
+        taint_summary_dict = {}
+        try:
+            if raw_txs:
+                annotations, summary = compute_fifo_taint(raw_txs, [self.seed_address])
+                for ann in annotations:
+                    taint_map[ann.tx_hash] = ann
+                taint_summary_dict = {
+                    "total_transactions": summary.total_transactions,
+                    "total_volume": summary.total_volume,
+                    "total_traceable": summary.total_traceable,
+                    "total_unclassified": summary.total_unclassified,
+                    "overall_taint_ratio": summary.overall_taint_ratio,
+                    "suspect_wallets_count": summary.suspect_wallets_count,
+                    "tainted_addresses_count": summary.tainted_addresses_count,
+                    "tainted_addresses": summary.tainted_addresses,
+                }
+        except Exception as e:
+            logger.warning(f"Error computing FIFO taint during graph export: {e}")
+
+        price_svc = get_price_service()
+
+        for u, v, k, data in self.nx_graph.edges(keys=True, data=True):
+            sym = (data.get("asset_symbol") or "ETH").upper().strip()
+            amt = float(data.get("amount", 0.0))
+            rates = price_svc.get_price_cached_or_default(sym)
+            unit_usd = rates.get("usd", 0.0)
+            unit_inr = rates.get("inr", 0.0)
+            amt_usd = round(amt * unit_usd, 2)
+            amt_inr = round(amt * unit_inr, 2)
+
+            tx_hash_val = data.get("tx_hash") or str(k)
+            ann = taint_map.get(tx_hash_val)
+            hop_val = int(data.get("hop", 1))
+
+            if ann:
+                traceable_amt = ann.traceable_amount
+                unclassified_amt = ann.unclassified_amount
+                taint_ratio = ann.taint_ratio
+            else:
+                traceable_amt = round(amt, 4) if hop_val == 1 else 0.0
+                unclassified_amt = 0.0 if hop_val == 1 else round(amt, 4)
+                taint_ratio = 1.0 if hop_val == 1 else 0.0
+
             edges.append(
                 GraphEdge(
                     data=GraphEdgeData(
                         id=str(k),
                         source=u,
                         target=v,
-                        tx_hash=data.get("tx_hash", ""),
-                        asset_symbol=data.get("asset_symbol", "ETH"),
-                        amount=data.get("amount", 0.0),
+                        tx_hash=tx_hash_val,
+                        asset_symbol=sym,
+                        amount=amt,
                         timestamp=data.get("timestamp") or datetime.now(timezone.utc),
-                        hop=data.get("hop", 1),
+                        hop=hop_val,
                         is_cross_chain=data.get("is_cross_chain", False),
                         bridge_protocol=data.get("bridge_protocol"),
                         source_chain=data.get("source_chain"),
-                        target_chain=data.get("target_chain")
+                        target_chain=data.get("target_chain"),
+                        amount_usd=amt_usd,
+                        amount_inr=amt_inr,
+                        unit_price_usd=unit_usd,
+                        unit_price_inr=unit_inr,
+                        traceable_amount=traceable_amt,
+                        unclassified_amount=unclassified_amt,
+                        taint_ratio=taint_ratio,
                     )
                 )
             )
+
+        total_inr = sum(e.data.amount_inr or 0.0 for e in edges)
+        total_usd = sum(e.data.amount_usd or 0.0 for e in edges)
 
         stats = {
             "root_wallet": self.seed_address,
@@ -664,7 +732,10 @@ class TraceOrchestrator:
             "total_edges": len(edges),
             "vasp_nodes_found": sum(1 for n in nodes if n.data.is_vasp),
             "cross_chain_edges": sum(1 for e in edges if e.data.is_cross_chain),
-            "max_hop_reached": max([n.data.hop for n in nodes], default=0)
+            "max_hop_reached": max([n.data.hop for n in nodes], default=0),
+            "total_amount_inr": total_inr,
+            "total_amount_usd": total_usd,
+            "taint_summary": taint_summary_dict,
         }
 
         return GraphData(nodes=nodes, edges=edges, stats=stats)

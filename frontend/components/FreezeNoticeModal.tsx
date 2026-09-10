@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Scale, Copy, Check, Printer, X, Mail, ShieldCheck, QrCode, FileText, Code, CheckCircle2, Send, AlertTriangle } from 'lucide-react';
+import { Scale, Copy, Check, Printer, X, Mail, ShieldCheck, QrCode, FileText, Code, CheckCircle2, Send, AlertTriangle, Download } from 'lucide-react';
 import QRCode from 'qrcode';
 import { api } from '../lib/api';
 
@@ -179,6 +179,21 @@ export const FreezeNoticeModal: React.FC<FreezeNoticeModalProps> = ({
           >
             <Printer className="h-3.5 w-3.5" />
             <span>Print Notice</span>
+          </button>
+
+          <button
+            onClick={async () => {
+              try {
+                await api.downloadCourtDossier(analysisId, officerName, policeStation);
+              } catch (err: any) {
+                alert(`Court dossier export failed: ${err.message}`);
+              }
+            }}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-blue-700 hover:bg-blue-600 text-white font-semibold text-[11px] shadow-sm cursor-pointer"
+            title="Download full 5-asset court dossier ZIP with Section 91 PDF, Section 65B PDF, Graph Topography SVG, Ledger CSV and SHA-256 manifest"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Court Dossier (.ZIP)</span>
           </button>
 
           {onClose && (

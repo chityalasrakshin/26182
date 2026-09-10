@@ -65,6 +65,9 @@ class LabelStore:
         count += self._load_ofac_sanctions()
         count += self._load_evm_tron_vasp_labels()
         count += self._load_solana_vasp_labels()
+        count += self._load_instant_swaps()
+        count += self._load_scamsniffer_blacklist()
+        count += self._load_etherscan_labels()
         self._loaded = True
         logger.info(f"LabelStore loaded {len(self._address_map)} unique labeled addresses.")
         return len(self._address_map)
@@ -345,6 +348,144 @@ class LabelStore:
         except Exception as e:
             logger.error(f"Error loading evm_tron_vasp.json: {e}")
         return loaded
+
+    def _load_instant_swaps(self) -> int:
+        """Loads non-KYC instant swap desks (FixedFloat, ChangeNOW, SimpleSwap, SideShift)."""
+        swaps_json = self.data_dir / "labels" / "instant_swaps.json"
+        if not swaps_json.exists():
+            return 0
+        loaded = 0
+        try:
+            with open(swaps_json, "r", encoding="utf-8") as f:
+                items = json.load(f)
+            for item in items:
+                raw_addr = item.get("address", "").strip()
+                if not raw_addr:
+                    continue
+                norm_addr = normalize_address(raw_addr)
+                chain = item.get("chain", "ethereum").lower()
+                label_obj = AddressLabel(
+                    address=norm_addr,
+                    chain=chain,
+                    entity=item.get("entity", "Instant Swap Desk"),
+                    label=item.get("label", "Instant Swap Node"),
+                    category="instant_swap_non_kyc",
+                    risk_level=item.get("risk_level", "HIGH"),
+                    confidence="HIGH",
+                    confidence_score=float(item.get("confidence_score", 95.0)),
+                    source_name=item.get("source_name", "Curated Swap Registry"),
+                    notes=item.get("notes"),
+                    is_vasp=True
+                )
+                self._address_map[norm_addr] = label_obj
+                self._chain_address_map[(chain, norm_addr)] = label_obj
+                loaded += 1
+            logger.info(f"Loaded {loaded} verified Instant Swap addresses from {swaps_json.name}")
+            return loaded
+        except Exception as e:
+            logger.error(f"Error loading instant_swaps.json: {e}")
+            return 0
+
+    def _load_scamsniffer_blacklist(self) -> int:
+        """Loads verified Web3 phishing drainers and scammer addresses from ScamSniffer."""
+        scam_json = self.data_dir / "labels" / "scamsniffer_blacklist.json"
+        if not scam_json.exists():
+            return 0
+        loaded = 0
+        try:
+            with open(scam_json, "r", encoding="utf-8") as f:
+                items = json.load(f)
+            for item in items:
+                raw_addr = item.get("address", "").strip()
+                if not raw_addr:
+                    continue
+                norm_addr = normalize_address(raw_addr)
+                chain = item.get("chain", "ethereum").lower()
+                label_obj = AddressLabel(
+                    address=norm_addr,
+                    chain=chain,
+                    entity=item.get("entity", "ScamSniffer Phishing Drainer"),
+                    label=item.get("label", "Verified Scam / Drainer"),
+                    category="scam",
+                    risk_level="CRITICAL",
+                    confidence="HIGH",
+                    confidence_score=98.0,
+                    source_name=item.get("source_name", "ScamSniffer Web3 Blacklist"),
+                    source_url=item.get("source_url"),
+                    notes=item.get("notes"),
+                    is_vasp=False
+                )
+                self._address_map[norm_addr] = label_obj
+                self._chain_address_map[(chain, norm_addr)] = label_obj
+                loaded += 1
+            logger.info(f"Loaded {loaded} ScamSniffer blacklist addresses from {scam_json.name}")
+            return loaded
+        except Exception as e:
+            logger.error(f"Error loading scamsniffer_blacklist.json: {e}")
+            return 0
+
+    def _load_etherscan_labels(self) -> int:
+        """
+        Loads expanded high-confidence Etherscan exchange, DeFi, bridge, and infrastructure labels.
+        """
+        eth_json = self.data_dir / "labels" / "etherscan_labels.json"
+        if not eth_json.exists():
+            return 0
+
+        loaded = 0
+        try:
+            with open(eth_json, "r", encoding="utf-8") as f:
+                records = json.load(f)
+            for item in records:
+                raw_addr = item.get("address", "")
+                if not raw_addr:
+                    continue
+                try:
+                    norm_addr = normalize_address(raw_addr)
+                except Exception:
+                    norm_addr = raw_addr.lower() if raw_addr.startswith("0x") else raw_addr
+
+                entity = item.get("entity", "Etherscan Labeled Entity")
+                raw_cat = item.get("category", "exchange")
+                if entity.lower().startswith("null:") or raw_cat.lower() in ("null", "burn"):
+                    continue
+                if norm_addr in (
+                    "0x0000000000000000000000000000000000000000",
+                    "0x000000000000000000000000000000000000dead",
+                    "0x1111111111111111111111111111111111111111",
+                    "0x2222222222222222222222222222222222222222",
+                    "0x3333333333333333333333333333333333333333",
+                    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                ):
+                    continue
+
+                # Don't overwrite higher-priority master / instant swaps / OFAC
+                if norm_addr in self._address_map:
+                    continue
+
+                chain = (item.get("chain") or "ethereum").strip().lower()
+                label_obj = AddressLabel(
+                    address=norm_addr,
+                    chain=chain,
+                    entity=entity,
+                    label=item.get("label", "Etherscan Verified Label"),
+                    category=raw_cat,
+                    risk_level=item.get("risk_level", "LOW"),
+                    confidence=item.get("confidence", "HIGH"),
+                    confidence_score=float(item.get("confidence_score", 92.0)),
+                    source_name=item.get("source_name", "Etherscan Verified Labels"),
+                    source_url=item.get("source_url"),
+                    notes=item.get("notes"),
+                    is_vasp=bool(item.get("is_vasp", True))
+                )
+                self._address_map[norm_addr] = label_obj
+                self._chain_address_map[(chain, norm_addr)] = label_obj
+                loaded += 1
+            logger.info(f"Loaded {loaded} Etherscan labels from {eth_json.name}")
+            return loaded
+        except Exception as e:
+            logger.error(f"Error loading etherscan_labels.json: {e}")
+            return 0
 
     def lookup(self, address: str, chain: Optional[str] = None) -> Optional[AddressLabel]:
         """

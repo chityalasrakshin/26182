@@ -93,6 +93,66 @@ VASP_COMPLIANCE_CONTACTS: Dict[str, Dict[str, str]] = {
         "sahyog_routing_code": "SAHYOG-VASP-KUCOIN-GLB",
         "nodal_officer": "KuCoin Legal & Compliance",
     },
+    "Bybit": {
+        "entity": "Bybit Fintech Ltd. / Legal Compliance Desk",
+        "email": "compliance@bybit.com",
+        "designated_lea_email": "lawenforcement@bybit.com",
+        "portal": "https://www.bybit.com/en/help-center",
+        "jurisdiction": "United Arab Emirates / Global",
+        "fiu_ind_registration": "N/A (Foreign VASP)",
+        "sahyog_routing_code": "SAHYOG-VASP-BYBIT-GLB",
+        "nodal_officer": "Bybit Global Law Enforcement Desk",
+    },
+    "Gate.io": {
+        "entity": "Gate Technology Inc. (Gate.io Legal)",
+        "email": "support@gate.io",
+        "designated_lea_email": "lawenforcement@gate.io",
+        "portal": "https://www.gate.io",
+        "jurisdiction": "Cayman Islands / Global",
+        "fiu_ind_registration": "N/A (Foreign VASP)",
+        "sahyog_routing_code": "SAHYOG-VASP-GATEIO-GLB",
+        "nodal_officer": "Gate.io Compliance Team",
+    },
+    "FixedFloat": {
+        "entity": "FixedFloat Instant Exchange / Legal Department",
+        "email": "compliance@fixedfloat.com",
+        "designated_lea_email": "legal@fixedfloat.com",
+        "portal": "https://fixedfloat.com",
+        "jurisdiction": "Seychelles / International",
+        "fiu_ind_registration": "N/A (Non-KYC Instant Swap)",
+        "sahyog_routing_code": "SAHYOG-VASP-FIXEDFLOAT-INT",
+        "nodal_officer": "FixedFloat Anti-Fraud & Legal Unit",
+    },
+    "ChangeNOW": {
+        "entity": "ChangeNOW (CHN Group LLC) Compliance Desk",
+        "email": "compliance@changenow.io",
+        "designated_lea_email": "legal@changenow.io",
+        "portal": "https://changenow.io/law-enforcement",
+        "jurisdiction": "Belize / International",
+        "fiu_ind_registration": "N/A (Non-KYC Instant Swap)",
+        "sahyog_routing_code": "SAHYOG-VASP-CHANGENOW-INT",
+        "nodal_officer": "ChangeNOW Risk Prevention & LE Desk",
+    },
+    "SimpleSwap": {
+        "entity": "SimpleSwap International Legal Unit",
+        "email": "support@simpleswap.io",
+        "designated_lea_email": "compliance@simpleswap.io",
+        "portal": "https://simpleswap.io",
+        "jurisdiction": "Marshall Islands",
+        "fiu_ind_registration": "N/A (Non-KYC Instant Swap)",
+        "sahyog_routing_code": "SAHYOG-VASP-SIMPLESWAP-INT",
+        "nodal_officer": "SimpleSwap Compliance Officer",
+    },
+    "SideShift": {
+        "entity": "SideShift.ai Compliance Operations",
+        "email": "compliance@sideshift.ai",
+        "designated_lea_email": "legal@sideshift.ai",
+        "portal": "https://sideshift.ai",
+        "jurisdiction": "International",
+        "fiu_ind_registration": "N/A (Non-KYC Instant Swap)",
+        "sahyog_routing_code": "SAHYOG-VASP-SIDESHIFT-INT",
+        "nodal_officer": "SideShift Law Enforcement Liaison",
+    },
 }
 
 
@@ -128,8 +188,9 @@ class LegalNoticeGenerator:
             "nodal_officer": "Nodal Officer / Compliance Head",
         })
 
-        date_str = datetime.datetime.utcnow().strftime("%d-%B-%Y")
-        ref_no = f"LEA/CYBER/{datetime.datetime.utcnow().year}/{case_id[:8].upper()}"
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        date_str = now_utc.strftime("%d-%B-%Y")
+        ref_no = f"LEA/CYBER/{now_utc.year}/{case_id[:8].upper()}"
 
         # FIU-IND metadata
         fiu_reg = contact_info.get("fiu_ind_registration", "N/A")
@@ -261,6 +322,6 @@ Contact / Email: cybercell@police.gov.in
                 "Section 66D Information Technology Act, 2000",
                 "Prevention of Money Laundering Act (PMLA), 2002",
             ],
-            "generated_at": datetime.datetime.utcnow().isoformat()
+            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }
 

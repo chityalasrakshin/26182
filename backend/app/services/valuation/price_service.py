@@ -50,6 +50,24 @@ STABLECOIN_SYMBOLS = {"USDT", "USDC", "DAI", "BUSD", "TUSD", "USDP", "GUSD", "FR
 _RATE_LIMIT_DELAY = 1.5  # CoinGecko free tier: 10-30 calls/min
 _MAX_RETRIES = 3
 _REQUEST_TIMEOUT = 10.0
+_LIVE_CACHE_TTL_SECONDS = 900  # 15-minute TTL for live price cache
+
+# Default INR/USD exchange rate fallback
+_DEFAULT_INR_USD_RATE = 83.5
+
+DEFAULT_CRYPTO_PRICES: Dict[str, Dict[str, float]] = {
+    "ETH": {"usd": 2600.0, "inr": 217100.0},
+    "WETH": {"usd": 2600.0, "inr": 217100.0},
+    "BTC": {"usd": 64000.0, "inr": 5344000.0},
+    "WBTC": {"usd": 64000.0, "inr": 5344000.0},
+    "TRX": {"usd": 0.16, "inr": 13.36},
+    "USDT": {"usd": 1.0, "inr": 83.5},
+    "USDC": {"usd": 1.0, "inr": 83.5},
+    "DAI": {"usd": 1.0, "inr": 83.5},
+    "MATIC": {"usd": 0.50, "inr": 41.75},
+    "BNB": {"usd": 550.0, "inr": 45925.0},
+    "SOL": {"usd": 145.0, "inr": 12107.5},
+}
 
 
 class PriceService:
@@ -62,6 +80,7 @@ class PriceService:
 
     def __init__(self):
         self._cache: Dict[Tuple[str, str], Dict[str, float]] = {}
+        self._live_cache: Dict[str, Dict[str, Any]] = {}  # {coin_id: {"prices": {...}, "fetched_at": float}}
         self._lock = asyncio.Lock()
         self._last_request_time = 0.0
 
@@ -247,9 +266,129 @@ class PriceService:
         """Returns cache statistics."""
         return {
             "cached_price_points": len(self._cache),
+            "live_cache_entries": len(self._live_cache),
             "unique_coins": len(set(k[0] for k in self._cache)),
             "unique_dates": len(set(k[1] for k in self._cache)),
         }
+
+    async def get_current_prices(
+        self, symbols: list[str]
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Fetch current live prices for multiple symbols with 15-minute caching.
+        Returns dict keyed by symbol with 'usd' and 'inr' prices.
+
+        Args:
+            symbols: List of token symbols (e.g., ["ETH", "BTC", "USDT"])
+
+        Returns:
+            Dict mapping symbol to {"usd": float, "inr": float}
+        """
+        results: Dict[str, Dict[str, float]] = {}
+        coins_to_fetch: list[str] = []
+        now = asyncio.get_event_loop().time()
+
+        for symbol in symbols:
+            symbol_upper = symbol.upper().strip()
+
+            # Stablecoins: always ~$1.00
+            if symbol_upper in STABLECOIN_SYMBOLS:
+                results[symbol_upper] = {"usd": 1.0, "inr": _DEFAULT_INR_USD_RATE}
+                continue
+
+            coin_id = SYMBOL_TO_COINGECKO_ID.get(symbol_upper)
+            if not coin_id:
+                results[symbol_upper] = {"usd": 0.0, "inr": 0.0}
+                continue
+
+            # Check live cache TTL
+            cached = self._live_cache.get(coin_id)
+            if cached and (now - cached["fetched_at"]) < _LIVE_CACHE_TTL_SECONDS:
+                results[symbol_upper] = cached["prices"]
+            else:
+                coins_to_fetch.append(coin_id)
+
+        if coins_to_fetch:
+            # Batch fetch from CoinGecko simple/price endpoint
+            ids_str = ",".join(set(coins_to_fetch))
+            url = f"{COINGECKO_API_BASE}/simple/price"
+            params = {"ids": ids_str, "vs_currencies": "usd,inr"}
+
+            for attempt in range(1, _MAX_RETRIES + 1):
+                await self._throttle()
+                try:
+                    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT) as client:
+                        response = await client.get(url, params=params)
+
+                        if response.status_code == 429:
+                            wait = 2.0 * attempt
+                            logger.warning(f"CoinGecko rate limited on live prices. Waiting {wait}s")
+                            await asyncio.sleep(wait)
+                            continue
+
+                        response.raise_for_status()
+                        data = response.json()
+
+                        fetch_time = asyncio.get_event_loop().time()
+                        for coin_id in coins_to_fetch:
+                            coin_data = data.get(coin_id, {})
+                            usd_price = coin_data.get("usd", 0.0)
+                            inr_price = coin_data.get("inr", usd_price * _DEFAULT_INR_USD_RATE)
+
+                            prices = {"usd": float(usd_price), "inr": float(inr_price)}
+                            self._live_cache[coin_id] = {"prices": prices, "fetched_at": fetch_time}
+
+                            # Map back to symbol
+                            for sym, cid in SYMBOL_TO_COINGECKO_ID.items():
+                                if cid == coin_id and sym not in results:
+                                    results[sym] = prices
+                        break
+
+                except (httpx.HTTPStatusError, httpx.RequestError) as e:
+                    logger.warning(f"CoinGecko live price fetch error (attempt {attempt}): {e}")
+                    if attempt == _MAX_RETRIES:
+                        for coin_id in coins_to_fetch:
+                            for sym, cid in SYMBOL_TO_COINGECKO_ID.items():
+                                if cid == coin_id and sym not in results:
+                                    results[sym] = {"usd": 0.0, "inr": 0.0}
+                    else:
+                        await asyncio.sleep(1.0 * attempt)
+
+        return results
+
+    async def get_current_price_simple(
+        self, symbol: str
+    ) -> Dict[str, float]:
+        """
+        Quick single-symbol live price lookup with caching.
+
+        Args:
+            symbol: Token symbol (e.g., "ETH")
+
+        Returns:
+            Dict with 'usd' and 'inr' prices
+        """
+        prices = await self.get_current_prices([symbol])
+        return prices.get(symbol.upper().strip(), {"usd": 0.0, "inr": 0.0})
+
+    def get_price_cached_or_default(self, symbol: str) -> Dict[str, float]:
+        """
+        Synchronous fast price lookup from live cache or high-confidence standard rates.
+        Used for instantaneous graph edge exports without blocking network I/O.
+        """
+        sym = symbol.upper().strip() if symbol else "ETH"
+        coin_id = SYMBOL_TO_COINGECKO_ID.get(sym)
+        if coin_id and coin_id in self._live_cache:
+            return self._live_cache[coin_id]["prices"]
+
+        if sym in DEFAULT_CRYPTO_PRICES:
+            return DEFAULT_CRYPTO_PRICES[sym]
+
+        # Stablecoin fallback
+        if sym in STABLECOIN_SYMBOLS:
+            return {"usd": 1.0, "inr": _DEFAULT_INR_USD_RATE}
+
+        return {"usd": 0.0, "inr": 0.0}
 
 
 # Module-level singleton

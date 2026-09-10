@@ -3,7 +3,7 @@ import asyncio
 import datetime
 import json
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, WebSocket, WebSocketDisconnect, Request
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, WebSocket, WebSocketDisconnect, Request, UploadFile, File
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
@@ -395,6 +395,80 @@ async def get_analysis_transactions(analysis_id: str):
         return active_analyses_cache[analysis_id].get("transactions", [])
 
     return []
+
+
+@api_router.get("/analysis/{analysis_id}/taint")
+async def get_analysis_taint(analysis_id: str):
+    """
+    Runs FIFO taint computation on the analysis transactions and returns
+    taint annotations for each edge plus an aggregate taint summary.
+
+    The suspect wallet (seed address) is treated as the sole suspect source.
+    """
+    from backend.app.services.attribution.fifo_taint import compute_fifo_taint
+
+    if analysis_id not in active_analyses_cache:
+        raise HTTPException(status_code=404, detail="Analysis not found.")
+
+    cached = active_analyses_cache[analysis_id]
+    wallet_address = cached.get("wallet_address", "")
+    transactions = cached.get("transactions", [])
+
+    # Convert to dicts for FIFO engine
+    tx_dicts = []
+    for tx in transactions:
+        if hasattr(tx, "model_dump"):
+            tx_dicts.append(tx.model_dump(mode="json"))
+        elif isinstance(tx, dict):
+            tx_dicts.append(tx)
+
+    if not tx_dicts:
+        return {
+            "analysis_id": analysis_id,
+            "taint_summary": {
+                "total_transactions": 0,
+                "total_volume": 0.0,
+                "total_traceable": 0.0,
+                "total_unclassified": 0.0,
+                "overall_taint_ratio": 0.0,
+                "suspect_wallets_count": 0,
+                "tainted_addresses_count": 0,
+                "tainted_addresses": [],
+            },
+            "annotations": [],
+        }
+
+    annotations, summary = compute_fifo_taint(
+        transactions=tx_dicts,
+        suspect_wallets=[wallet_address],
+    )
+
+    return {
+        "analysis_id": analysis_id,
+        "taint_summary": {
+            "total_transactions": summary.total_transactions,
+            "total_volume": summary.total_volume,
+            "total_traceable": summary.total_traceable,
+            "total_unclassified": summary.total_unclassified,
+            "overall_taint_ratio": summary.overall_taint_ratio,
+            "suspect_wallets_count": summary.suspect_wallets_count,
+            "tainted_addresses_count": summary.tainted_addresses_count,
+            "tainted_addresses": summary.tainted_addresses,
+        },
+        "annotations": [
+            {
+                "tx_hash": a.tx_hash,
+                "from_address": a.from_address,
+                "to_address": a.to_address,
+                "amount": a.amount,
+                "asset": a.asset,
+                "traceable_amount": a.traceable_amount,
+                "unclassified_amount": a.unclassified_amount,
+                "taint_ratio": a.taint_ratio,
+            }
+            for a in annotations
+        ],
+    }
 
 
 @api_router.get("/analysis/{analysis_id}/report")
@@ -839,6 +913,90 @@ async def download_pdf_dossier(
             "Content-Length": str(len(pdf_bytes)),
         }
     )
+
+
+@api_router.get("/analysis/{analysis_id}/dossier")
+@api_router.get("/analysis/{analysis_id}/export-dossier")
+async def download_analysis_dossier_zip(
+    analysis_id: str,
+    officer_name: str = Query(default="Investigating Officer"),
+    police_station: str = Query(default="Cyber Crime Investigation Cell"),
+    request: Request = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Generates and downloads the complete 5-asset court-admissible dossier ZIP
+    archive for an active analysis case (Case 5).
+    Includes Section 91 PDF, Section 65B PDF, Graph Topography SVG/PNG,
+    Ledger CSV with INR & USD, Narrative TXT, and SHA-256 Integrity Manifest.
+    """
+    from backend.app.services.reporting.dossier_service import dossier_service
+
+    if analysis_id not in active_analyses_cache:
+        raise HTTPException(status_code=404, detail="Analysis case not found.")
+
+    cached = active_analyses_cache[analysis_id]
+
+    chain = detect_blockchain(cached["wallet_address"])
+
+    attributions = [
+        a.model_dump() if hasattr(a, "model_dump") else a
+        for a in cached.get("attributions", [])
+    ]
+    evidence = [
+        e.model_dump() if hasattr(e, "model_dump") else e
+        for e in cached.get("evidence", [])
+    ]
+    risk_assessment = cached.get("risk_assessment")
+    if risk_assessment and hasattr(risk_assessment, "model_dump"):
+        risk_assessment = risk_assessment.model_dump()
+
+    tx_dicts = [
+        t.model_dump() if hasattr(t, "model_dump") else t
+        for t in cached.get("transactions", [])
+    ]
+
+    zip_bytes = dossier_service.generate_dossier(
+        case_id=analysis_id,
+        wallet_address=cached["wallet_address"],
+        chain=chain,
+        attributions=attributions,
+        evidence=evidence,
+        transactions=tx_dicts,
+        risk_assessment=risk_assessment,
+        investigator_name=officer_name,
+        investigating_unit=police_station,
+    )
+
+    # Safe audit log
+    ip_addr = request.client.host if (request and hasattr(request, "client") and request.client) else None
+    u_id = current_user.id if (current_user and hasattr(current_user, "id")) else None
+    u_name = current_user.username if (current_user and hasattr(current_user, "username")) else officer_name
+    active_db = db if (db and hasattr(db, "execute")) else None
+
+    if active_db:
+        await audit_logger.log_event(
+            action=AuditAction.REPORT_EXPORT,
+            resource_type=AuditResourceType.REPORT,
+            resource_id=analysis_id,
+            user_id=u_id,
+            username=u_name,
+            details={"analysis_id": analysis_id, "format": "zip_court_dossier", "size_bytes": len(zip_bytes)},
+            ip_address=ip_addr,
+            db=active_db
+        )
+
+    filename = f"Court_Dossier_{analysis_id[:8].upper()}.zip"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(zip_bytes)),
+        }
+    )
+
 
 
 # ==============================================================================
@@ -1467,6 +1625,215 @@ async def detect_communities_endpoint(
         "total_communities": len(communities),
         "chain": req.chain
     }
+
+
+# ==============================================================================
+# Case 4 — NCRP 1930 Batch Triage & Flight-Risk Queue
+# ==============================================================================
+
+from backend.app.workers.ncrp_worker import ncrp_triage_worker
+
+
+class NCRPBatchTriageResponse(BaseModel):
+    batch_id: str
+    total_complaints: int
+    status: str
+    message: str
+
+
+class NCRPBatchStatusResponse(BaseModel):
+    batch_id: str
+    total_complaints: int
+    processed: int
+    critical_count: int
+    high_count: int
+    medium_count: int
+    cold_count: int
+    status: str
+    results: List[Dict[str, Any]] = Field(default_factory=list)
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+@api_router.post("/ncrp/batch-triage", response_model=NCRPBatchTriageResponse)
+async def submit_ncrp_batch_triage(
+    req: NCRPTriageRequest,
+    background_tasks: BackgroundTasks,
+    request: Request = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Submits a batch of NCRP 1930 fraud complaints for automated triage.
+    Each complaint's suspect wallet is evaluated for flight risk and
+    assigned a priority score (CRITICAL/HIGH/MEDIUM/COLD).
+    Returns batch_id for status polling.
+    """
+    complaints_data = [c.model_dump() for c in req.complaints]
+    batch_id = ncrp_triage_worker.create_batch(complaints_data)
+
+    # Log audit event safely
+    ip_addr = request.client.host if (request and hasattr(request, "client") and request.client) else None
+    u_id = current_user.id if (current_user and hasattr(current_user, "id")) else None
+    u_name = current_user.username if (current_user and hasattr(current_user, "username")) else "anonymous_investigator"
+    active_db = db if (db and hasattr(db, "execute")) else None
+
+    if active_db:
+        await audit_logger.log_event(
+            action=AuditAction.ANALYSIS_START,
+            resource_type=AuditResourceType.ANALYSIS,
+            resource_id=batch_id,
+            user_id=u_id,
+            username=u_name,
+            details={"batch_id": batch_id, "complaint_count": len(complaints_data)},
+            ip_address=ip_addr,
+            db=active_db
+        )
+
+    # Launch async processing
+    background_tasks.add_task(ncrp_triage_worker.process_batch, batch_id, complaints_data)
+
+    return NCRPBatchTriageResponse(
+        batch_id=batch_id,
+        total_complaints=len(complaints_data),
+        status="PENDING",
+        message=f"Batch {batch_id} submitted with {len(complaints_data)} complaints. Poll /ncrp/batch-triage/{batch_id}/status for results."
+    )
+
+
+@api_router.post("/ncrp/batch-triage/upload", response_model=NCRPBatchTriageResponse)
+async def upload_ncrp_csv_batch_triage(
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
+    request: Request = None,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Accepts official NCRP / I4C CSV complaints export file for automated batch flight-risk triage.
+    Official NCRP / I4C CSV complaint export format columns:
+      - Acknowledgement_Number
+      - Complainant_Name
+      - Incident_Date
+      - Defrauded_Amount_INR
+      - Suspect_Crypto_Address
+      - Crime_Subcategory
+    """
+    import csv
+    import io
+
+    filename = file.filename or "ncrp_complaints.csv"
+    if not filename.lower().endswith(('.csv', '.txt')):
+        raise HTTPException(status_code=400, detail="Only CSV files (.csv) are accepted.")
+
+    content = await file.read()
+    text = content.decode('utf-8', errors='replace')
+    reader = csv.DictReader(io.StringIO(text))
+
+    complaints_data = []
+    for row in reader:
+        clean_row = {k.strip().lower(): (v.strip() if v else "") for k, v in row.items() if k}
+
+        complaint_id = (
+            clean_row.get("acknowledgement_number")
+            or clean_row.get("acknowledgment_number")
+            or clean_row.get("complaint_id")
+            or clean_row.get("ack_no")
+            or clean_row.get("ref_no")
+            or f"NCRP-{uuid.uuid4().hex[:8].upper()}"
+        )
+        complainant_name = clean_row.get("complainant_name") or clean_row.get("victim_name") or clean_row.get("name") or "Anonymous Complainant"
+        incident_date = clean_row.get("incident_date") or clean_row.get("date") or datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        amount_raw = clean_row.get("defrauded_amount_inr") or clean_row.get("amount_inr") or clean_row.get("amount") or "0"
+        try:
+            amount_inr = float(amount_raw.replace(",", "").replace("₹", "").strip() or 0.0)
+        except ValueError:
+            amount_inr = 0.0
+
+        suspect_address = (
+            clean_row.get("suspect_crypto_address")
+            or clean_row.get("crypto_address")
+            or clean_row.get("suspect_address")
+            or clean_row.get("wallet_address")
+            or clean_row.get("target_address")
+            or ""
+        )
+        if not suspect_address or not is_valid_crypto_address(suspect_address):
+            continue
+
+        crime_subcat = clean_row.get("crime_subcategory") or clean_row.get("scam_typology") or clean_row.get("sub_category") or clean_row.get("category") or "Cyber Financial Fraud"
+        chain = clean_row.get("chain") or detect_blockchain(suspect_address)
+
+        complaints_data.append({
+            "complaint_id": complaint_id,
+            "complainant_name": complainant_name,
+            "incident_date": incident_date,
+            "defrauded_amount_inr": amount_inr,
+            "suspect_crypto_address": suspect_address,
+            "crime_subcategory": crime_subcat,
+            "chain": chain
+        })
+
+    if not complaints_data:
+        raise HTTPException(status_code=400, detail="No valid suspect crypto addresses found in uploaded CSV file.")
+
+    batch_id = ncrp_triage_worker.create_batch(complaints_data)
+
+    # Log audit event safely
+    ip_addr = request.client.host if (request and hasattr(request, "client") and request.client) else None
+    u_id = current_user.id if (current_user and hasattr(current_user, "id")) else None
+    u_name = current_user.username if (current_user and hasattr(current_user, "username")) else "anonymous_investigator"
+    active_db = db if (db and hasattr(db, "execute")) else None
+
+    if active_db:
+        await audit_logger.log_event(
+            action=AuditAction.ANALYSIS_START,
+            resource_type=AuditResourceType.ANALYSIS,
+            resource_id=batch_id,
+            user_id=u_id,
+            username=u_name,
+            details={"batch_id": batch_id, "file_name": filename, "complaint_count": len(complaints_data)},
+            ip_address=ip_addr,
+            db=active_db
+        )
+
+    if background_tasks:
+        background_tasks.add_task(ncrp_triage_worker.process_batch, batch_id, complaints_data)
+    else:
+        asyncio.create_task(ncrp_triage_worker.process_batch(batch_id, complaints_data))
+
+    return NCRPBatchTriageResponse(
+        batch_id=batch_id,
+        total_complaints=len(complaints_data),
+        status="PENDING",
+        message=f"Uploaded CSV with {len(complaints_data)} complaints into Batch {batch_id}. Poll /ncrp/batch-triage/{batch_id}/status for results."
+    )
+
+
+@api_router.get("/ncrp/batch-triage/{batch_id}/status", response_model=NCRPBatchStatusResponse)
+async def get_ncrp_batch_status(batch_id: str):
+    """
+    Polls triage status and flight-risk results for an NCRP batch.
+    Results are sorted by flight-risk score (highest first).
+    """
+    batch = ncrp_triage_worker.get_batch(batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail=f"Batch {batch_id} not found.")
+
+    return NCRPBatchStatusResponse(
+        batch_id=batch.batch_id,
+        total_complaints=batch.total_complaints,
+        processed=batch.processed,
+        critical_count=batch.critical_count,
+        high_count=batch.high_count,
+        medium_count=batch.medium_count,
+        cold_count=batch.cold_count,
+        status=batch.status,
+        results=[r.to_dict() for r in batch.results],
+        started_at=batch.started_at,
+        completed_at=batch.completed_at,
+    )
 
 
 

@@ -11,6 +11,8 @@ export interface NormalizedTransaction {
   token_decimals: number;
   amount: number;
   amount_usd_if_available?: number | null;
+  amount_usd?: number | null;
+  amount_inr?: number | null;
   gas_used?: number | null;
   is_error: boolean;
   hop?: number;
@@ -36,6 +38,8 @@ export interface GraphNodeData {
   total_outflow: number;
   is_contract?: boolean;
   chain?: string | null;
+  is_bridge?: boolean;
+  bridge_protocol?: string | null;
 }
 
 export interface GraphNode {
@@ -55,10 +59,30 @@ export interface GraphEdgeData {
   bridge_protocol?: string | null;
   source_chain?: string | null;
   target_chain?: string | null;
+  // Case 6: INR/USD Asset Valuation
+  amount_usd?: number | null;
+  amount_inr?: number | null;
+  unit_price_usd?: number | null;
+  unit_price_inr?: number | null;
+  // Case 2: FIFO Taint Tracking
+  traceable_amount?: number | null;
+  unclassified_amount?: number | null;
+  taint_ratio?: number | null;
 }
 
 export interface GraphEdge {
   data: GraphEdgeData;
+}
+
+export interface TaintSummary {
+  total_transactions?: number;
+  total_volume?: number;
+  total_traceable?: number;
+  total_unclassified?: number;
+  overall_taint_ratio?: number;
+  suspect_wallets_count?: number;
+  tainted_addresses_count?: number;
+  tainted_addresses?: string[];
 }
 
 export interface GraphData {
@@ -66,10 +90,15 @@ export interface GraphData {
   edges: GraphEdge[];
   stats: {
     root_wallet: string;
+    chain?: string;
     total_nodes: number;
     total_edges: number;
     vasp_nodes_found: number;
+    cross_chain_edges?: number;
     max_hop_reached: number;
+    total_amount_inr?: number;
+    total_amount_usd?: number;
+    taint_summary?: TaintSummary;
   };
 }
 

@@ -329,6 +329,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       const isCrossChain = Boolean(d.is_cross_chain);
       const bridgeProto = d.bridge_protocol || '';
 
+      // INR/USD valuation fields (Case 6)
+      const amountUsd = d.amount_usd ? Number(d.amount_usd) : null;
+      const amountInr = d.amount_inr ? Number(d.amount_inr) : null;
+
+      // FIFO taint fields (Case 2)
+      const taintRatio = d.taint_ratio != null ? Number(d.taint_ratio) : null;
+      const traceableAmount = d.traceable_amount != null ? Number(d.traceable_amount) : null;
+
       if (!validNodeIds.has(src) || !validNodeIds.has(tgt)) return;
 
       // Token filter
@@ -337,13 +345,24 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       // Min amount filter
       if (minAmount > 0 && amt < minAmount) return;
 
+      // Build edge label with INR if available
+      const amtStr = amt > 0 ? `${amt >= 1000 ? (amt / 1000).toFixed(1) + 'k' : amt.toFixed(2)} ${sym}` : '';
+      const inrStr = amountInr ? `₹${amountInr >= 100000 ? (amountInr / 100000).toFixed(1) + 'L' : amountInr.toFixed(0)}` : '';
       const label = isCrossChain
-        ? `[Bridge: ${bridgeProto || 'Cross-Chain'}] ${amt > 0 ? `${amt >= 1000 ? (amt / 1000).toFixed(1) + 'k' : amt.toFixed(2)} ${sym}` : ''}`
-        : amt > 0 ? `${amt >= 1000 ? (amt / 1000).toFixed(1) + 'k' : amt.toFixed(2)} ${sym}` : '';
+        ? `[Bridge: ${bridgeProto || 'Cross-Chain'}] ${amtStr}`
+        : inrStr ? `${amtStr}\n${inrStr}` : amtStr;
+
+      // Taint-based CSS class
+      let taintClass = '';
+      if (taintRatio !== null) {
+        if (taintRatio >= 0.8) taintClass = 'taint-high';
+        else if (taintRatio >= 0.4) taintClass = 'taint-medium';
+        else if (taintRatio > 0) taintClass = 'taint-low';
+      }
 
       elements.push({
         group: 'edges',
-        classes: isCrossChain ? 'is-cross-chain' : '',
+        classes: `${isCrossChain ? 'is-cross-chain' : ''} ${taintClass}`.trim(),
         data: {
           id: edgeId,
           source: src,
@@ -359,6 +378,15 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           bridgeProtocol: bridgeProto,
           sourceChain: d.source_chain,
           targetChain: d.target_chain,
+          // Case 6: INR/USD
+          amountUsd: amountUsd,
+          amountInr: amountInr,
+          unitPriceUsd: d.unit_price_usd || null,
+          unitPriceInr: d.unit_price_inr || null,
+          // Case 2: Taint
+          taintRatio: taintRatio,
+          traceableAmount: traceableAmount,
+          unclassifiedAmount: d.unclassified_amount || null,
         },
       });
     });
@@ -733,6 +761,34 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'text-background-opacity': 0.95,
             'text-background-padding': '4px',
             'text-background-shape': 'roundrectangle',
+            'z-index': 800,
+          },
+        },
+
+        // ────────────────── FIFO TAINT EDGE COLORING (Case 2) ──────────
+        {
+          selector: 'edge.taint-high',
+          style: {
+            'line-color': '#ef4444',
+            'target-arrow-color': '#dc2626',
+            'width': 4,
+            'z-index': 900,
+          },
+        },
+        {
+          selector: 'edge.taint-medium',
+          style: {
+            'line-color': '#f97316',
+            'target-arrow-color': '#ea580c',
+            'width': 3,
+            'z-index': 850,
+          },
+        },
+        {
+          selector: 'edge.taint-low',
+          style: {
+            'line-color': '#84cc16',
+            'target-arrow-color': '#65a30d',
             'z-index': 800,
           },
         },
@@ -1462,6 +1518,60 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           <div className="flex-1 relative bg-forensic-bg h-full flex flex-col">
             {/* Live Streaming Indicator & Tag Color Legend Overlay */}
             <div className="absolute top-3 left-3 z-10 flex flex-col gap-2 pointer-events-none">
+              {/* Case 3: Active Cross-Chain Bridge Continuity Alert Banner */}
+              {(() => {
+                const bEdges = (graphData?.edges || []).filter(
+                  (e: any) => e.data?.is_cross_chain || Boolean(e.data?.bridge_protocol)
+                );
+                const bNodes = (graphData?.nodes || []).filter(
+                  (n: any) => n.data?.role === 'BRIDGE_PROTOCOL'
+                );
+                if (bEdges.length === 0 && bNodes.length === 0) return null;
+                const primaryEdge = bEdges[0]?.data;
+                const protoName = primaryEdge?.bridge_protocol || bNodes[0]?.data?.bridge_protocol || 'Cross-Chain Bridge';
+                const srcChain = primaryEdge?.source_chain || 'Ethereum';
+                const dstChain = primaryEdge?.target_chain || 'Destination Chain';
+                const txHash = primaryEdge?.tx_hash || '';
+
+                return (
+                  <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-purple-950/90 backdrop-blur-md border border-purple-500/50 text-purple-200 text-xs font-mono shadow-xl pointer-events-auto animate-fade-in max-w-xl">
+                    <div className="flex items-center space-x-2">
+                      <div className="p-1 rounded bg-purple-600 text-white animate-pulse">
+                        <Network className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="font-bold text-white uppercase text-[11px] tracking-wide">
+                            Bridge Continuity: {protoName}
+                          </span>
+                          <span className="px-1.5 py-0.2 rounded text-[9px] bg-purple-800 text-purple-200 uppercase font-bold">
+                            Active Hop
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-purple-300 mt-0.5">
+                          {srcChain.toUpperCase()} → <strong className="text-white">{dstChain.toUpperCase()}</strong>
+                          {txHash ? ` • Tx: ${txHash.slice(0, 10)}...` : ''}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (!cyRef.current) return;
+                        const cy = cyRef.current;
+                        const bEls = cy.$('.is-cross-chain, [role = "BRIDGE_PROTOCOL"]');
+                        if (bEls.length > 0) {
+                          cy.animate({ center: { eles: bEls }, zoom: 1.3, duration: 400 });
+                          bEls.select();
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold uppercase transition-colors shrink-0 shadow"
+                    >
+                      Focus Rail →
+                    </button>
+                  </div>
+                );
+              })()}
+
               {isStreaming && (
                 <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-blue-600/90 text-white font-mono text-[10px] font-bold shadow-lg animate-pulse pointer-events-auto border border-blue-400 w-fit">
                   <span className="w-2 h-2 rounded-full bg-white" />
@@ -1693,6 +1803,43 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                         {selectedElement.data.amount} {selectedElement.data.tokenSymbol}
                       </span>
                     </div>
+                    {/* Case 6: INR/USD Valuation */}
+                    {selectedElement.data.amountUsd && (
+                      <div className="flex justify-between">
+                        <span className="text-forensic-textDim">USD Value:</span>
+                        <span className="text-sky-400 font-bold">
+                          ${Number(selectedElement.data.amountUsd).toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
+                    {selectedElement.data.amountInr && (
+                      <div className="flex justify-between">
+                        <span className="text-forensic-textDim">INR Value:</span>
+                        <span className="text-amber-400 font-bold">
+                          ₹{Number(selectedElement.data.amountInr).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        </span>
+                      </div>
+                    )}
+                    {/* Case 2: FIFO Taint Ratio */}
+                    {selectedElement.data.taintRatio != null && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-forensic-textDim">Taint Ratio:</span>
+                        <span className={`font-bold ${
+                          selectedElement.data.taintRatio >= 0.8 ? 'text-red-400' :
+                          selectedElement.data.taintRatio >= 0.4 ? 'text-orange-400' :
+                          'text-lime-400'
+                        }`}>
+                          {selectedElement.data.taintRatio >= 0.8 ? '🔴' : selectedElement.data.taintRatio >= 0.4 ? '🟡' : '🟢'}{' '}
+                          {(selectedElement.data.taintRatio * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                    )}
+                    {selectedElement.data.traceableAmount != null && (
+                      <div className="flex justify-between">
+                        <span className="text-forensic-textDim">Traceable:</span>
+                        <span className="text-red-300">{selectedElement.data.traceableAmount} {selectedElement.data.tokenSymbol}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span className="text-forensic-textDim">Hop Depth:</span>
                       <span className="text-forensic-text">Hop {selectedElement.data.hop}</span>

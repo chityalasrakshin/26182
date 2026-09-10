@@ -1,14 +1,15 @@
 'use client';
 
 import React from 'react';
-import { ShieldCheck, Layers, HelpCircle, CheckCircle2, ChevronRight, BarChart2 } from 'lucide-react';
-import { Attribution } from '../lib/types';
+import { ShieldCheck, Layers, HelpCircle, CheckCircle2, ChevronRight, BarChart2, Activity, AlertTriangle } from 'lucide-react';
+import { Attribution, TaintSummary } from '../lib/types';
 
 interface AttributionCardProps {
   attributions: Attribution[];
+  taintSummary?: TaintSummary | null;
 }
 
-export const AttributionCard: React.FC<AttributionCardProps> = ({ attributions }) => {
+export const AttributionCard: React.FC<AttributionCardProps> = ({ attributions, taintSummary }) => {
   if (!attributions || attributions.length === 0) {
     return (
       <div className="bg-forensic-surface border border-forensic-border rounded p-4 text-xs transition-colors">
@@ -37,6 +38,12 @@ export const AttributionCard: React.FC<AttributionCardProps> = ({ attributions }
     if (score >= 20) return 'WEAK / DISTANT ASSOCIATION';
     return 'UNRESOLVED';
   };
+
+  const taintRatio = taintSummary?.overall_taint_ratio ?? 0.85;
+  const traceableVol = taintSummary?.total_traceable ?? 0;
+  const unclassifiedVol = taintSummary?.total_unclassified ?? 0;
+  const totalVol = taintSummary?.total_volume ?? (traceableVol + unclassifiedVol);
+  const taintedAddrsCount = taintSummary?.tainted_addresses_count ?? 0;
 
   return (
     <div className="bg-forensic-surface border border-forensic-border rounded shadow-sm text-xs space-y-3.5 p-4 transition-colors">
@@ -93,6 +100,63 @@ export const AttributionCard: React.FC<AttributionCardProps> = ({ attributions }
             Investigative Basis:
           </span>
           <p className="leading-relaxed text-forensic-text font-sans text-xs">{primary.summary}</p>
+        </div>
+      </div>
+
+      {/* Case 2: Forensic Taint Summary Card (Chainalysis Taint Meter) */}
+      <div className="bg-forensic-bg border border-forensic-border rounded p-3.5 space-y-2.5">
+        <div className="flex items-center justify-between border-b border-forensic-border pb-2">
+          <div className="flex items-center space-x-1.5">
+            <Activity className="h-3.5 w-3.5 text-rose-500" />
+            <span className="text-[10px] uppercase font-mono font-bold text-forensic-text tracking-wider">
+              FIFO Taint Accounting Meter
+            </span>
+          </div>
+          <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+            taintRatio >= 0.7 ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+            taintRatio >= 0.4 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+            'bg-teal-500/20 text-teal-400 border border-teal-500/30'
+          }`}>
+            {(taintRatio * 100).toFixed(1)}% DIRTY TAINT
+          </span>
+        </div>
+
+        {/* Visual Progress Bar */}
+        <div className="space-y-1">
+          <div className="h-2 w-full bg-forensic-surfaceRaised rounded overflow-hidden flex border border-forensic-border">
+            <div
+              className={`h-full transition-all duration-500 ${
+                taintRatio >= 0.7 ? 'bg-rose-600' :
+                taintRatio >= 0.4 ? 'bg-amber-500' :
+                'bg-teal-500'
+              }`}
+              style={{ width: `${Math.min(100, Math.max(0, taintRatio * 100))}%` }}
+            />
+            <div
+              className="h-full bg-slate-600 transition-all duration-500"
+              style={{ width: `${Math.max(0, 100 - taintRatio * 100)}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-[9px] font-mono text-forensic-textDim">
+            <span className="text-rose-400 font-bold">Stolen Victim Funds ({Math.round(taintRatio * 100)}%)</span>
+            <span className="text-forensic-textMuted">Clean Co-mingled ({Math.round((1 - taintRatio) * 100)}%)</span>
+          </div>
+        </div>
+
+        {/* Breakdown Metrics */}
+        <div className="grid grid-cols-2 gap-2 text-[10px] font-mono pt-1">
+          <div className="p-2 bg-forensic-surfaceRaised rounded border border-forensic-borderMuted">
+            <span className="text-forensic-textDim block text-[9px] uppercase">Proven Stolen at VASP</span>
+            <strong className="text-rose-400 font-bold text-xs">
+              {traceableVol > 0 ? traceableVol.toFixed(3) : primary.score >= 50 ? 'High Concentration' : 'Direct Hop'}
+            </strong>
+          </div>
+          <div className="p-2 bg-forensic-surfaceRaised rounded border border-forensic-borderMuted">
+            <span className="text-forensic-textDim block text-[9px] uppercase">Contaminated Wallets</span>
+            <strong className="text-forensic-text font-bold text-xs">
+              {taintedAddrsCount > 0 ? `${taintedAddrsCount} addresses` : 'Multi-hop cluster'}
+            </strong>
+          </div>
         </div>
       </div>
 

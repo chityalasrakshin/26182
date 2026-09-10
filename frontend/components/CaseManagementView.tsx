@@ -26,6 +26,7 @@ import {
   ChevronRight,
   Eye,
   Layers,
+  Download,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { CaseItem, CaseDetail, AuditLogEntry, UserAuth } from '../lib/types';
@@ -54,6 +55,7 @@ export const CaseManagementView: React.FC<CaseManagementViewProps> = ({
   const [actionFilter, setActionFilter] = useState('ALL');
   const [selectedCaseDetail, setSelectedCaseDetail] = useState<CaseDetail | null>(null);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+  const [downloadingCaseId, setDownloadingCaseId] = useState<string | null>(null);
   const [auditTotal, setAuditTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,6 +110,17 @@ export const CaseManagementView: React.FC<CaseManagementViewProps> = ({
       setSelectedCaseDetail(detail);
     } catch (err: any) {
       alert(`Could not load case details: ${err.message}`);
+    }
+  };
+
+  const handleDownloadDossier = async (caseId: string) => {
+    try {
+      setDownloadingCaseId(caseId);
+      await api.downloadCourtDossier(caseId);
+    } catch (err: any) {
+      alert(`Court dossier export failed: ${err.message}`);
+    } finally {
+      setDownloadingCaseId(null);
     }
   };
 
@@ -415,6 +428,15 @@ export const CaseManagementView: React.FC<CaseManagementViewProps> = ({
                       </td>
                       <td className="px-3 py-2.5 text-right space-x-1.5">
                         <button
+                          onClick={() => handleDownloadDossier(c.id)}
+                          disabled={downloadingCaseId === c.id}
+                          className="px-2 py-0.5 rounded bg-blue-700/40 hover:bg-blue-600 text-blue-300 border border-blue-500/40 transition-colors text-[10px] inline-flex items-center space-x-1"
+                          title="Download 5-asset court dossier (.ZIP)"
+                        >
+                          <Download className="h-2.5 w-2.5" />
+                          <span>{downloadingCaseId === c.id ? 'ZIP...' : 'Court ZIP'}</span>
+                        </button>
+                        <button
                           onClick={() => handleViewCase(c.id)}
                           className="px-2 py-0.5 rounded bg-forensic-surfaceRaised hover:bg-forensic-border text-forensic-text border border-forensic-border transition-colors text-[10px]"
                         >
@@ -676,23 +698,34 @@ export const CaseManagementView: React.FC<CaseManagementViewProps> = ({
               </div>
             </div>
 
-            <div className="p-3 border-t border-forensic-border bg-forensic-bg flex justify-end space-x-2">
+            <div className="p-3 border-t border-forensic-border bg-forensic-bg flex justify-between items-center">
               <button
-                onClick={() => setSelectedCaseDetail(null)}
-                className="px-3 py-1.5 rounded bg-forensic-surfaceRaised text-forensic-text border border-forensic-border"
+                onClick={() => handleDownloadDossier(selectedCaseDetail.id)}
+                disabled={downloadingCaseId === selectedCaseDetail.id}
+                className="px-3 py-1.5 rounded bg-blue-700/60 hover:bg-blue-600 text-white font-bold text-[11px] border border-blue-500/50 flex items-center space-x-1.5 transition-colors shadow-sm"
               >
-                Close
+                <Download className="h-3.5 w-3.5" />
+                <span>{downloadingCaseId === selectedCaseDetail.id ? 'Exporting Court Dossier...' : 'Download Court Dossier (.ZIP)'}</span>
               </button>
-              <button
-                onClick={() => {
-                  const addr = selectedCaseDetail.suspect_address;
-                  setSelectedCaseDetail(null);
-                  onOpenCaseInWorkspace(addr, 3);
-                }}
-                className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold"
-              >
-                Open in Workspace & Trace →
-              </button>
+
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setSelectedCaseDetail(null)}
+                  className="px-3 py-1.5 rounded bg-forensic-surfaceRaised text-forensic-text border border-forensic-border"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    const addr = selectedCaseDetail.suspect_address;
+                    setSelectedCaseDetail(null);
+                    onOpenCaseInWorkspace(addr, 3);
+                  }}
+                  className="px-4 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold"
+                >
+                  Open in Workspace & Trace →
+                </button>
+              </div>
             </div>
           </div>
         </div>

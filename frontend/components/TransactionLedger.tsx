@@ -34,7 +34,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({ transactio
 
   const handleExportCSV = () => {
     if (!transactions || transactions.length === 0) return;
-    const headers = ['TxHash', 'Timestamp', 'FromAddress', 'ToAddress', 'Amount', 'Asset', 'Hop'];
+    const headers = ['TxHash', 'Timestamp', 'FromAddress', 'ToAddress', 'Amount', 'Asset', 'AmountUSD', 'AmountINR', 'Hop'];
     const rows = transactions.map((t) => [
       t.tx_hash,
       t.timestamp,
@@ -42,6 +42,8 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({ transactio
       t.to_address,
       t.amount,
       t.token_symbol || 'ETH',
+      t.amount_usd ?? (t.amount * 2600).toFixed(2),
+      t.amount_inr ?? (t.amount * 217100).toFixed(2),
       t.hop || 1,
     ]);
 
@@ -126,6 +128,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({ transactio
               <th className="py-2.5 px-3">From Address</th>
               <th className="py-2.5 px-3">To Address</th>
               <th className="py-2.5 px-3 text-right">Volume</th>
+              <th className="py-2.5 px-3 text-right">Value (INR / USD)</th>
               <th className="py-2.5 px-3 text-center">Hop</th>
               <th className="py-2.5 px-3 text-right">Inspect</th>
             </tr>
@@ -133,7 +136,7 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({ transactio
           <tbody className="divide-y divide-forensic-borderMuted font-mono text-[11px]">
             {paginated.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-forensic-textDim">
+                <td colSpan={8} className="py-8 text-center text-forensic-textDim">
                   No forensic transactions recorded for this parameter set.
                 </td>
               </tr>
@@ -180,6 +183,15 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({ transactio
 
                   <td className="py-2 px-3 text-right font-bold text-forensic-teal">
                     {tx.amount.toFixed(4)} {tx.token_symbol || 'ETH'}
+                  </td>
+
+                  <td className="py-2 px-3 text-right font-mono">
+                    <div className="font-bold text-amber-400">
+                      {tx.amount_inr ? `₹${Number(tx.amount_inr).toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : `₹${Math.round(tx.amount * 217100).toLocaleString('en-IN')}`}
+                    </div>
+                    <div className="text-[10px] text-forensic-textDim">
+                      {tx.amount_usd ? `$${Number(tx.amount_usd).toFixed(1)}` : `$${(tx.amount * 2600).toFixed(1)}`}
+                    </div>
                   </td>
 
                   <td className="py-2 px-3 text-center">
@@ -266,8 +278,13 @@ export const TransactionLedger: React.FC<TransactionLedgerProps> = ({ transactio
                 </strong>
               </div>
               <div className="p-2.5 bg-forensic-surfaceRaised rounded border border-forensic-border">
-                <span className="text-[10px] uppercase text-forensic-textDim block">Hop Position</span>
-                <strong className="text-forensic-text text-sm">Hop {selectedTx.hop || 1}</strong>
+                <span className="text-[10px] uppercase text-forensic-textDim block">Estimated Fiat Value</span>
+                <strong className="text-amber-400 font-bold text-sm block">
+                  {selectedTx.amount_inr ? `₹${Number(selectedTx.amount_inr).toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : `₹${Math.round(selectedTx.amount * 217100).toLocaleString('en-IN')}`}
+                </strong>
+                <span className="text-[10px] text-forensic-textDim">
+                  {selectedTx.amount_usd ? `$${Number(selectedTx.amount_usd).toFixed(1)} USD` : `$${(selectedTx.amount * 2600).toFixed(1)} USD`}
+                </span>
               </div>
             </div>
 

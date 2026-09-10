@@ -15,6 +15,7 @@ import { NCRPTriageView } from '../../components/NCRPTriageView';
 import { VASPRegistryModal } from '../../components/VASPRegistryModal';
 import { CaseIntakeModal } from '../../components/CaseIntakeModal';
 import { CaseManagementView } from '../../components/CaseManagementView';
+import { WalletOverview } from '../../components/WalletOverview';
 import { api } from '../../lib/api';
 import {
   AnalysisStatus,
@@ -34,6 +35,7 @@ import {
   Scale,
   FolderOpen,
   Network,
+  Download,
 } from 'lucide-react';
 
 export default function InvestigationAppPage() {
@@ -475,6 +477,21 @@ export default function InvestigationAppPage() {
                       <FileText className="h-3.5 w-3.5" />
                       <span>Export Dossier</span>
                     </button>
+
+                    <button
+                      onClick={async () => {
+                        try {
+                          await api.downloadCourtDossier(analysisStatus.analysis_id);
+                        } catch (err: any) {
+                          alert(`Court dossier export failed: ${err.message}`);
+                        }
+                      }}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 text-white font-medium text-[11px] rounded transition-colors shadow-sm"
+                      title="Download complete 5-asset court dossier (.ZIP)"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      <span>Court Dossier (.ZIP)</span>
+                    </button>
                   </div>
                 </div>
 
@@ -512,6 +529,16 @@ export default function InvestigationAppPage() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* Case 6: Live INR Valuation & Suspect Target Overview */}
+            {analysisStatus && (
+              <WalletOverview
+                walletAddress={analysisStatus.wallet_address}
+                chain={analysisStatus.wallet_address.startsWith('0x') ? 'ethereum' : analysisStatus.wallet_address.startsWith('T') ? 'tron' : 'bitcoin'}
+                graphData={graphData}
+                attributions={attributions}
+              />
             )}
 
             {/* Split Workspace View */}

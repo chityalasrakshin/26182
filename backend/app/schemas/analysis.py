@@ -90,6 +90,15 @@ class GraphEdgeData(BaseModel):
     bridge_protocol: Optional[str] = None
     source_chain: Optional[str] = None
     target_chain: Optional[str] = None
+    # INR/USD Asset Valuation (Case 6)
+    amount_usd: Optional[float] = None
+    amount_inr: Optional[float] = None
+    unit_price_usd: Optional[float] = None
+    unit_price_inr: Optional[float] = None
+    # FIFO Taint Tracking (Case 2)
+    traceable_amount: Optional[float] = None
+    unclassified_amount: Optional[float] = None
+    taint_ratio: Optional[float] = None
 
 
 class GraphEdge(BaseModel):
@@ -145,6 +154,38 @@ class RiskAssessmentSchema(BaseModel):
     explanation: str
 
 
+class TaintSummarySchema(BaseModel):
+    """FIFO Taint Tracking summary for API responses (Case 2)."""
+    total_transactions: int = 0
+    total_volume: float = 0.0
+    total_traceable: float = 0.0
+    total_unclassified: float = 0.0
+    overall_taint_ratio: float = 0.0
+    suspect_wallets_count: int = 0
+    tainted_addresses_count: int = 0
+    tainted_addresses: List[str] = Field(default_factory=list)
+    # INR/USD totals (Case 6 integration)
+    total_traceable_usd: Optional[float] = None
+    total_traceable_inr: Optional[float] = None
+    total_volume_usd: Optional[float] = None
+    total_volume_inr: Optional[float] = None
+
+
+class TaintAnnotationSchema(BaseModel):
+    """FIFO Taint annotation for individual transaction edges (Case 2)."""
+    tx_hash: str
+    from_address: str
+    to_address: str
+    amount: float
+    asset: str
+    traceable_amount: float
+    unclassified_amount: float
+    taint_ratio: float
+    hop: Optional[int] = None
+    timestamp: Optional[str] = None
+    chain: str = "ethereum"
+
+
 # ==============================================================================
 # Analysis Run & Status Responses
 # ==============================================================================
@@ -177,6 +218,7 @@ class AnalysisDetailResponse(BaseModel):
     evidence: List[EvidenceSchema]
     risk_assessment: Optional[RiskAssessmentSchema]
     graph: Optional[GraphData] = None
+    taint_summary: Optional[TaintSummarySchema] = None
 
 
 # ==============================================================================
