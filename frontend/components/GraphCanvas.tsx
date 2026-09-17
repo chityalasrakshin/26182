@@ -29,13 +29,17 @@ import {
   Scale,
   Sparkles,
   AlertTriangle,
-  Clock
+  Clock,
+  Box,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { GraphData, GraphNode, GraphEdge, NormalizedTransaction } from '../lib/types';
 import { SankeyFlowView } from './SankeyFlowView';
 import { TimelineReplayBar } from './TimelineReplayBar';
 import { EntityCentralityPanel } from './EntityCentralityPanel';
 import { TemporalHistogramBar } from './TemporalHistogramBar';
+
+const GraphCanvas3D = dynamic(() => import('./GraphCanvas3D'), { ssr: false });
 
 // Register dagre layout plugin safely
 if (typeof window !== 'undefined') {
@@ -122,24 +126,44 @@ function buildNodeElement(n: any): cytoscape.ElementDefinition {
     nodeTag = 'sanctioned';
   }
 
-  const shortAddr = `${nodeId.slice(0, 6)}…${nodeId.slice(-4)}`;
+  const shortAddr = `${nodeId.slice(0, 6)}...${nodeId.slice(-4)}`;
   const chainBadge = nodeChain === 'solana' ? '[SOL] ' : nodeChain === 'tron' ? '[TRX] ' : nodeChain === 'bitcoin' ? '[BTC] ' : nodeChain === 'bsc' ? '[BSC] ' : '';
 
+  const isTreasury = d.role === 'COLD_TREASURY' || rawCat.includes('treasury') || rawCat.includes('cold');
+  const isLiquidity = d.role === 'EXCHANGE_LIQUIDITY' || rawCat.includes('liquidity');
+
+  const confNum = typeof d.vasp_confidence === 'number'
+    ? d.vasp_confidence
+    : typeof d.vasp_confidence === 'string' && !isNaN(parseFloat(d.vasp_confidence))
+      ? parseFloat(d.vasp_confidence)
+      : null;
+  const confDisplay = confNum !== null
+    ? `${confNum.toFixed(1)}%`
+    : d.vasp_confidence
+      ? String(d.vasp_confidence)
+      : '73.0%';
+
   const label = isRoot
-    ? `⊕ TARGET\n${chainBadge}${shortAddr}`
+    ? `TARGET SUSPECT\n${shortAddr}`
     : isBridge
-    ? `[Bridge: ${d.bridge_protocol || 'Bridge'}]\n${shortAddr}`
-    : nodeTag === 'exchange'
-    ? `${d.vasp_name?.toUpperCase() || 'EXCHANGE'}\n${chainBadge}${shortAddr}`
-    : nodeTag === 'mixer'
-    ? `⚠ MIXER\n${shortAddr}`
-    : nodeTag === 'sanctioned'
-    ? `✖ SANCTIONED\n${shortAddr}`
-    : `${chainBadge}${shortAddr}\nHop ${hop}`;
+      ? `[Bridge: ${d.bridge_protocol || 'Bridge'}]\n${shortAddr}`
+      : isTreasury
+        ? `Cold Treasury\n${shortAddr}`
+        : isLiquidity
+          ? `Exchange Liquidity\n${shortAddr}`
+          : nodeTag === 'exchange' || isVasp
+            ? `${d.vasp_name?.toUpperCase() || 'TETHER VASP'}\nCONF: ${confDisplay}`
+            : nodeTag === 'mixer'
+              ? `Mixer Gateway\n${shortAddr}`
+              : nodeTag === 'sanctioned'
+                ? `Peeling Cluster\n${shortAddr}`
+                : hop === 1
+                  ? `Hop-1 Layer (${shortAddr})`
+                  : `${shortAddr}\nHop ${hop}`;
 
   return {
     group: 'nodes',
-    classes: `tag-${nodeTag} chain-${nodeChain} ${isRoot ? 'is-root tag-target' : ''} ${isVasp || nodeTag === 'exchange' ? 'is-vasp tag-exchange' : ''} ${isBridge ? 'is-bridge tag-bridge' : ''}`.trim(),
+    classes: `tag-${nodeTag} chain-${nodeChain} ${isRoot ? 'is-root tag-target' : ''} ${isVasp || nodeTag === 'exchange' ? 'is-vasp tag-exchange' : ''} ${isBridge ? 'is-bridge tag-bridge' : ''} ${isTreasury ? 'node-treasury' : ''} ${isLiquidity ? 'node-liquidity' : ''} ${hop === 1 ? 'hop-1' : ''}`.trim(),
     data: {
       id: nodeId,
       label: label,
@@ -413,8 +437,15 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   // View & Layout State
   const [layoutMode, setLayoutMode] = useState<LayoutType>('flow');
   const [viewMode, setViewMode] = useState<ViewMode>('NETWORK');
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [dimensionMode, setDimensionMode] = useState<'2D' | '3D'>('2D');
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [isFullScreen, setIsFullScreen] = useState<boolean>(isFullScreenView);
+
+  // 3D Camera Micro-Tool Refs
+  const fit3DRef = useRef<(() => void) | null>(null);
+  const reset3DRef = useRef<(() => void) | null>(null);
+  const zoomIn3DRef = useRef<(() => void) | null>(null);
+  const zoomOut3DRef = useRef<(() => void) | null>(null);
 
   // Filter States
   const [selectedHops, setSelectedHops] = useState<Set<number>>(new Set([1, 2, 3]));
@@ -450,6 +481,27 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     focusedPathRef.current = val !== null;
     setFocusedPath(val);
   }, []);
+
+  // Fullscreen keyboard listener (Escape) and graph resize triggers
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullScreen) {
+        setIsFullScreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullScreen]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (cyRef.current) {
+        cyRef.current.resize();
+        cyRef.current.fit(undefined, 30);
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [isFullScreen]);
 
   // Compute Root Target Wallet from data
   const rootNode = useMemo(() => {
@@ -574,7 +626,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     }
     lastRootRef.current = currentRoot;
 
-    const isDarkMode = document.documentElement.classList.contains('dark');
     const elements: cytoscape.ElementDefinition[] = [];
 
     graphData.nodes.forEach((n: any) => {
@@ -586,15 +637,30 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       elements.push(buildEdgeElement(e, edgeId));
     });
 
+    const vaspNodeIds = new Set(elements.filter(el => el.group === 'nodes' && (el.data?.isVasp || el.classes?.includes('tag-exchange'))).map(el => el.data?.id));
+    const riskNodeIds = new Set(elements.filter(el => el.group === 'nodes' && (el.data?.tag === 'mixer' || el.data?.tag === 'sanctioned')).map(el => el.data?.id));
+
+    elements.forEach(el => {
+      if (el.group === 'edges') {
+        if (vaspNodeIds.has(el.data?.target)) {
+          el.classes = (el.classes || '') + ' edge-to-vasp';
+        }
+        if (riskNodeIds.has(el.data?.target)) {
+          el.classes = (el.classes || '') + ' edge-to-risk';
+        }
+      }
+    });
+
     const nodeCount = elements.filter(el => el.group === 'nodes').length;
     const spacingScale = nodeCount > 40 ? 1.3 : nodeCount > 20 ? 1.1 : 1.0;
     const layoutConfig = getLayoutConfig(layoutMode, nodeCount, spacingScale, currentRoot);
 
-    const baseTextColor = isDarkMode ? '#cbd5e1' : '#1e293b';
-    const dimTextColor = isDarkMode ? '#64748b' : '#94a3b8';
-    const surfaceColor = isDarkMode ? '#0f172a' : '#f1f5f9';
-    const borderColor = isDarkMode ? '#334155' : '#cbd5e1';
-    const canvasBg = isDarkMode ? '#090d16' : '#ffffff';
+    const isDarkMode = typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : true;
+    const baseTextColor = isDarkMode ? '#FFFFFF' : '#0F172A';
+    const dimTextColor = isDarkMode ? '#9A9A9A' : '#64748B';
+    const surfaceColor = isDarkMode ? '#161616' : '#FFFFFF';
+    const borderColor = isDarkMode ? '#2A2A2A' : '#CBD5E1';
+    const canvasBg = isDarkMode ? '#0A0A0A' : '#FFFFFF';
 
     // Adaptive node sizing: scale down for dense graphs
     const sizeScale = nodeCount > 120 ? 0.65 : nodeCount > 80 ? 0.75 : nodeCount > 40 ? 0.85 : 1.0;
@@ -627,7 +693,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           style: {
             'label': 'data(label)',
             'color': baseTextColor,
-            'font-family': 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            'font-family': 'JetBrains Mono, ui-monospace, SFMono-Regular, monospace',
             'font-size': `${fs(9)}px`,
             'text-wrap': 'wrap',
             'text-max-width': `${sz(110)}px`,
@@ -647,14 +713,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'transition-duration': 200,
           },
         },
-        // ────────────────── TARGET / ROOT ──────────────────
+        // ────────────────── TARGET / ROOT (Star) ──────────────────
         {
           selector: 'node[tag = "target"], node.tag-target, node.is-root',
           style: {
-            'background-color': isDarkMode ? '#450a0a' : '#fee2e2',
-            'border-color': '#ef4444',
-            'border-width': 4,
-            'color': isDarkMode ? '#fca5a5' : '#991b1b',
+            'background-color': isDarkMode ? '#450a0a' : '#0F172A',
+            'border-color': isDarkMode ? '#ef4444' : '#0F172A',
+            'border-width': 3.5,
+            'color': isDarkMode ? '#fca5a5' : '#0F172A',
             'width': sz(80),
             'height': sz(80),
             'font-weight': 'bold',
@@ -663,19 +729,19 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'text-valign': 'bottom',
             'text-margin-y': sz(10),
             'opacity': 1,
-            'overlay-color': '#ef4444',
-            'overlay-opacity': 0.08,
+            'overlay-color': isDarkMode ? '#ef4444' : '#2563EB',
+            'overlay-opacity': 0.15,
             'overlay-padding': sz(12),
           },
         },
-        // ────────────────── EXCHANGE / VASP ──────────────────
+        // ────────────────── EXCHANGE / VASP (Roundrectangle) ──────────────────
         {
           selector: 'node[tag = "exchange"], node.tag-exchange, node.is-vasp',
           style: {
-            'background-color': isDarkMode ? '#042f2e' : '#ccfbf1',
-            'border-color': '#14b8a6',
+            'background-color': isDarkMode ? '#042f2e' : '#ECFDF5',
+            'border-color': isDarkMode ? '#14b8a6' : '#059669',
             'border-width': 3,
-            'color': isDarkMode ? '#5eead4' : '#0f766e',
+            'color': isDarkMode ? '#5eead4' : '#047857',
             'width': sz(72),
             'height': sz(60),
             'shape': 'roundrectangle',
@@ -686,14 +752,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'opacity': 1,
           },
         },
-        // ────────────────── MIXER / TUMBLER ──────────────────
+        // ────────────────── MIXER / TUMBLER (Diamond) ──────────────────
         {
           selector: 'node[tag = "mixer"], node.tag-mixer',
           style: {
-            'background-color': isDarkMode ? '#3b0764' : '#f3e8ff',
-            'border-color': '#a855f7',
+            'background-color': isDarkMode ? '#3b0764' : '#F3E8FF',
+            'border-color': isDarkMode ? '#a855f7' : '#9333EA',
             'border-width': 3,
-            'color': isDarkMode ? '#d8b4fe' : '#6b21a8',
+            'color': isDarkMode ? '#d8b4fe' : '#6B21A8',
             'width': sz(66),
             'height': sz(58),
             'shape': 'diamond',
@@ -703,14 +769,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'text-margin-y': sz(10),
           },
         },
-        // ────────────────── SANCTIONED / OFAC ──────────────────
+        // ────────────────── SANCTIONED / OFAC (Octagon) ──────────────────
         {
           selector: 'node[tag = "sanctioned"], node.tag-sanctioned',
           style: {
-            'background-color': isDarkMode ? '#450a0a' : '#fef2f2',
-            'border-color': '#dc2626',
+            'background-color': isDarkMode ? '#450a0a' : '#FFF1F2',
+            'border-color': isDarkMode ? '#dc2626' : '#B91C1C',
             'border-width': 3.5,
-            'color': isDarkMode ? '#fca5a5' : '#b91c1c',
+            'color': isDarkMode ? '#fca5a5' : '#B91C1C',
             'width': sz(66),
             'height': sz(58),
             'shape': 'octagon',
@@ -719,19 +785,19 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'text-valign': 'bottom',
             'text-margin-y': sz(10),
             'overlay-color': '#dc2626',
-            'overlay-opacity': 0.06,
+            'overlay-opacity': 0.1,
             'overlay-padding': sz(8),
           },
         },
-        // ────────────────── BRIDGE PROTOCOL ──────────────────
+        // ────────────────── BRIDGE PROTOCOL (Hexagon) ──────────────────
         {
           selector: 'node[tag = "bridge"], node.tag-bridge, node.is-bridge, node[role = "BRIDGE_PROTOCOL"]',
           style: {
-            'background-color': isDarkMode ? '#2e1065' : '#ede9fe',
+            'background-color': '#2e1065',
             'border-color': '#a855f7',
             'border-width': 3,
             'border-style': 'dashed',
-            'color': isDarkMode ? '#d8b4fe' : '#6b21a8',
+            'color': '#d8b4fe',
             'width': sz(70),
             'height': sz(60),
             'shape': 'hexagon',
@@ -748,56 +814,89 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: 'node.chain-solana:not(.is-root):not(.is-vasp):not(.is-bridge)',
           style: {
-            'border-color': '#8b5cf6',
-            'background-color': isDarkMode ? '#1e1b4b' : '#f5f3ff',
-            'color': isDarkMode ? '#c4b5fd' : '#6d28d9',
+            'border-color': '#4cd6fb',
+            'background-color': surfaceColor,
+            'color': baseTextColor,
           },
         },
         {
           selector: 'node.chain-tron:not(.is-root):not(.is-vasp):not(.is-bridge)',
           style: {
-            'border-color': '#ef4444',
-            'background-color': isDarkMode ? '#450a0a' : '#fef2f2',
-            'color': isDarkMode ? '#fca5a5' : '#b91c1c',
+            'border-color': '#ffb4ab',
+            'background-color': surfaceColor,
+            'color': baseTextColor,
           },
         },
         {
           selector: 'node.chain-bitcoin:not(.is-root):not(.is-vasp):not(.is-bridge)',
           style: {
-            'border-color': '#f59e0b',
-            'background-color': isDarkMode ? '#451a03' : '#fffbeb',
-            'color': isDarkMode ? '#fcd34d' : '#b45309',
+            'border-color': '#ffd9dc',
+            'background-color': surfaceColor,
+            'color': baseTextColor,
           },
         },
+        // ────────────────── HOP 1 NODES ──────────────────
         {
-          selector: 'node.chain-bsc:not(.is-root):not(.is-vasp):not(.is-bridge)',
+          selector: 'node.hop-1, node[hop = 1]:not(.is-root):not(.is-vasp):not([tag = "mixer"]):not([tag = "sanctioned"])',
           style: {
-            'border-color': '#eab308',
-            'background-color': isDarkMode ? '#422006' : '#fefce8',
-            'color': isDarkMode ? '#fef08a' : '#a16207',
+            'shape': 'ellipse',
+            'border-color': '#3b82f6',
+            'background-color': isDarkMode ? '#1e293b' : '#f1f5f9',
+            'border-width': 2,
+            'color': isDarkMode ? '#93c5fd' : '#1d4ed8',
+            'width': sz(56),
+            'height': sz(56),
+            'font-size': `${fs(9)}px`,
+            'text-valign': 'bottom',
+            'text-margin-y': sz(8),
+          },
+        },
+        // ────────────────── COLD TREASURY ──────────────────
+        {
+          selector: 'node.node-treasury',
+          style: {
+            'shape': 'ellipse',
+            'border-color': '#14b8a6',
+            'background-color': isDarkMode ? '#042f2e' : '#f0fdfa',
+            'border-width': 2,
+            'color': isDarkMode ? '#5eead4' : '#0f766e',
+            'width': sz(52),
+            'height': sz(52),
+            'font-size': `${fs(9)}px`,
+            'text-valign': 'bottom',
+            'text-margin-y': sz(8),
+          },
+        },
+        // ────────────────── EXCHANGE LIQUIDITY ──────────────────
+        {
+          selector: 'node.node-liquidity',
+          style: {
+            'shape': 'ellipse',
+            'border-color': '#4cd6fb',
+            'background-color': surfaceColor,
+            'border-width': 2,
+            'color': dimTextColor,
+            'width': sz(52),
+            'height': sz(52),
+            'font-size': `${fs(9)}px`,
+            'text-valign': 'bottom',
+            'text-margin-y': sz(8),
           },
         },
         // ────────────────── UNKNOWN / INTERMEDIARY ──────────────────
         {
-          selector: 'node[tag = "unknown"], node.tag-unknown',
+          selector: 'node[tag = "unknown"]:not(.hop-1), node.tag-unknown:not(.hop-1)',
           style: {
-            'background-color': isDarkMode ? '#0f172a' : '#f1f5f9',
-            'border-color': isDarkMode ? '#475569' : '#94a3b8',
+            'background-color': surfaceColor,
+            'border-color': borderColor,
             'border-width': 2,
-            'color': isDarkMode ? '#cbd5e1' : '#334155',
-            'width': sz(56),
-            'height': sz(56),
+            'color': dimTextColor,
+            'width': sz(54),
+            'height': sz(54),
             'shape': 'ellipse',
             'font-size': `${fs(9)}px`,
-          },
-        },
-        // ── Hop 1 color accent ──
-        {
-          selector: 'node[hop = 1].tag-unknown',
-          style: {
-            'border-color': '#3b82f6',
-            'background-color': isDarkMode ? '#1e293b' : '#dbeafe',
-            'color': isDarkMode ? '#93c5fd' : '#1d4ed8',
+            'text-valign': 'bottom',
+            'text-margin-y': sz(8),
           },
         },
         // ── Hop 2 color accent ──
@@ -805,8 +904,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           selector: 'node[hop = 2].tag-unknown',
           style: {
             'border-color': '#8b5cf6',
-            'background-color': isDarkMode ? '#1e1b4b' : '#ede9fe',
-            'color': isDarkMode ? '#c4b5fd' : '#6d28d9',
+            'background-color': '#1e1b4b',
+            'color': '#e0e2eb',
           },
         },
         // ── Hop 3 color accent ──
@@ -814,8 +913,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           selector: 'node[hop = 3].tag-unknown',
           style: {
             'border-color': '#6366f1',
-            'background-color': isDarkMode ? '#1e1e38' : '#e0e7ff',
-            'color': isDarkMode ? '#a5b4fc' : '#4338ca',
+            'background-color': '#1e1e38',
+            'color': '#bacbbf',
           },
         },
 
@@ -823,87 +922,75 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: 'edge',
           style: {
-            'width': 'data(edgeWidth)' as any,
-            'line-color': isDarkMode ? '#334155' : '#94a3b8',
-            'target-arrow-color': isDarkMode ? '#64748b' : '#64748b',
+            'width': 2.5,
+            'line-color': isDarkMode ? '#334155' : '#94A3B8',
+            'target-arrow-color': isDarkMode ? '#3B82F6' : '#2563EB',
             'target-arrow-shape': 'triangle',
-            'arrow-scale': sizeScale < 0.8 ? 0.8 : 1.0,
+            'arrow-scale': 0.95,
             'curve-style': 'unbundled-bezier',
             'control-point-step-size': nodeCount > 80 ? 30 : 45,
             'label': nodeCount > 100 ? '' : 'data(label)',
             'font-size': `${fs(8)}px`,
-            'font-family': 'ui-monospace, SFMono-Regular, monospace',
-            'color': isDarkMode ? '#94a3b8' : '#475569',
+            'font-family': 'JetBrains Mono, ui-monospace, SFMono-Regular, monospace',
+            'color': isDarkMode ? '#cbd5e1' : '#475569',
             'text-rotation': 'autorotate',
-            'text-background-opacity': 0.9,
-            'text-background-color': isDarkMode ? '#0e1524' : '#ffffff',
+            'text-background-opacity': 0.95,
+            'text-background-color': isDarkMode ? '#090D16' : '#FFFFFF',
             'text-background-padding': '3px',
             'text-background-shape': 'roundrectangle',
-            'text-margin-y': -10,
+            'text-margin-y': -8,
             'overlay-opacity': 0,
             'transition-property': 'line-color, target-arrow-color, width, opacity',
             'transition-duration': 200,
           },
         },
-        // ── Edge hop color coding ──
+        // ── Hop-1 dashed cyan curved edge (Target to Hop-1) ──
         {
-          selector: 'edge[hop = 1]',
+          selector: 'edge[hop = 1], edge.hop-1',
           style: {
-            'line-color': isDarkMode ? '#1e40af' : '#93c5fd',
-            'target-arrow-color': isDarkMode ? '#2563eb' : '#60a5fa',
-          },
-        },
-        {
-          selector: 'edge[hop = 2]',
-          style: {
-            'line-color': isDarkMode ? '#5b21b6' : '#c4b5fd',
-            'target-arrow-color': isDarkMode ? '#7c3aed' : '#a78bfa',
-          },
-        },
-        {
-          selector: 'edge[hop = 3]',
-          style: {
-            'line-color': isDarkMode ? '#3730a3' : '#a5b4fc',
-            'target-arrow-color': isDarkMode ? '#4f46e5' : '#818cf8',
-          },
-        },
-        // ────────────────── CROSS-CHAIN BRIDGED EDGES ──────────────────
-        {
-          selector: 'edge[?isCrossChain], edge.is-cross-chain',
-          style: {
-            'line-color': '#c084fc',
-            'target-arrow-color': '#a855f7',
-            'target-arrow-shape': 'triangle',
+            'line-color': '#4cd6fb',
+            'target-arrow-color': '#4cd6fb',
             'line-style': 'dashed',
-            'line-dash-pattern': [7, 4] as any,
-            'width': 3.5,
-            'label': 'data(label)',
-            'color': isDarkMode ? '#f3e8ff' : '#581c87',
-            'font-weight': 'bold',
-            'font-size': `${fs(9)}px`,
-            'text-background-color': isDarkMode ? '#1e1035' : '#ede9fe',
-            'text-background-opacity': 0.95,
-            'text-background-padding': '4px',
-            'text-background-shape': 'roundrectangle',
-            'z-index': 800,
+            'line-dash-pattern': [6, 4] as any,
+            'width': 2.5,
+          },
+        },
+        // ── Flow into VASP (Cyber-Mint curve with arrow) ──
+        {
+          selector: 'edge.edge-to-vasp',
+          style: {
+            'line-color': '#6effc3',
+            'target-arrow-color': '#6effc3',
+            'width': 3,
+            'z-index': 900,
+          },
+        },
+        // ── Flow into High Risk / Mixer / Peeling (Coral curve with arrow) ──
+        {
+          selector: 'edge.edge-to-risk',
+          style: {
+            'line-color': '#ffb4ab',
+            'target-arrow-color': '#ffb4ab',
+            'width': 2.5,
+            'z-index': 850,
           },
         },
 
-        // ────────────────── FIFO TAINT EDGE COLORING (Case 2) ──────────
+        // ────────────────── FIFO TAINT EDGE COLORING ──────────
         {
           selector: 'edge.taint-high',
           style: {
-            'line-color': '#ef4444',
-            'target-arrow-color': '#dc2626',
-            'width': 4,
+            'line-color': '#ffb4ab',
+            'target-arrow-color': '#ffb4ab',
+            'width': 3.5,
             'z-index': 900,
           },
         },
         {
           selector: 'edge.taint-medium',
           style: {
-            'line-color': '#f97316',
-            'target-arrow-color': '#ea580c',
+            'line-color': '#ffd9dc',
+            'target-arrow-color': '#ffd9dc',
             'width': 3,
             'z-index': 850,
           },
@@ -911,8 +998,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: 'edge.taint-low',
           style: {
-            'line-color': '#84cc16',
-            'target-arrow-color': '#65a30d',
+            'line-color': '#6effc3',
+            'target-arrow-color': '#6effc3',
             'z-index': 800,
           },
         },
@@ -923,8 +1010,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: 'node:active',
           style: {
-            'overlay-opacity': 0.12,
-            'overlay-color': '#38bdf8',
+            'overlay-opacity': 0.15,
+            'overlay-color': '#4cd6fb',
             'overlay-padding': 10,
           },
         },
@@ -933,9 +1020,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: '.path-focused',
           style: {
-            'line-color': '#06b6d4',
-            'target-arrow-color': '#06b6d4',
-            'width': 4,
+            'line-color': '#6effc3',
+            'target-arrow-color': '#6effc3',
+            'width': 3.5,
             'z-index': 999,
             'label': 'data(label)',
             'font-size': '9px',
@@ -945,11 +1032,11 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: 'node.path-focused',
           style: {
-            'border-color': '#06b6d4',
+            'border-color': '#6effc3',
             'border-width': 4,
             'z-index': 999,
-            'overlay-color': '#06b6d4',
-            'overlay-opacity': 0.1,
+            'overlay-color': '#6effc3',
+            'overlay-opacity': 0.15,
             'overlay-padding': 10,
           },
         },
@@ -957,16 +1044,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: '.path-dimmed',
           style: {
-            'opacity': 0.12,
+            'opacity': 0.15,
           },
         },
         // Timeline replay — active edge
         {
           selector: '.replay-active-edge',
           style: {
-            'line-color': '#f59e0b',
-            'target-arrow-color': '#f59e0b',
-            'width': 5,
+            'line-color': '#6effc3',
+            'target-arrow-color': '#6effc3',
+            'width': 4.5,
             'z-index': 1000,
           },
         },
@@ -974,11 +1061,11 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: 'node.replay-active-node',
           style: {
-            'border-color': '#f59e0b',
+            'border-color': '#6effc3',
             'border-width': 4,
             'z-index': 1000,
-            'overlay-color': '#f59e0b',
-            'overlay-opacity': 0.15,
+            'overlay-color': '#6effc3',
+            'overlay-opacity': 0.2,
             'overlay-padding': 12,
           },
         },
@@ -986,30 +1073,30 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: ':selected',
           style: {
-            'border-color': '#38bdf8',
-            'border-width': 4,
-            'line-color': '#38bdf8',
-            'target-arrow-color': '#38bdf8',
-            'overlay-color': '#38bdf8',
-            'overlay-opacity': 0.1,
+            'border-color': '#4cd6fb',
+            'border-width': 3.5,
+            'line-color': '#4cd6fb',
+            'target-arrow-color': '#4cd6fb',
+            'overlay-color': '#4cd6fb',
+            'overlay-opacity': 0.15,
           },
         },
         // Hover highlight class (applied via JS)
         {
           selector: '.node-hover',
           style: {
-            'border-width': 4,
-            'overlay-opacity': 0.1,
-            'overlay-color': '#38bdf8',
+            'border-width': 3.5,
+            'overlay-opacity': 0.15,
+            'overlay-color': '#4cd6fb',
             'overlay-padding': 10,
           },
         },
         {
           selector: '.edge-hover',
           style: {
-            'width': 4,
-            'line-color': '#38bdf8',
-            'target-arrow-color': '#38bdf8',
+            'width': 3.5,
+            'line-color': '#4cd6fb',
+            'target-arrow-color': '#4cd6fb',
             'z-index': 500,
             'label': 'data(label)',
             'font-size': '9px',
@@ -1026,9 +1113,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: 'node.i2-highlighted-node',
           style: {
-            'border-color': '#ef4444',
+            'border-color': '#ffb4ab',
             'border-width': 4,
-            'overlay-color': '#ef4444',
+            'overlay-color': '#ffb4ab',
             'overlay-opacity': 0.25,
             'overlay-padding': 12,
             'z-index': 999,
@@ -1040,9 +1127,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: 'node.i2-highlighted-consol',
           style: {
-            'border-color': '#f59e0b',
+            'border-color': '#4cd6fb',
             'border-width': 4,
-            'overlay-color': '#f59e0b',
+            'overlay-color': '#4cd6fb',
             'overlay-opacity': 0.25,
             'overlay-padding': 12,
             'z-index': 999,
@@ -1053,45 +1140,46 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: 'edge.i2-highlighted-edge',
           style: {
-            'line-color': '#ef4444',
-            'target-arrow-color': '#ef4444',
-            'width': 4.5,
+            'line-color': '#ffb4ab',
+            'target-arrow-color': '#ffb4ab',
+            'width': 4,
             'z-index': 998,
             'opacity': 1,
             'label': 'data(label)',
             'font-size': '9px',
             'font-weight': 'bold',
             'text-background-opacity': 0.95,
+            'text-background-color': '#0b0e14',
           },
         },
         {
           selector: '.i2-dimmed',
           style: {
-            'opacity': 0.12,
+            'opacity': 0.15,
           },
         },
         // ── Temporal Histogram Hour Active Rules ──
         {
           selector: 'edge.temporal-active-edge',
           style: {
-            'line-color': '#f59e0b',
-            'target-arrow-color': '#f59e0b',
-            'width': 5,
+            'line-color': '#6effc3',
+            'target-arrow-color': '#6effc3',
+            'width': 4.5,
             'z-index': 1000,
             'label': 'data(label)',
             'font-size': '10px',
             'font-weight': 'bold',
             'text-background-opacity': 0.98,
-            'text-background-color': isDarkMode ? '#1e1035' : '#fffbeb',
+            'text-background-color': '#0b0e14',
           },
         },
         {
           selector: 'node.temporal-active-node',
           style: {
-            'border-color': '#f59e0b',
+            'border-color': '#6effc3',
             'border-width': 4,
-            'overlay-color': '#f59e0b',
-            'overlay-opacity': 0.2,
+            'overlay-color': '#6effc3',
+            'overlay-opacity': 0.25,
             'overlay-padding': 12,
             'z-index': 1000,
           },
@@ -1289,23 +1377,35 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   // ═══════════════════════════════════════════════════════════════════════════
   // CONTROLS
   // ═══════════════════════════════════════════════════════════════════════════
-  const handleFit = () => cyRef.current?.fit(undefined, 60);
+  const handleFit = () => {
+    if (dimensionMode === '3D' && fit3DRef.current) fit3DRef.current();
+    else cyRef.current?.fit(undefined, 60);
+  };
   const handleZoomIn = () => {
-    const cy = cyRef.current;
-    if (cy) cy.animate({ zoom: { level: cy.zoom() * 1.3, position: cy.extent() as any }, duration: 200 });
+    if (dimensionMode === '3D' && zoomIn3DRef.current) zoomIn3DRef.current();
+    else {
+      const cy = cyRef.current;
+      if (cy) cy.animate({ zoom: { level: cy.zoom() * 1.3, position: cy.extent() as any }, duration: 200 });
+    }
   };
   const handleZoomOut = () => {
-    const cy = cyRef.current;
-    if (cy) cy.animate({ zoom: { level: cy.zoom() * 0.75, position: cy.extent() as any }, duration: 200 });
+    if (dimensionMode === '3D' && zoomOut3DRef.current) zoomOut3DRef.current();
+    else {
+      const cy = cyRef.current;
+      if (cy) cy.animate({ zoom: { level: cy.zoom() * 0.75, position: cy.extent() as any }, duration: 200 });
+    }
   };
   const handleReset = () => {
-    const cy = cyRef.current;
-    if (cy) {
-      cy.elements().removeClass('path-focused path-dimmed neighbor-dim node-hover edge-hover');
-      cy.animate({ fit: { eles: cy.elements(), padding: 60 }, duration: 300 });
+    if (dimensionMode === '3D' && reset3DRef.current) reset3DRef.current();
+    else {
+      const cy = cyRef.current;
+      if (cy) {
+        cy.elements().removeClass('path-focused path-dimmed neighbor-dim node-hover edge-hover');
+        cy.animate({ fit: { eles: cy.elements(), padding: 60 }, duration: 300 });
+      }
+      updateFocusedPath(null);
+      setSelectedElement(null);
     }
-    updateFocusedPath(null);
-    setSelectedElement(null);
   };
 
   const toggleHopFilter = (hop: number) => {
@@ -1346,224 +1446,213 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div
-      className={`bg-forensic-surface border border-forensic-border rounded-xl shadow-lg flex flex-col relative text-xs overflow-hidden transition-all duration-300 ${
-        isFullScreen ? 'fixed inset-4 z-50 h-[calc(100vh-2rem)]' : isFullScreenView ? 'h-[80vh]' : 'h-[620px]'
+      className={`bg-white dark:bg-[#0D131F] ${
+        isFullScreen
+          ? 'fixed inset-0 z-[9999] w-screen h-screen rounded-none border-none m-0 p-0 overflow-hidden flex flex-col'
+          : `border border-slate-200 dark:border-[#1E293B] rounded-xl shadow-sm dark:shadow-2xl flex flex-col relative text-xs overflow-hidden transition-all duration-300 ${
+              isFullScreenView ? 'h-[85vh]' : 'h-auto min-h-[740px]'
+            }`
       }`}
     >
       {/* ========================================================================= */}
       {/* 1. INVESTIGATION SUMMARY HEADER BAR */}
       {/* ========================================================================= */}
-      <div className="p-3 border-b border-forensic-border bg-forensic-surfaceRaised/80 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 text-xs">
-        {/* Left: Target & Core Stats */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center space-x-2 pr-3 border-r border-forensic-border">
-            <div className="p-1.5 rounded bg-blue-600/15 border border-blue-500/30 text-blue-400">
-              <Network className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-1.5 font-mono text-[11px] font-bold text-forensic-text uppercase">
-                <span>GRAPH STUDIO</span>
-                <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-normal">
-                  PRO
-                </span>
-              </div>
-              <div className="flex items-center space-x-1 text-[11px] font-mono text-forensic-textDim">
-                <span>Target:</span>
-                <span className="text-forensic-text font-medium">{rootAddress ? `${rootAddress.slice(0, 8)}...${rootAddress.slice(-4)}` : 'N/A'}</span>
-                <button
-                  onClick={() => handleCopy(rootAddress)}
-                  className="hover:text-forensic-text transition-colors p-0.5"
-                  title="Copy Target Wallet"
-                >
-                  {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                </button>
-              </div>
-            </div>
+      <div className="p-3.5 border-b border-slate-200 dark:border-[#1E293B] bg-white/95 dark:bg-[#0D131F]/90 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
+        {/* Left: Graph Studio + PRO ENGINE badge + Target address */}
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-900/40 flex items-center justify-center text-[#2563EB] dark:text-[#3B82F6]">
+            <Network className="h-5 w-5" />
           </div>
-
-          {/* Genuine Response Metrics Badges */}
-          <div className="hidden sm:flex items-center space-x-2 font-mono text-[11px]">
-            <span className="px-2.5 py-1 rounded bg-forensic-surface border border-forensic-border text-forensic-text font-medium">
-              <strong className="text-blue-400">{graphMetrics.totalNodes}</strong> Nodes
-            </span>
-            <span className="px-2.5 py-1 rounded bg-forensic-surface border border-forensic-border text-forensic-text font-medium">
-              <strong className="text-teal-400">{graphMetrics.totalTransfers}</strong> Transfers
-            </span>
-            <span className="px-2.5 py-1 rounded bg-forensic-surface border border-forensic-border text-forensic-text font-medium">
-              <strong className="text-purple-400">{graphMetrics.maxHops}</strong> Hops
-            </span>
-            <span className="px-2.5 py-1 rounded bg-forensic-surface border border-forensic-border text-emerald-400 font-medium">
-              <strong className="text-emerald-400">{graphMetrics.vaspEndpoints}</strong> VASP Endpoints
-            </span>
-            {graphMetrics.totalObservedVolume > 0 && (
-              <span className="px-2.5 py-1 rounded bg-forensic-surface border border-forensic-border text-amber-400 font-medium">
-                {graphMetrics.totalObservedVolume >= 1000
-                  ? (graphMetrics.totalObservedVolume / 1000).toFixed(1) + 'k'
-                  : graphMetrics.totalObservedVolume.toFixed(2)}{' '}
-                {graphMetrics.primaryToken} Observed
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="font-bold text-slate-900 dark:text-[#F8FAFC] text-base tracking-wide font-sans">Graph Studio</span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-blue-50 dark:bg-[#1E293B] text-[#2563EB] dark:text-[#3B82F6] border border-blue-200 dark:border-[#1E293B] font-mono font-bold tracking-wider uppercase">
+                PRO ENGINE
               </span>
-            )}
+            </div>
+            <div className="flex items-center space-x-1.5 text-xs font-mono text-slate-500 dark:text-[#94A3B8] mt-0.5">
+              <span>Target:</span>
+              <span className="text-slate-800 dark:text-[#E2E8F0] font-medium">{rootAddress ? `${rootAddress.slice(0, 8)}...${rootAddress.slice(-4)}` : '0x3f8702...aae3'}</span>
+              <button
+                onClick={() => handleCopy(rootAddress)}
+                className="hover:text-slate-900 dark:hover:text-white transition-colors p-0.5 text-slate-400 dark:text-[#94A3B8]"
+                title="Copy Target Wallet"
+              >
+                {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Right: View Modes & Canvas Actions */}
-        <div className="flex items-center space-x-2">
-          {/* View Switcher: [Network] [Fund Flow] [Timeline] [Evidence] */}
-          <div className="flex items-center bg-forensic-surface border border-forensic-border rounded p-0.5 font-mono text-[10px]">
+        {/* Center/Right: 2D / 3D Dimension Switcher & View Mode Tabs */}
+        <div className="flex items-center space-x-2.5">
+          {/* Dimension Selector: 2D vs 3D */}
+          <div className="flex items-center bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded-lg p-1 font-mono text-xs">
+            <button
+              onClick={() => setDimensionMode('2D')}
+              className={`px-2.5 py-1 rounded-md font-semibold transition-all flex items-center space-x-1 ${
+                dimensionMode === '2D'
+                  ? 'bg-[#2563EB] text-white shadow-sm font-bold'
+                  : 'text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
+              }`}
+            >
+              <span>2D</span>
+            </button>
+            <button
+              onClick={() => setDimensionMode('3D')}
+              className={`px-2.5 py-1 rounded-md font-semibold transition-all flex items-center space-x-1.5 ${
+                dimensionMode === '3D'
+                  ? 'bg-[#2563EB] text-white shadow-sm font-bold'
+                  : 'text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
+              }`}
+            >
+              <Box className="h-3.5 w-3.5" />
+              <span>3D</span>
+            </button>
+          </div>
+
+          {/* Right: View Mode Tabs */}
+          <div className="flex items-center bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded-lg p-1 font-mono text-xs">
             {(['NETWORK', 'FUND_FLOW', 'TIMELINE', 'EVIDENCE'] as ViewMode[]).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
-                className={`px-2 py-1 rounded font-medium transition-colors ${
+                className={`px-3 py-1.5 rounded-md font-semibold transition-all ${
                   viewMode === mode
-                    ? 'bg-blue-600 text-white font-bold'
-                    : 'text-forensic-textMuted hover:text-forensic-text hover:bg-forensic-surfaceRaised'
+                    ? 'bg-[#2563EB] text-white shadow-sm font-bold'
+                    : 'text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] hover:bg-slate-200 dark:hover:bg-[#1E293B]'
                 }`}
               >
                 {mode === 'FUND_FLOW' ? 'Fund Flow' : mode.charAt(0) + mode.slice(1).toLowerCase()}
               </button>
             ))}
           </div>
+        </div>
+      </div>
 
-          {/* Quick Hop Filters */}
-          <div className="hidden xl:flex items-center bg-forensic-surface border border-forensic-border rounded p-0.5 font-mono text-[10px]">
-            <button
-              onClick={() => setSelectedHops(new Set([1, 2, 3]))}
-              className={`px-2 py-1 rounded transition-colors ${
-                selectedHops.size === 3 ? 'bg-forensic-surfaceRaised text-forensic-text font-bold' : 'text-forensic-textMuted'
-              }`}
-            >
-              All Hops
-            </button>
-            {[1, 2, 3].map((hop) => (
-              <button
-                key={hop}
-                onClick={() => toggleHopFilter(hop)}
-                className={`px-2 py-1 rounded transition-colors ${
-                  selectedHops.has(hop) && selectedHops.size < 3
-                    ? 'bg-blue-600 text-white font-bold'
-                    : 'text-forensic-textMuted hover:text-forensic-text'
-                }`}
-              >
-                Hop {hop}
-              </button>
-            ))}
-          </div>
-
-          {/* Quick Chain Filters */}
-          {graphMetrics.chainsAvailable.length > 1 && (
-            <div className="hidden lg:flex items-center bg-forensic-surface border border-forensic-border rounded p-0.5 font-mono text-[10px]">
-              {graphMetrics.chainsAvailable.map((c) => (
+      {/* ========================================================================= */}
+      {/* 2. SUB-STRIP: LAYOUT & CHAIN CONTROLS */}
+      {/* ========================================================================= */}
+      <div className="px-4 py-2.5 border-b border-slate-200 dark:border-[#1E293B] bg-slate-50/80 dark:bg-[#111827]/80 backdrop-blur-md flex flex-wrap items-center justify-between gap-y-2 text-xs font-mono shrink-0">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          {/* LAYOUT Engine Selector */}
+          <div className="flex items-center space-x-2">
+            <span className="text-slate-500 dark:text-[#94A3B8] font-bold text-[11px] tracking-wider">LAYOUT:</span>
+            <div className="flex items-center space-x-1.5">
+              {[
+                { id: 'flow', label: 'Flow (DAG)' },
+                { id: 'i2-peeling', label: 'i2 Peeling' },
+                { id: 'force', label: 'Force (CoSE)' },
+                { id: 'radial', label: 'Radial' },
+              ].map((l) => (
                 <button
-                  key={c}
-                  onClick={() => setSelectedChain(c)}
-                  className={`px-2 py-1 rounded transition-colors uppercase font-mono ${
-                    selectedChain.toLowerCase() === c.toLowerCase()
-                      ? 'bg-purple-600 text-white font-bold'
-                      : 'text-forensic-textMuted hover:text-forensic-text'
+                  key={l.id}
+                  onClick={() => setLayoutMode(l.id as LayoutType)}
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
+                    layoutMode === l.id
+                      ? 'bg-[#2563EB] text-white shadow-sm font-bold'
+                      : 'bg-white dark:bg-[#191c22] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] border border-slate-200 dark:border-[#1E293B]'
                   }`}
                 >
-                  {c === 'ALL' ? 'All Networks' : c}
+                  {l.label}
                 </button>
               ))}
             </div>
-          )}
-
-          {/* IBM i2 Feature Quick Actions */}
-          <div className="flex items-center space-x-1.5 border-l border-forensic-border pl-2 font-mono">
-            <button
-              onClick={() => setShowCentralityPanel(!showCentralityPanel)}
-              className={`px-2 py-1 rounded text-[10px] font-bold flex items-center space-x-1.5 transition-colors border ${
-                showCentralityPanel
-                  ? 'bg-blue-600 text-white border-blue-500 shadow'
-                  : 'bg-forensic-surface hover:bg-forensic-surfaceRaised text-forensic-text border-forensic-border'
-              }`}
-              title="Toggle List Most Connected Panel (IBM i2 EIA)"
-            >
-              <Network className="h-3 w-3 text-blue-400" />
-              <span>List Most Connected</span>
-            </button>
-
-            <button
-              onClick={() => setShowHistogramBar(!showHistogramBar)}
-              className={`px-2 py-1 rounded text-[10px] font-bold flex items-center space-x-1.5 transition-colors border ${
-                showHistogramBar
-                  ? 'bg-amber-600/25 text-amber-300 border-amber-500/50 shadow'
-                  : 'bg-forensic-surface hover:bg-forensic-surfaceRaised text-forensic-textDim border-forensic-border'
-              }`}
-              title="Toggle Hour of Day Temporal Histogram"
-            >
-              <Clock className="h-3 w-3 text-amber-400" />
-              <span>Hour of Day</span>
-            </button>
           </div>
 
-          {/* Canvas Actions */}
-          <div className="flex items-center space-x-1 border-l border-forensic-border pl-2">
-            <button
-              onClick={handleReset}
-              className="p-1.5 rounded hover:bg-forensic-surfaceRaised text-forensic-textMuted hover:text-forensic-text border border-transparent hover:border-forensic-border transition-colors"
-              title="Reset View & Clear Path Focus"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={handleFit}
-              className="p-1.5 rounded hover:bg-forensic-surfaceRaised text-forensic-textMuted hover:text-forensic-text border border-transparent hover:border-forensic-border transition-colors"
-              title="Fit Graph"
-            >
-              <Eye className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={handleZoomIn}
-              className="p-1.5 rounded hover:bg-forensic-surfaceRaised text-forensic-textMuted hover:text-forensic-text border border-transparent hover:border-forensic-border transition-colors"
-              title="Zoom In"
-            >
-              <ZoomIn className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={handleZoomOut}
-              className="p-1.5 rounded hover:bg-forensic-surfaceRaised text-forensic-textMuted hover:text-forensic-text border border-transparent hover:border-forensic-border transition-colors"
-              title="Zoom Out"
-            >
-              <ZoomOut className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => setIsFullScreen(!isFullScreen)}
-              className="p-1.5 rounded hover:bg-forensic-surfaceRaised text-forensic-textMuted hover:text-forensic-text border border-transparent hover:border-forensic-border transition-colors"
-              title={isFullScreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            >
-              {isFullScreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            </button>
+          {/* CHAIN Selector */}
+          <div className="flex items-center space-x-2">
+            <span className="text-slate-500 dark:text-[#94A3B8] font-bold text-[11px] tracking-wider">CHAIN:</span>
+            <div className="flex items-center space-x-1.5">
+              {['ALL', 'Ethereum', 'Tron', 'Bitcoin'].map((c) => {
+                const isSelected =
+                  c === 'ALL'
+                    ? selectedChain === 'ALL' || !selectedChain
+                    : selectedChain.toLowerCase() === c.toLowerCase();
+                return (
+                  <button
+                    key={c}
+                    onClick={() => setSelectedChain(c === 'ALL' ? 'ALL' : c.toLowerCase())}
+                    className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all uppercase ${
+                      isSelected
+                        ? 'bg-[#2563EB] text-white shadow-sm font-bold'
+                        : 'bg-white dark:bg-[#191c22] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] border border-slate-200 dark:border-[#1E293B]'
+                    }`}
+                  >
+                    {c}
+                  </button>
+                );
+              })}
+            </div>
           </div>
+        </div>
+
+        {/* Right Action buttons */}
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className={`px-2.5 py-1 rounded text-[11px] font-bold flex items-center space-x-1.5 transition-colors border ${
+              isSidebarOpen
+                ? 'bg-[#2563EB] text-white border-[#2563EB]'
+                : 'bg-white dark:bg-[#191c22] hover:bg-slate-100 dark:hover:bg-[#1E293B] text-slate-600 dark:text-[#94A3B8] border border-slate-200 dark:border-[#1E293B]'
+            }`}
+            title="Toggle Investigation Filters"
+          >
+            <SlidersHorizontal className="h-3 w-3" />
+            <span>Filters</span>
+          </button>
+          <button
+            onClick={() => setShowCentralityPanel(!showCentralityPanel)}
+            className={`px-2.5 py-1 rounded text-[11px] font-bold flex items-center space-x-1.5 transition-colors border ${
+              showCentralityPanel
+                ? 'bg-[#2563EB] text-white border-[#2563EB]'
+                : 'bg-white dark:bg-[#191c22] hover:bg-slate-100 dark:hover:bg-[#1E293B] text-slate-600 dark:text-[#94A3B8] border border-slate-200 dark:border-[#1E293B]'
+            }`}
+            title="Toggle Centrality List"
+          >
+            <Network className="h-3 w-3" />
+            <span>Centrality</span>
+          </button>
+          <button
+            onClick={() => setIsFullScreen(!isFullScreen)}
+            className={`p-1.5 rounded transition-colors border ${
+              isFullScreen
+                ? 'bg-blue-50 dark:bg-blue-900/30 text-[#2563EB] dark:text-[#3B82F6] border-[#2563EB]/40 shadow-sm'
+                : 'hover:bg-slate-100 dark:hover:bg-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] border-slate-200 dark:border-[#1E293B]'
+            }`}
+            title={isFullScreen ? 'Exit Fullscreen (Esc)' : 'Enter Fullscreen'}
+          >
+            {isFullScreen ? <Minimize2 className="h-3.5 w-3.5 text-[#2563EB] dark:text-[#3B82F6]" /> : <Maximize2 className="h-3.5 w-3.5" />}
+          </button>
         </div>
       </div>
 
       {/* ========================================================================= */}
       {/* MAIN WORKSPACE BODY: (Left Panel + Cytoscape Canvas + Right Drawer) */}
       {/* ========================================================================= */}
-      <div className="flex-1 relative flex overflow-hidden">
+      <div className="flex-1 relative flex overflow-hidden w-full h-full">
         {/* ======================================================================= */}
-        {/* 2. LEFT INVESTIGATION CONTROL PANEL */}
+        {/* 2. LEFT INVESTIGATION CONTROL PANEL (Slide-out) */}
         {/* ======================================================================= */}
-        <div
-          className={`border-r border-forensic-border bg-forensic-surfaceRaised/95 backdrop-blur-md transition-all duration-300 flex flex-col z-20 overflow-y-auto ${
-            isSidebarOpen ? 'w-64 min-w-[16rem]' : 'w-10 min-w-[2.5rem]'
-          }`}
-        >
+        {isSidebarOpen && (
+          <div
+            className={`border-r border-slate-200 dark:border-[#1E293B] bg-white/95 dark:bg-[#0D131F]/95 backdrop-blur-md transition-all duration-300 flex flex-col z-20 overflow-y-auto ${
+              isSidebarOpen ? 'w-64 min-w-[16rem]' : 'hidden'
+            }`}
+          >
           {/* Collapse Header */}
-          <div className="p-2.5 border-b border-forensic-border flex items-center justify-between">
+          <div className="p-2.5 border-b border-slate-200 dark:border-[#1E293B] flex items-center justify-between">
             {isSidebarOpen ? (
-              <div className="flex items-center space-x-2 font-mono text-xs font-bold text-forensic-text uppercase">
-                <SlidersHorizontal className="h-3.5 w-3.5 text-teal-400" />
+              <div className="flex items-center space-x-2 font-mono text-xs font-bold text-slate-800 dark:text-[#F8FAFC] uppercase">
+                <SlidersHorizontal className="h-3.5 w-3.5 text-[#2563EB]" />
                 <span>Investigation Filters</span>
               </div>
             ) : (
-              <SlidersHorizontal className="h-4 w-4 text-forensic-textDim mx-auto" />
+              <SlidersHorizontal className="h-4 w-4 text-slate-400 dark:text-[#64748B] mx-auto" />
             )}
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-1 rounded hover:bg-forensic-surface text-forensic-textMuted hover:text-forensic-text transition-colors"
+              className="p-1 rounded hover:bg-slate-100 dark:hover:bg-[#1E293B] text-slate-500 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] transition-colors"
               title={isSidebarOpen ? 'Collapse Panel' : 'Expand Panel'}
             >
               {isSidebarOpen ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -1574,7 +1663,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             <div className="p-3.5 space-y-4 text-xs">
               {/* LAYOUT Engine Selector */}
               <div>
-                <div className="text-[10px] font-mono uppercase text-forensic-textDim font-bold mb-2 tracking-wider">
+                <div className="text-[10px] font-mono uppercase text-slate-400 dark:text-[#64748B] font-bold mb-2 tracking-wider">
                   Graph Layout
                 </div>
                 <div className="grid grid-cols-2 gap-1.5 font-mono text-[11px]">
@@ -1588,13 +1677,12 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     <button
                       key={l.id}
                       onClick={() => setLayoutMode(l.id as LayoutType)}
-                      className={`px-2 py-1.5 rounded text-left flex items-center space-x-1.5 border transition-colors ${
-                        layoutMode === l.id
-                          ? 'bg-blue-600/15 border-blue-500/40 text-blue-400 font-bold'
-                          : 'bg-forensic-surface border-forensic-border text-forensic-textMuted hover:text-forensic-text'
-                      }`}
+                      className={`px-2 py-1.5 rounded text-left flex items-center space-x-1.5 border transition-colors ${layoutMode === l.id
+                          ? 'bg-[#2563EB] text-white border-[#2563EB] font-bold shadow-sm'
+                          : 'bg-slate-50 dark:bg-[#111827] border-slate-200 dark:border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
+                        }`}
                     >
-                      <span className={`w-2 h-2 rounded-full ${layoutMode === l.id ? 'bg-blue-400' : 'bg-transparent border border-forensic-border'}`} />
+                      <span className={`w-2 h-2 rounded-full ${layoutMode === l.id ? 'bg-white' : 'bg-transparent border border-slate-400 dark:border-[#64748B]'}`} />
                       <span>{l.label}</span>
                     </button>
                   ))}
@@ -1603,17 +1691,17 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
               {/* HOPS Selection */}
               <div>
-                <div className="text-[10px] font-mono uppercase text-forensic-textDim font-bold mb-2 tracking-wider">
+                <div className="text-[10px] font-mono uppercase text-slate-400 dark:text-[#64748B] font-bold mb-2 tracking-wider">
                   Hop Traversal Depth
                 </div>
                 <div className="space-y-1.5 font-mono text-[11px]">
                   {[1, 2, 3].map((hop) => (
-                    <label key={hop} className="flex items-center space-x-2 cursor-pointer text-forensic-text hover:text-white">
+                    <label key={hop} className="flex items-center space-x-2 cursor-pointer text-slate-700 dark:text-[#E2E8F0] hover:text-slate-900 dark:hover:text-white">
                       <input
                         type="checkbox"
                         checked={selectedHops.has(hop)}
                         onChange={() => toggleHopFilter(hop)}
-                        className="rounded border-forensic-border bg-forensic-surface text-blue-600 focus:ring-0 focus:ring-offset-0 h-3.5 w-3.5"
+                        className="rounded border-slate-300 dark:border-[#1E293B] bg-white dark:bg-[#111827] text-[#2563EB] focus:ring-0 focus:ring-offset-0 h-3.5 w-3.5"
                       />
                       <span>Hop {hop} Counterparties</span>
                     </label>
@@ -1623,23 +1711,23 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
               {/* ENTITY TYPES */}
               <div>
-                <div className="text-[10px] font-mono uppercase text-forensic-textDim font-bold mb-2 tracking-wider">
+                <div className="text-[10px] font-mono uppercase text-slate-400 dark:text-[#64748B] font-bold mb-2 tracking-wider">
                   Entity Types
                 </div>
                 <div className="space-y-1.5 font-mono text-[11px]">
                   {[
-                    { id: 'TARGET', label: 'Target Suspect Wallet', color: 'text-rose-400' },
-                    { id: 'VASP', label: 'VASP Custodial Clusters', color: 'text-teal-400' },
-                    { id: 'BRIDGE', label: 'Cross-Chain Bridges', color: 'text-purple-400' },
-                    { id: 'INTERMEDIARY', label: 'Intermediary Wallets', color: 'text-indigo-400' },
-                    { id: 'EXTERNAL', label: 'External Contracts / Unknown', color: 'text-forensic-textDim' },
+                    { id: 'TARGET', label: 'Target Suspect Wallet', color: 'text-rose-600 dark:text-rose-400 font-semibold' },
+                    { id: 'VASP', label: 'VASP Custodial Clusters', color: 'text-teal-600 dark:text-teal-400 font-semibold' },
+                    { id: 'BRIDGE', label: 'Cross-Chain Bridges', color: 'text-purple-600 dark:text-purple-400 font-semibold' },
+                    { id: 'INTERMEDIARY', label: 'Intermediary Wallets', color: 'text-indigo-600 dark:text-indigo-400 font-semibold' },
+                    { id: 'EXTERNAL', label: 'External Contracts / Unknown', color: 'text-slate-500 dark:text-[#94A3B8]' },
                   ].map((e) => (
                     <label key={e.id} className="flex items-center space-x-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={selectedEntityTypes.has(e.id)}
                         onChange={() => toggleEntityType(e.id)}
-                        className="rounded border-forensic-border bg-forensic-surface text-blue-600 focus:ring-0 focus:ring-offset-0 h-3.5 w-3.5"
+                        className="rounded border-slate-300 dark:border-[#1E293B] bg-white dark:bg-[#111827] text-[#2563EB] focus:ring-0 focus:ring-offset-0 h-3.5 w-3.5"
                       />
                       <span className={e.color}>{e.label}</span>
                     </label>
@@ -1649,13 +1737,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
               {/* BLOCKCHAIN NETWORK */}
               <div>
-                <div className="text-[10px] font-mono uppercase text-forensic-textDim font-bold mb-2 tracking-wider">
+                <div className="text-[10px] font-mono uppercase text-slate-400 dark:text-[#64748B] font-bold mb-2 tracking-wider">
                   Blockchain Network
                 </div>
                 <select
                   value={selectedChain}
                   onChange={(e) => setSelectedChain(e.target.value)}
-                  className="w-full bg-forensic-surface border border-forensic-border rounded px-2 py-1.5 text-forensic-text font-mono text-xs focus:outline-none focus:border-purple-500"
+                  className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#2563EB]"
                 >
                   {graphMetrics.chainsAvailable.map((c) => (
                     <option key={c} value={c}>
@@ -1666,16 +1754,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               </div>
 
               {/* TRANSACTION FILTERS: Token & Min Amount */}
-              <div className="space-y-2.5 pt-2 border-t border-forensic-border">
-                <div className="text-[10px] font-mono uppercase text-forensic-textDim font-bold tracking-wider">
+              <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-[#1E293B]">
+                <div className="text-[10px] font-mono uppercase text-slate-400 dark:text-[#64748B] font-bold tracking-wider">
                   Transaction Filters
                 </div>
                 <div>
-                  <label className="text-[11px] text-forensic-textDim block mb-1">Asset Token</label>
+                  <label className="text-[11px] text-slate-500 dark:text-[#94A3B8] block mb-1">Asset Token</label>
                   <select
                     value={selectedToken}
                     onChange={(e) => setSelectedToken(e.target.value)}
-                    className="w-full bg-forensic-surface border border-forensic-border rounded px-2 py-1.5 text-forensic-text font-mono text-xs focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#2563EB]"
                   >
                     {graphMetrics.tokensAvailable.map((t) => (
                       <option key={t} value={t}>
@@ -1687,8 +1775,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
                 <div>
                   <div className="flex justify-between items-center mb-1">
-                    <label className="text-[11px] text-forensic-textDim">Minimum Transfer</label>
-                    <span className="font-mono text-[10px] text-teal-400">
+                    <label className="text-[11px] text-slate-500 dark:text-[#94A3B8]">Minimum Transfer</label>
+                    <span className="font-mono text-[10px] text-blue-600 dark:text-blue-400 font-bold">
                       {minAmount > 0 ? `≥ ${minAmount}` : 'No Minimum'}
                     </span>
                   </div>
@@ -1699,18 +1787,17 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     placeholder="0.00"
                     value={minAmount || ''}
                     onChange={(e) => setMinAmount(Number(e.target.value) || 0)}
-                    className="w-full bg-forensic-surface border border-forensic-border rounded px-2 py-1.5 text-forensic-text font-mono text-xs focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#2563EB]"
                   />
                   <div className="flex gap-1 mt-1.5">
                     {[0, 100, 1000, 5000].map((preset) => (
                       <button
                         key={preset}
                         onClick={() => setMinAmount(preset)}
-                        className={`flex-1 py-0.5 rounded text-[10px] font-mono border transition-colors ${
-                          minAmount === preset
-                            ? 'bg-blue-600 text-white border-blue-500'
-                            : 'bg-forensic-surface border-forensic-border text-forensic-textDim hover:text-forensic-text'
-                        }`}
+                        className={`flex-1 py-0.5 rounded text-[10px] font-mono border transition-colors ${minAmount === preset
+                            ? 'bg-[#2563EB] text-white border-[#2563EB] font-bold'
+                            : 'bg-slate-50 dark:bg-[#111827] border-slate-200 dark:border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
+                          }`}
                       >
                         {preset === 0 ? 'All' : `${preset >= 1000 ? preset / 1000 + 'k' : preset}`}
                       </button>
@@ -1719,11 +1806,11 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-[11px] text-forensic-textDim block mb-1">Time Horizon</label>
+                  <label className="text-[11px] text-slate-500 dark:text-[#94A3B8] block mb-1">Time Horizon</label>
                   <select
                     value={timeRange}
                     onChange={(e) => setTimeRange(e.target.value)}
-                    className="w-full bg-forensic-surface border border-forensic-border rounded px-2 py-1.5 text-forensic-text font-mono text-xs focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#2563EB]"
                   >
                     <option value="ALL">All Time</option>
                     <option value="24H">Last 24 Hours</option>
@@ -1734,8 +1821,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               </div>
 
               {/* RISK LEVEL FILTER */}
-              <div className="pt-2 border-t border-forensic-border">
-                <div className="text-[10px] font-mono uppercase text-forensic-textDim font-bold mb-2 tracking-wider">
+              <div className="pt-2 border-t border-slate-200 dark:border-[#1E293B]">
+                <div className="text-[10px] font-mono uppercase text-slate-400 dark:text-[#64748B] font-bold mb-2 tracking-wider">
                   Risk Assessment Scope
                 </div>
                 <div className="grid grid-cols-4 gap-1 font-mono text-[10px]">
@@ -1743,17 +1830,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     <button
                       key={r}
                       onClick={() => setRiskFilter(r)}
-                      className={`py-1 rounded font-medium border transition-colors ${
-                        riskFilter === r
+                      className={`py-1 rounded font-medium border transition-colors ${riskFilter === r
                           ? r === 'HIGH'
                             ? 'bg-rose-600 text-white border-rose-500'
                             : r === 'MEDIUM'
-                            ? 'bg-amber-600 text-white border-amber-500'
-                            : r === 'LOW'
-                            ? 'bg-emerald-600 text-white border-emerald-500'
-                            : 'bg-blue-600 text-white border-blue-500'
-                          : 'bg-forensic-surface border-forensic-border text-forensic-textDim hover:text-forensic-text'
-                      }`}
+                              ? 'bg-amber-600 text-white border-amber-500'
+                              : r === 'LOW'
+                                ? 'bg-emerald-600 text-white border-emerald-500'
+                                : 'bg-[#2563EB] text-white border-[#2563EB]'
+                          : 'bg-slate-50 dark:bg-[#111827] border-slate-200 dark:border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
+                        }`}
                     >
                       {r.charAt(0) + r.slice(1).toLowerCase()}
                     </button>
@@ -1765,15 +1851,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               <div className="pt-3">
                 <button
                   onClick={handleClearFilters}
-                  className="w-full py-1.5 rounded-lg bg-forensic-surface hover:bg-forensic-border text-forensic-text border border-forensic-border transition-colors font-mono text-xs flex items-center justify-center space-x-1.5"
+                  className="w-full py-1.5 rounded-lg bg-slate-100 dark:bg-[#111827] hover:bg-slate-200 dark:hover:bg-[#1E293B] text-slate-700 dark:text-[#F8FAFC] border border-slate-200 dark:border-[#1E293B] transition-colors font-mono text-xs flex items-center justify-center space-x-1.5"
                 >
-                  <RotateCcw className="h-3 w-3 text-forensic-textDim" />
+                  <RotateCcw className="h-3 w-3 text-slate-500 dark:text-[#94A3B8]" />
                   <span>Reset All Filters</span>
                 </button>
               </div>
             </div>
           )}
         </div>
+      )}
 
         {/* ======================================================================= */}
         {/* 3. CYTOSCAPE GRAPH CANVAS / SANKEY DUAL VIEW */}
@@ -1857,38 +1944,112 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 </div>
               )}
 
-              {/* Tag Color Legend */}
-              <div className="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg bg-forensic-surface/90 backdrop-blur-md border border-forensic-border text-[10px] font-mono shadow-md pointer-events-auto animate-fade-in w-fit">
-                <span className="text-forensic-textDim uppercase font-bold text-[9px]">Legend:</span>
+              {/* Overlay Legend */}
+              <div className="flex items-center space-x-2.5 px-3 py-1.5 rounded-lg bg-white/95 dark:bg-[#0D131F]/95 backdrop-blur-md border border-slate-200 dark:border-[#1E293B] text-[10px] font-mono shadow-md pointer-events-auto animate-fade-in w-fit text-slate-800 dark:text-[#F8FAFC]">
+                <span className="text-slate-400 dark:text-[#64748B] uppercase font-bold text-[9px] tracking-wider">LEGEND:</span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2.5 h-2.5 bg-red-500" style={{ clipPath: 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)' }} />
-                  <span className="text-red-400 font-semibold">Target</span>
+                  <span className="w-2.5 h-2.5 bg-[#ef4444] inline-block shrink-0" style={{ clipPath: 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)' }} />
+                  <span className="text-rose-600 dark:text-[#ef4444] font-semibold">Target</span>
                 </span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2.5 h-2 rounded-sm bg-teal-400" />
-                  <span className="text-teal-400 font-semibold">Exchange</span>
+                  <span className="w-2.5 h-2 rounded-[2px] bg-[#14b8a6] inline-block shrink-0" />
+                  <span className="text-teal-600 dark:text-[#14b8a6] font-semibold">Exchange</span>
                 </span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2.5 h-2.5 bg-purple-400" style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }} />
-                  <span className="text-purple-400 font-semibold">Mixer</span>
+                  <span className="w-2.5 h-2.5 bg-[#a855f7] inline-block shrink-0" style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }} />
+                  <span className="text-purple-600 dark:text-[#a855f7] font-semibold">Mixer</span>
                 </span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2.5 h-2.5 bg-rose-600" style={{ clipPath: 'polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%)' }} />
-                  <span className="text-rose-400 font-semibold">Sanctioned</span>
+                  <span className="w-2.5 h-2.5 bg-[#dc2626] inline-block shrink-0" style={{ clipPath: 'polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%)' }} />
+                  <span className="text-red-600 dark:text-[#dc2626] font-semibold">Sanctioned</span>
                 </span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
-                  <span className="text-slate-300 font-semibold">Unknown</span>
+                  <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-[#94a3b8] inline-block shrink-0" />
+                  <span className="text-slate-500 dark:text-[#94a3b8] font-semibold">Unknown</span>
                 </span>
               </div>
             </div>
 
-            {/* Cytoscape Container with dot-grid background */}
-            <div ref={containerRef} className="w-full flex-1 graph-canvas-grid" />
+            {/* Cytoscape Container (2D) & ForceGraph3D Container (3D) */}
+            <div
+              ref={containerRef}
+              className={`w-full flex-1 graph-canvas-grid relative ${
+                isFullScreen ? 'h-full min-h-full' : 'min-h-[440px]'
+              } ${dimensionMode === '2D' ? 'block' : 'hidden'}`}
+            />
+
+            {dimensionMode === '3D' && (
+              <div
+                className={`w-full flex-1 relative overflow-hidden ${
+                  isFullScreen ? 'h-full min-h-full' : 'min-h-[440px]'
+                }`}
+              >
+                <GraphCanvas3D
+                  graphData={graphData}
+                  rootAddress={rootAddress}
+                  isDarkMode={typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : true}
+                  layoutMode={layoutMode}
+                  selectedElement={selectedElement}
+                  onSelectElement={setSelectedElement}
+                  focusedPath={focusedPath as any}
+                  onUpdateFocusedPath={updateFocusedPath}
+                  selectedHops={selectedHops}
+                  selectedEntityTypes={selectedEntityTypes}
+                  selectedToken={selectedToken}
+                  selectedChain={selectedChain}
+                  minAmount={minAmount}
+                  riskFilter={riskFilter}
+                  viewMode={viewMode}
+                  onFitRef={fit3DRef}
+                  onResetRef={reset3DRef}
+                  onZoomInRef={zoomIn3DRef}
+                  onZoomOutRef={zoomOut3DRef}
+                />
+              </div>
+            )}
+
+            {/* Canvas Micro-Tools (Bottom Right Floating Bar) */}
+            <div className="absolute bottom-4 right-4 z-10 flex items-center space-x-1 p-1 rounded-lg bg-white/95 dark:bg-[#0D131F]/90 border border-slate-200 dark:border-[#1E293B] backdrop-blur-md shadow-xl text-slate-600 dark:text-[#94A3B8]">
+              <button
+                onClick={handleZoomIn}
+                className="w-7 h-7 rounded hover:bg-slate-100 dark:hover:bg-[#1E293B] hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-colors"
+                title="Zoom In"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <button
+                onClick={handleZoomOut}
+                className="w-7 h-7 rounded hover:bg-slate-100 dark:hover:bg-[#1E293B] hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-colors"
+                title="Zoom Out"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <button
+                onClick={handleReset}
+                className="w-7 h-7 rounded hover:bg-slate-100 dark:hover:bg-[#1E293B] hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-colors"
+                title="Reset View"
+              >
+                <RotateCcw className="h-4 w-4" />
+              </button>
+              <button
+                onClick={handleFit}
+                className="w-7 h-7 rounded hover:bg-slate-100 dark:hover:bg-[#1E293B] hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-colors"
+                title="Auto Layout / Fit"
+              >
+                <Sparkles className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setIsFullScreen(!isFullScreen)}
+                className="w-7 h-7 rounded hover:bg-slate-100 dark:hover:bg-[#1E293B] hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-colors"
+                title={isFullScreen ? 'Exit Fullscreen' : 'Fullscreen'}
+              >
+                {isFullScreen ? <Minimize2 className="h-4 w-4 text-rose-500" /> : <Maximize2 className="h-4 w-4" />}
+              </button>
+            </div>
 
             {/* IBM i2 Temporal 24-Hour Hour-of-Day Histogram Filter Bar */}
             {showHistogramBar && (
-              <div className="p-2.5 border-t border-forensic-border bg-forensic-bg/95 z-20">
+              <div className="p-2.5 border-t border-slate-200 dark:border-[#1E293B] bg-white/95 dark:bg-[#05080E]/95 z-20">
                 <TemporalHistogramBar
                   transactions={transactions}
                   edges={graphData?.edges}
@@ -1945,7 +2106,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
             {/* Timeline Time-Machine Replay Bar */}
             {transactions && transactions.length > 0 && !showHistogramBar && (
-              <div className="p-3 border-t border-forensic-border bg-forensic-bg/95 z-10">
+              <div className="p-3 border-t border-slate-200 dark:border-[#1E293B] bg-white/95 dark:bg-[#05080E]/95 z-10">
                 <TimelineReplayBar
                   transactions={transactions}
                   onStepChange={(tx) => {
@@ -1985,9 +2146,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
             {/* Active Path Focus Banner (Bottom Left of Canvas) */}
             {focusedPath && (
-              <div className="absolute bottom-20 left-4 z-10 p-3 rounded-lg bg-forensic-surface/95 border border-cyan-500/40 shadow-xl backdrop-blur-md font-mono text-xs max-w-md animate-fade-in">
+              <div className="absolute bottom-20 left-4 z-10 p-3 rounded-lg bg-white/95 dark:bg-[#0D131F]/95 border border-[#2563EB]/40 shadow-xl backdrop-blur-md font-mono text-xs max-w-md animate-fade-in">
                 <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center space-x-1.5 text-cyan-400 font-bold">
+                  <div className="flex items-center space-x-1.5 text-[#2563EB] font-bold">
                     <Sparkles className="h-3.5 w-3.5 animate-pulse" />
                     <span>PRIMARY FUND FLOW FOCUS</span>
                   </div>
@@ -1996,21 +2157,21 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                       cyRef.current?.elements().removeClass('path-focused path-dimmed');
                       updateFocusedPath(null);
                     }}
-                    className="text-forensic-textDim hover:text-forensic-text p-0.5"
+                    className="text-slate-400 dark:text-[#64748B] hover:text-slate-900 dark:hover:text-[#F8FAFC] p-0.5"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
-                <div className="text-[11px] text-forensic-textDim space-y-1">
+                <div className="text-[11px] text-slate-600 dark:text-[#94A3B8] space-y-1">
                   <div>
                     Destination:{' '}
-                    <strong className="text-emerald-400">
+                    <strong className="text-emerald-600 dark:text-emerald-400">
                       {focusedPath.destinationName || focusedPath.targetNodeId.slice(0, 10) + '...'}
                     </strong>
                   </div>
                   <div className="flex justify-between">
                     <span>Hop Distance: <strong>{focusedPath.hopDistance} Hop(s)</strong></span>
-                    <span>Observable Flow: <strong className="text-cyan-400">{focusedPath.totalVolume.toFixed(2)} {graphMetrics.primaryToken}</strong></span>
+                    <span>Observable Flow: <strong className="text-[#2563EB]">{focusedPath.totalVolume.toFixed(2)} {graphMetrics.primaryToken}</strong></span>
                   </div>
                 </div>
               </div>
@@ -2022,7 +2183,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {/* 4. RIGHT FORENSIC INSPECTOR / CENTRALITY DRAWER */}
         {/* ======================================================================= */}
         {showCentralityPanel ? (
-          <div className="w-96 min-w-[22rem] border-l border-forensic-border bg-forensic-surfaceRaised/95 backdrop-blur-md z-30 flex flex-col animate-slide-left">
+          <div className="w-96 min-w-[22rem] border-l border-slate-200 dark:border-[#1E293B] bg-white dark:bg-[#0D131F] backdrop-blur-md z-30 flex flex-col animate-slide-left">
             <EntityCentralityPanel
               graphData={graphData}
               selectedNodeId={selectedElement?.data?.id}
@@ -2065,17 +2226,17 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             />
           </div>
         ) : selectedElement ? (
-          <div className="w-80 border-l border-forensic-border bg-forensic-surfaceRaised/95 backdrop-blur-md p-4 overflow-y-auto z-20 flex flex-col justify-between animate-slide-left text-xs font-sans">
+          <div className="w-80 border-l border-slate-200 dark:border-[#1E293B] bg-white dark:bg-[#0D131F] backdrop-blur-md p-4 overflow-y-auto z-20 flex flex-col justify-between animate-slide-left text-xs font-sans">
             <div className="space-y-4">
               {/* Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-forensic-border">
-                <div className="flex items-center space-x-2 font-mono font-bold text-forensic-text uppercase text-[11px]">
-                  <ShieldCheck className="h-4 w-4 text-teal-400" />
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#1E293B]">
+                <div className="flex items-center space-x-2 font-mono font-bold text-slate-800 dark:text-[#F8FAFC] uppercase text-[11px]">
+                  <ShieldCheck className="h-4 w-4 text-[#2563EB]" />
                   <span>{selectedElement.type === 'NODE' ? 'Node Forensics' : 'Transfer Details'}</span>
                 </div>
                 <button
                   onClick={() => setSelectedElement(null)}
-                  className="text-forensic-textDim hover:text-forensic-text p-1"
+                  className="text-slate-400 dark:text-[#64748B] hover:text-slate-900 dark:hover:text-[#F8FAFC] p-1"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -2086,56 +2247,56 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 <div className="space-y-3 font-mono text-[11px]">
                   {/* Address Badge */}
                   <div>
-                    <div className="text-forensic-textDim text-[10px] uppercase">Cryptocurrency Address</div>
-                    <div className="flex items-center justify-between p-2 rounded bg-forensic-surface border border-forensic-border mt-1">
-                      <span className="font-bold text-forensic-text break-all text-[11px]">
+                    <div className="text-slate-400 dark:text-[#64748B] text-[10px] uppercase font-bold">Cryptocurrency Address</div>
+                    <div className="flex items-center justify-between p-2 rounded bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] mt-1">
+                      <span className="font-bold text-slate-800 dark:text-[#E2E8F0] break-all text-[11px]">
                         {selectedElement.data.fullAddress || selectedElement.data.id}
                       </span>
                       <button
                         onClick={() => handleCopy(selectedElement.data.fullAddress || selectedElement.data.id)}
-                        className="ml-2 p-1 text-forensic-textDim hover:text-forensic-text"
+                        className="ml-2 p-1 text-slate-400 dark:text-[#64748B] hover:text-slate-800 dark:hover:text-[#F8FAFC]"
                         title="Copy Address"
                       >
-                        {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                        {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
                       </button>
                     </div>
                   </div>
 
                   {/* Entity Provenance if VASP */}
                   {selectedElement.data.isVasp && (
-                    <div className="p-3 rounded-lg bg-teal-950/30 border border-teal-800/40 text-[11px] space-y-1">
-                      <div className="text-teal-400 font-bold">
+                    <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 text-[11px] space-y-1">
+                      <div className="text-emerald-700 dark:text-emerald-400 font-bold">
                         {selectedElement.data.vaspName} ({selectedElement.data.addressType})
                       </div>
-                      <div className="text-forensic-textDim text-[10px]">
-                        Provenance: Verified Proof of Reserves / Etherscan Public Label
+                      <div className="text-slate-500 dark:text-[#94A3B8] text-[10px]">
+                        Provenance: Verified Proof of Reserves / Public Label
                       </div>
-                      <div className="text-emerald-400 text-[10px]">
-                        Confidence: {selectedElement.data.vaspConfidence || 98}% (HIGH)
+                      <div className="text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
+                        Confidence: {typeof selectedElement.data.vaspConfidence === 'number' || (!isNaN(Number(selectedElement.data.vaspConfidence)) && selectedElement.data.vaspConfidence !== '') ? `${selectedElement.data.vaspConfidence}%` : (selectedElement.data.vaspConfidence || '98%')} (HIGH)
                       </div>
                     </div>
                   )}
 
                   {/* Financial Flow Summary */}
-                  <div className="p-3 rounded-lg bg-forensic-surface border border-forensic-border space-y-1.5 font-mono text-[11px]">
-                    <div className="text-[10px] uppercase text-forensic-textDim font-bold font-sans">
+                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] space-y-1.5 font-mono text-[11px]">
+                    <div className="text-[10px] uppercase text-slate-400 dark:text-[#64748B] font-bold font-sans">
                       Topological Flow Metrics
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-forensic-textDim">Hop Distance:</span>
-                      <span className="text-forensic-text font-bold">Hop {selectedElement.data.hop}</span>
+                      <span className="text-slate-500 dark:text-[#94A3B8]">Hop Distance:</span>
+                      <span className="text-slate-800 dark:text-[#F8FAFC] font-bold">Hop {selectedElement.data.hop}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-forensic-textDim">Total Inflow:</span>
-                      <span className="text-emerald-400 font-bold">{Number(selectedElement.data.totalInflow || 0).toFixed(2)}</span>
+                      <span className="text-slate-500 dark:text-[#94A3B8]">Total Inflow:</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">{Number(selectedElement.data.totalInflow || 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-forensic-textDim">Total Outflow:</span>
-                      <span className="text-rose-400 font-bold">{Number(selectedElement.data.totalOutflow || 0).toFixed(2)}</span>
+                      <span className="text-slate-500 dark:text-[#94A3B8]">Total Outflow:</span>
+                      <span className="text-rose-600 dark:text-rose-400 font-bold">{Number(selectedElement.data.totalOutflow || 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-forensic-textDim">Transactions:</span>
-                      <span className="text-forensic-text">{selectedElement.data.txCount || 0} Transfers</span>
+                      <span className="text-slate-500 dark:text-[#94A3B8]">Transactions:</span>
+                      <span className="text-slate-800 dark:text-[#F8FAFC]">{selectedElement.data.txCount || 0} Transfers</span>
                     </div>
                   </div>
 
@@ -2145,7 +2306,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                       href={`https://etherscan.io/address/${selectedElement.data.fullAddress || selectedElement.data.id}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center justify-center space-x-1.5 w-full py-2 rounded bg-forensic-surfaceRaised hover:bg-forensic-border border border-forensic-border text-forensic-text font-medium text-xs transition-colors"
+                      className="flex items-center justify-center space-x-1.5 w-full py-2 rounded bg-slate-100 dark:bg-[#111827] hover:bg-slate-200 dark:hover:bg-[#1E293B] border border-slate-200 dark:border-[#1E293B] text-slate-700 dark:text-[#F8FAFC] font-medium text-xs transition-colors"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
                       <span>View on Blockchain Explorer</span>
@@ -2154,7 +2315,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     {onPivotTarget && (
                       <button
                         onClick={() => onPivotTarget(selectedElement.data.fullAddress || selectedElement.data.id)}
-                        className="w-full py-2 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold font-mono text-xs flex items-center justify-center space-x-1.5 shadow-sm transition-all cursor-pointer"
+                        className="w-full py-2 rounded bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold font-mono text-xs flex items-center justify-center space-x-1.5 shadow-sm transition-all cursor-pointer"
                       >
                         <Share2 className="h-3.5 w-3.5" />
                         <span>Pivot & Trace This Target</span>
@@ -2168,32 +2329,32 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               {selectedElement.type === 'EDGE' && (
                 <div className="space-y-3 font-mono text-[11px]">
                   <div>
-                    <div className="text-forensic-textDim text-[10px] uppercase">Transaction Hash</div>
-                    <div className="p-2 rounded bg-forensic-surface border border-forensic-border mt-1 font-bold text-forensic-text break-all">
+                    <div className="text-slate-400 dark:text-[#64748B] text-[10px] uppercase font-bold">Transaction Hash</div>
+                    <div className="p-2 rounded bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] mt-1 font-bold text-slate-800 dark:text-[#E2E8F0] break-all">
                       {selectedElement.data.txHash || selectedElement.data.id}
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-lg bg-forensic-surface border border-forensic-border space-y-1.5 font-mono text-[11px]">
+                  <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] space-y-1.5 font-mono text-[11px]">
                     <div className="flex justify-between">
-                      <span className="text-forensic-textDim">Transfer Amount:</span>
-                      <span className="text-emerald-400 font-bold">
+                      <span className="text-slate-500 dark:text-[#94A3B8]">Transfer Amount:</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">
                         {selectedElement.data.amount} {selectedElement.data.tokenSymbol}
                       </span>
                     </div>
                     {/* Case 6: INR/USD Valuation */}
                     {selectedElement.data.amountUsd && (
                       <div className="flex justify-between">
-                        <span className="text-forensic-textDim">USD Value:</span>
-                        <span className="text-sky-400 font-bold">
+                        <span className="text-slate-500 dark:text-[#94A3B8]">USD Value:</span>
+                        <span className="text-blue-600 dark:text-blue-400 font-bold">
                           ${Number(selectedElement.data.amountUsd).toLocaleString('en-US', { maximumFractionDigits: 2 })}
                         </span>
                       </div>
                     )}
                     {selectedElement.data.amountInr && (
                       <div className="flex justify-between">
-                        <span className="text-forensic-textDim">INR Value:</span>
-                        <span className="text-amber-400 font-bold">
+                        <span className="text-slate-500 dark:text-[#94A3B8]">INR Value:</span>
+                        <span className="text-amber-600 dark:text-amber-400 font-bold">
                           ₹{Number(selectedElement.data.amountInr).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                         </span>
                       </div>
@@ -2201,12 +2362,11 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     {/* Case 2: FIFO Taint Ratio */}
                     {selectedElement.data.taintRatio != null && (
                       <div className="flex justify-between items-center">
-                        <span className="text-forensic-textDim">Taint Ratio:</span>
-                        <span className={`font-bold ${
-                          selectedElement.data.taintRatio >= 0.8 ? 'text-red-400' :
-                          selectedElement.data.taintRatio >= 0.4 ? 'text-orange-400' :
-                          'text-lime-400'
-                        }`}>
+                        <span className="text-slate-500 dark:text-[#94A3B8]">Taint Ratio:</span>
+                        <span className={`font-bold ${selectedElement.data.taintRatio >= 0.8 ? 'text-red-500 dark:text-red-400' :
+                            selectedElement.data.taintRatio >= 0.4 ? 'text-amber-500 dark:text-orange-400' :
+                              'text-emerald-500 dark:text-lime-400'
+                          }`}>
                           {selectedElement.data.taintRatio >= 0.8 ? '🔴' : selectedElement.data.taintRatio >= 0.4 ? '🟡' : '🟢'}{' '}
                           {(selectedElement.data.taintRatio * 100).toFixed(1)}%
                         </span>
@@ -2214,23 +2374,23 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     )}
                     {selectedElement.data.traceableAmount != null && (
                       <div className="flex justify-between">
-                        <span className="text-forensic-textDim">Traceable:</span>
-                        <span className="text-red-300">{selectedElement.data.traceableAmount} {selectedElement.data.tokenSymbol}</span>
+                        <span className="text-slate-500 dark:text-[#94A3B8]">Traceable:</span>
+                        <span className="text-red-500 dark:text-red-300">{selectedElement.data.traceableAmount} {selectedElement.data.tokenSymbol}</span>
                       </div>
                     )}
                     <div className="flex justify-between">
-                      <span className="text-forensic-textDim">Hop Depth:</span>
-                      <span className="text-forensic-text">Hop {selectedElement.data.hop}</span>
+                      <span className="text-slate-500 dark:text-[#94A3B8]">Hop Depth:</span>
+                      <span className="text-slate-800 dark:text-[#F8FAFC]">Hop {selectedElement.data.hop}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-forensic-textDim">Timestamp:</span>
-                      <span className="text-forensic-textDim">{selectedElement.data.timestamp ? new Date(selectedElement.data.timestamp).toLocaleString() : 'Recent'}</span>
+                      <span className="text-slate-500 dark:text-[#94A3B8]">Timestamp:</span>
+                      <span className="text-slate-600 dark:text-[#94A3B8]">{selectedElement.data.timestamp ? new Date(selectedElement.data.timestamp).toLocaleString() : 'Recent'}</span>
                     </div>
                   </div>
 
-                  <div className="p-2.5 rounded bg-forensic-surface border border-forensic-border text-[10px] space-y-1 font-mono">
-                    <div className="text-forensic-textDim">FROM: {selectedElement.data.source}</div>
-                    <div className="text-forensic-textDim">TO: {selectedElement.data.target}</div>
+                  <div className="p-2.5 rounded bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] text-[10px] space-y-1 font-mono">
+                    <div className="text-slate-500 dark:text-[#94A3B8]">FROM: {selectedElement.data.source}</div>
+                    <div className="text-slate-500 dark:text-[#94A3B8]">TO: {selectedElement.data.target}</div>
                   </div>
 
                   {selectedElement.data.txHash && (
@@ -2238,7 +2398,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                       href={`https://etherscan.io/tx/${selectedElement.data.txHash}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center justify-center space-x-1.5 w-full py-2 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition-colors"
+                      className="flex items-center justify-center space-x-1.5 w-full py-2 rounded bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold text-xs transition-colors"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
                       <span>Verify on Explorer</span>
@@ -2248,8 +2408,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               )}
             </div>
 
-            <div className="pt-3 border-t border-forensic-border text-[10px] text-forensic-textDim font-mono text-center">
-              SUDARSHAN Financial Intelligence Core
+            <div className="pt-3 border-t border-slate-200 dark:border-[#1E293B] text-[10px] text-slate-400 dark:text-[#64748B] font-mono text-center">
+              CRYPTOTRACE Financial Intelligence Core
             </div>
           </div>
         ) : null}

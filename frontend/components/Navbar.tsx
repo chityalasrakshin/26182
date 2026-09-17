@@ -1,22 +1,24 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Shield,
-  Search,
-  Sun,
-  Moon,
-  Network,
-  ListFilter,
+  LayoutGrid,
   Briefcase,
+  History,
+  Network,
+  MapPin,
+  ListFilter,
   Plus,
-  FileSpreadsheet,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { UserAuth } from '../lib/types';
 
 export type ActiveTabType =
   | 'WORKSPACE'
   | 'CASES_AUDIT'
+  | 'RECENT_INVESTIGATIONS'
   | 'GRAPH_STUDIO'
   | 'FORENSIC_LEDGER'
   | 'NCRP_TRIAGE';
@@ -28,6 +30,7 @@ interface NavbarProps {
   currentUser?: UserAuth | null;
   onSwitchRole?: (role: 'supervisor' | 'investigator') => void;
   hasActiveTarget?: boolean;
+  recentAnalysesCount?: number;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -37,156 +40,176 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   onSwitchRole,
   hasActiveTarget = false,
+  recentAnalysesCount = 0,
 }) => {
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [hoveredTab, setHoveredTab] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Check initial preference from localStorage or default dark
-    const stored = localStorage.getItem('sudarshan_theme');
-    if (stored === 'light') {
-      setTheme('light');
-      document.documentElement.classList.remove('dark');
-    } else {
-      setTheme('dark');
-      document.documentElement.classList.add('dark');
-    }
-  }, []);
-
-  const toggleTheme = () => {
-    if (theme === 'dark') {
-      setTheme('light');
-      localStorage.setItem('sudarshan_theme', 'light');
-      document.documentElement.classList.remove('dark');
-    } else {
-      setTheme('dark');
-      localStorage.setItem('sudarshan_theme', 'dark');
-      document.documentElement.classList.add('dark');
-    }
-  };
-
-  const tabClass = (tab: ActiveTabType) =>
-    `px-3 py-1.5 rounded font-medium transition-colors flex items-center space-x-1.5 ${
-      activeTab === tab
-        ? 'bg-forensic-surfaceRaised text-forensic-text border border-forensic-border font-bold shadow-sm'
-        : 'text-forensic-textMuted hover:text-forensic-text hover:bg-forensic-surfaceRaised/50'
-    }`;
+  const navItems = [
+    {
+      id: 'WORKSPACE' as ActiveTabType,
+      label: 'Target Workspace',
+      description: 'On-chain multi-hop tracing & VASP attribution',
+      icon: LayoutGrid,
+      badge: hasActiveTarget ? 'Active' : null,
+    },
+    {
+      id: 'CASES_AUDIT' as ActiveTabType,
+      label: 'Cases & Audit Register',
+      description: 'FIR case tracking & statutory notice records',
+      icon: Briefcase,
+      badge: null,
+    },
+    {
+      id: 'RECENT_INVESTIGATIONS' as ActiveTabType,
+      label: 'Recent Investigations',
+      description: 'Cached analyses & historical wallet traces',
+      icon: History,
+      badge: recentAnalysesCount > 0 ? `${recentAnalysesCount}` : null,
+    },
+    {
+      id: 'GRAPH_STUDIO' as ActiveTabType,
+      label: 'Graph Studio',
+      description: 'Interactive Cytoscape network visualization',
+      icon: Network,
+      badge: hasActiveTarget ? 'Live' : null,
+    },
+    {
+      id: 'FORENSIC_LEDGER' as ActiveTabType,
+      label: 'Forensic Location Ledger',
+      description: 'Off-chain node locations & cluster logs',
+      icon: MapPin,
+      badge: null,
+    },
+    {
+      id: 'NCRP_TRIAGE' as ActiveTabType,
+      label: 'NCRP Cyber Crime Queue',
+      description: 'National portal incident triage & intake',
+      icon: ListFilter,
+      badge: null,
+    },
+  ];
 
   return (
-    <header className="border-b border-forensic-border bg-forensic-surface sticky top-0 z-40 text-xs select-none transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between py-2.5">
-        {/* Left: Branding & Core Navigation */}
-        <div className="flex items-center space-x-5">
-          <div className="flex items-center space-x-2.5 pr-4 border-r border-forensic-border">
-            <div className="h-7 w-7 rounded bg-blue-600/15 border border-blue-500/30 flex items-center justify-center text-blue-500">
-              <Shield className="h-4 w-4" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-1.5 leading-none">
-                <span className="font-bold text-forensic-text tracking-wider text-sm">
-                  CRYPTO<span className="text-blue-500">TRACE</span>
-                </span>
-                <span className="text-[9px] px-1 py-0.2 rounded bg-forensic-surfaceRaised border border-forensic-border text-forensic-textMuted font-mono uppercase">
+    <aside className="fixed top-0 left-0 bottom-0 w-[68px] z-50 bg-[#161616] border-r border-[#2A2A2A] flex flex-col justify-between items-center py-4 select-none">
+      {/* Top: Brand Logo / Mark */}
+      <div className="flex flex-col items-center space-y-5">
+        <button
+          type="button"
+          onClick={() => onSelectTab('WORKSPACE')}
+          className="relative group flex items-center justify-center"
+          title="CryptoTrace Law Enforcement Console"
+        >
+          <div className="h-11 w-11 rounded-2xl bg-[#1A1A1A] border border-[#2A2A2A] group-hover:border-[#E5FF8F] flex items-center justify-center transition-all shadow-[0_0_20px_rgba(0,0,0,0.5)]">
+            <Shield className="h-5 w-5 text-[#E5FF8F]" />
+          </div>
+
+          {/* Floating Brand Tooltip */}
+          <div className="absolute left-[76px] top-1/2 -translate-y-1/2 hidden group-hover:flex items-center z-50 pointer-events-none">
+            <div className="bg-[#1A1A1A] text-[#FFFFFF] text-xs font-mono px-3 py-1.5 rounded-lg border border-[#2A2A2A] shadow-xl whitespace-nowrap">
+              <div className="font-sans font-bold text-sm text-[#FFFFFF] flex items-center gap-1.5">
+                <span>CryptoTrace</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#2A2A2A] text-[#E5FF8F] font-mono font-bold">
                   v2.4
                 </span>
               </div>
-              <span className="text-[10px] text-forensic-textDim tracking-tight block mt-0.5">
-                Financial Intelligence Workstation
-              </span>
+              <div className="text-[10px] text-[#9A9A9A]">Forensic Intelligence Console</div>
             </div>
           </div>
+        </button>
 
-          {/* 4 Core Tabs */}
-          <nav className="flex items-center space-x-1 font-mono text-xs">
-            <button onClick={() => onSelectTab('WORKSPACE')} className={tabClass('WORKSPACE')}>
-              <Search className="h-3.5 w-3.5 text-blue-500" />
-              <span>Workspace</span>
-            </button>
+        {/* Divider */}
+        <div className="w-8 h-[1px] bg-[#2A2A2A]" />
 
-            <button onClick={() => onSelectTab('CASES_AUDIT')} className={tabClass('CASES_AUDIT')}>
-              <Briefcase className="h-3.5 w-3.5 text-purple-400" />
-              <span>Cases</span>
-            </button>
+        {/* Center: Nav Icon Stack */}
+        <nav className="flex flex-col items-center space-y-2.5">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
 
-            <button onClick={() => onSelectTab('GRAPH_STUDIO')} className={tabClass('GRAPH_STUDIO')}>
-              <Network className="h-3.5 w-3.5 text-forensic-teal" />
-              <span>Graph Studio</span>
-              {hasActiveTarget && (
-                <span className="w-1.5 h-1.5 rounded-full bg-forensic-teal animate-pulse" />
-              )}
-            </button>
-
-            <button onClick={() => onSelectTab('FORENSIC_LEDGER')} className={tabClass('FORENSIC_LEDGER')}>
-              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
-              <span>Off-Chain Ledger</span>
-            </button>
-
-            <button onClick={() => onSelectTab('NCRP_TRIAGE')} className={tabClass('NCRP_TRIAGE')}>
-              <ListFilter className="h-3.5 w-3.5 text-forensic-amber" />
-              <span>NCRP Queue</span>
-            </button>
-          </nav>
-        </div>
-
-        {/* Right: New Case, Role Switcher & Theme Toggle */}
-        <div className="flex items-center space-x-2.5">
-          {onOpenCaseIntake && (
-            <button
-              onClick={onOpenCaseIntake}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-mono text-[11px] font-bold shadow transition-colors"
-              title="Open New Investigation Case Intake"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>New Case</span>
-            </button>
-          )}
-
-          {onSwitchRole && (
-            <div className="hidden sm:flex items-center bg-forensic-surfaceRaised border border-forensic-border rounded p-0.5 font-mono text-[10px]">
-              <button
-                onClick={() => onSwitchRole('supervisor')}
-                className={`px-2 py-0.5 rounded transition-colors ${
-                  currentUser?.role === 'supervisor'
-                    ? 'bg-purple-600 text-white font-bold'
-                    : 'text-forensic-textMuted hover:text-forensic-text'
-                }`}
-                title="Switch to Supervisor Mode (All Cases & Global Audit Logs)"
+            return (
+              <div
+                key={item.id}
+                className="relative"
+                onMouseEnter={() => setHoveredTab(item.id)}
+                onMouseLeave={() => setHoveredTab(null)}
               >
-                Supervisor
-              </button>
-              <button
-                onClick={() => onSwitchRole('investigator')}
-                className={`px-2 py-0.5 rounded transition-colors ${
-                  currentUser?.role !== 'supervisor'
-                    ? 'bg-blue-600 text-white font-bold'
-                    : 'text-forensic-textMuted hover:text-forensic-text'
-                }`}
-                title="Switch to Investigator Mode (Assigned Cases)"
-              >
-                Investigator
-              </button>
-            </div>
-          )}
+                <button
+                  type="button"
+                  onClick={() => onSelectTab(item.id)}
+                  className={`h-11 w-11 rounded-xl flex items-center justify-center transition-all ${
+                    isActive
+                      ? 'bg-[#E5FF8F] text-[#0A0A0A] font-bold shadow-[0_0_18px_rgba(229,255,143,0.35)]'
+                      : 'text-[#9A9A9A] hover:text-[#FFFFFF] hover:bg-[#1A1A1A] hover:border hover:border-[#2A2A2A]'
+                  }`}
+                  aria-label={item.label}
+                >
+                  <Icon className="h-5 w-5 stroke-[2.2]" />
 
-          {/* Dark / Light Mode Toggle */}
+                  {item.badge && !isActive && (
+                    <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#E5FF8F]"></span>
+                  )}
+                </button>
+
+                {/* Floating Tooltip right of sidebar */}
+                {hoveredTab === item.id && (
+                  <div className="absolute left-[58px] top-1/2 -translate-y-1/2 z-50 pointer-events-none pl-3 animate-fade-in">
+                    <div className="bg-[#1A1A1A] border border-[#2A2A2A] text-left p-2.5 rounded-xl shadow-2xl min-w-[200px] whitespace-nowrap">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-sans font-bold text-xs text-[#FFFFFF]">
+                          {item.label}
+                        </span>
+                        {item.badge && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded font-bold bg-[#E5FF8F] text-[#0A0A0A]">
+                            {item.badge}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] font-sans text-[#9A9A9A] mt-0.5 leading-tight">
+                        {item.description}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* Bottom Pinned Controls */}
+      <div className="flex flex-col items-center space-y-3 w-full px-2">
+        {onOpenCaseIntake && (
           <button
-            onClick={toggleTheme}
-            title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-            className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-forensic-surfaceRaised hover:bg-forensic-border text-forensic-text border border-forensic-border transition-colors font-sans text-xs"
+            type="button"
+            onClick={onOpenCaseIntake}
+            className="h-10 w-10 rounded-xl bg-[#1A1A1A] hover:bg-[#2A2A2A] text-[#E5FF8F] border border-[#2A2A2A] hover:border-[#E5FF8F]/50 flex items-center justify-center transition-all group relative"
+            title="Create New Investigation Case"
           >
-            {theme === 'dark' ? (
-              <>
-                <Sun className="h-3.5 w-3.5 text-amber-400" />
-                <span className="font-medium">Light</span>
-              </>
-            ) : (
-              <>
-                <Moon className="h-3.5 w-3.5 text-blue-600" />
-                <span className="font-medium">Dark</span>
-              </>
-            )}
+            <Plus className="h-4 w-4 stroke-[2.5]" />
+            <div className="absolute left-[58px] top-1/2 -translate-y-1/2 hidden group-hover:flex items-center z-50 pointer-events-none pl-3">
+              <div className="bg-[#1A1A1A] border border-[#2A2A2A] text-[#FFFFFF] text-xs font-sans font-bold px-2.5 py-1.5 rounded-lg shadow-xl whitespace-nowrap">
+                + New Case Intake
+              </div>
+            </div>
           </button>
+        )}
+
+        {/* Live Engine Pulse */}
+        <div
+          className="h-7 w-7 rounded-lg bg-[#1A1A1A] border border-[#2A2A2A] flex items-center justify-center cursor-default group relative"
+          title="Engine Status: Online (ETH, TRX, BTC, SOL)"
+        >
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7CFF6B] opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#7CFF6B]"></span>
+          </span>
+          <div className="absolute left-[58px] top-1/2 -translate-y-1/2 hidden group-hover:flex items-center z-50 pointer-events-none pl-3">
+            <div className="bg-[#1A1A1A] border border-[#2A2A2A] text-[#7CFF6B] text-[11px] font-mono font-bold px-2.5 py-1 rounded-lg shadow-xl whitespace-nowrap">
+              ● Live Multi-Chain Kernel
+            </div>
+          </div>
         </div>
       </div>
-    </header>
+    </aside>
   );
 };

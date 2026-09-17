@@ -139,6 +139,7 @@ export interface EvidenceItem {
 export interface RiskAssessment {
   risk_level: 'LOW' | 'MEDIUM' | 'HIGH';
   score: number;
+  composite_risk_score?: number;
   indicators: string[];
   explanation: string;
 }
@@ -157,6 +158,11 @@ export interface AnalysisStatus {
   is_cached?: boolean;
   top_attribution?: Attribution | null;
   risk_assessment?: RiskAssessment | null;
+  total_volume?: number;
+  total_volume_inr?: number;
+  total_volume_usd?: number;
+  total_traceable_inr?: number;
+  total_traceable_usd?: number;
 }
 
 export interface TraceJob {
