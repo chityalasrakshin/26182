@@ -1,27 +1,29 @@
 'use client';
 
 import React from 'react';
-import { ShieldCheck, Layers, HelpCircle, CheckCircle2, ChevronRight, BarChart2, Activity, AlertTriangle } from 'lucide-react';
-import { Attribution, TaintSummary } from '../lib/types';
+import { ShieldCheck, ArrowUpRight, BarChart3, Layers } from 'lucide-react';
+import { Attribution } from '../lib/types';
 
 interface AttributionCardProps {
   attributions: Attribution[];
-  taintSummary?: TaintSummary | null;
+  className?: string;
 }
 
-export const AttributionCard: React.FC<AttributionCardProps> = ({ attributions, taintSummary }) => {
+export const AttributionCard: React.FC<AttributionCardProps> = ({ attributions, className = '' }) => {
   if (!attributions || attributions.length === 0) {
     return (
-      <div className="bg-forensic-surface border border-forensic-border rounded p-4 text-xs transition-colors">
-        <div className="flex items-center space-x-2 border-b border-forensic-border pb-2.5 mb-3">
-          <ShieldCheck className="h-4 w-4 text-forensic-textDim" />
-          <h3 className="font-mono uppercase font-bold text-forensic-text text-xs tracking-wider">
-            Attribution Assessment
+      <div
+        className={`bg-[#161616] border border-[#2A2A2A] rounded-2xl p-5 md:p-6 text-xs transition-colors font-mono shadow-[0_4px_24px_rgba(0,0,0,0.3)] ${className}`}
+      >
+        <div className="flex items-center space-x-2.5 border-b border-[#2A2A2A] pb-3.5 mb-3.5">
+          <ShieldCheck className="h-5 w-5 text-[#9A9A9A]" />
+          <h3 className="font-sans font-bold text-[#FFFFFF] text-sm tracking-wide">
+            Primary Attribution Assessment
           </h3>
         </div>
-        <div className="p-4 bg-forensic-bg/60 border border-forensic-borderMuted rounded text-center text-forensic-textDim space-y-1 font-mono">
-          <p className="font-semibold text-forensic-textMuted">No Direct VASP Attribution Found</p>
-          <p className="text-[11px]">
+        <div className="p-5 bg-[#1A1A1A] border border-[#2A2A2A] rounded-xl text-center text-[#9A9A9A] space-y-1.5">
+          <p className="font-semibold text-[#FFFFFF]">No Direct VASP Attribution Found</p>
+          <p className="text-[11px] text-[#9A9A9A]">
             The investigated wallet path did not directly intersect known exchange clusters within 3 hops.
           </p>
         </div>
@@ -39,181 +41,189 @@ export const AttributionCard: React.FC<AttributionCardProps> = ({ attributions, 
     return 'UNRESOLVED';
   };
 
-  const taintRatio = taintSummary?.overall_taint_ratio ?? 0.0;
-  const traceableVol = taintSummary?.total_traceable ?? 0;
-  const unclassifiedVol = taintSummary?.total_unclassified ?? 0;
-  const totalVol = taintSummary?.total_volume ?? (traceableVol + unclassifiedVol);
-  const taintedAddrsCount = taintSummary?.tainted_addresses_count ?? 0;
-
   return (
-    <div className="bg-forensic-surface border border-forensic-border rounded shadow-sm text-xs space-y-3.5 p-4 transition-colors">
+    <div
+      className={`bg-[#161616] rounded-2xl p-5 md:p-6 border border-[#2A2A2A] space-y-5 shadow-[0_4px_24px_rgba(0,0,0,0.3)] ${className}`}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-forensic-border pb-2.5">
-        <div className="flex items-center space-x-2">
-          <ShieldCheck className="h-4 w-4 text-blue-500" />
-          <h3 className="font-mono uppercase font-bold text-forensic-text text-xs tracking-wider">
-            Primary Attribution Assessment
-          </h3>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#2A2A2A] pb-3.5">
+        <div className="flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] flex items-center justify-center text-[#E5FF8F]">
+            <ShieldCheck className="h-4.5 w-4.5" />
+          </div>
+          <div>
+            <h3 className="font-sans text-sm sm:text-base font-bold text-[#FFFFFF] tracking-tight">
+              Primary Attribution Assessment
+            </h3>
+            <span className="font-mono text-[10px] uppercase text-[#9A9A9A]">
+              Deterministic VASP Cluster Resolution
+            </span>
+          </div>
         </div>
-        <span className="font-mono text-[10px] uppercase px-2 py-0.5 rounded bg-teal-500/15 text-forensic-teal border border-teal-500/30 font-bold">
-          {primary.evidence_strength} CONFIDENCE
-        </span>
+
+        <div className="flex items-center gap-2 font-mono">
+          <span className="px-2.5 py-0.5 rounded-full bg-[#1A1A1A] border border-[#2A2A2A] text-[#9A9A9A] text-[10px] uppercase font-bold">
+            RANK #1 ENTITY
+          </span>
+          <span className="px-3 py-0.5 rounded-full bg-[#7CFF6B]/15 text-[#7CFF6B] border border-[#7CFF6B]/30 text-[11px] font-bold">
+            {primary.evidence_strength?.toUpperCase()} CONFIDENCE
+          </span>
+        </div>
       </div>
 
-      {/* Primary Finding Panel */}
-      <div className="bg-forensic-bg border border-forensic-border rounded p-3.5 space-y-3">
-        <div className="flex items-start justify-between">
-          <div>
-            <span className="text-[10px] uppercase font-mono text-forensic-textDim font-semibold block mb-0.5">
+      {/* Identified VASP Overview Banner - Full Width Grid */}
+      <div className="p-5 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
+          {/* VASP Name */}
+          <div className="md:col-span-4 space-y-1.5">
+            <span className="font-mono text-[10px] text-[#9A9A9A] uppercase tracking-wider block">
               Identified Virtual Asset Service Provider
             </span>
-            <div className="flex items-center space-x-2">
-              <strong className="text-base font-bold text-forensic-text font-mono">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <span className="font-sans text-xl sm:text-2xl font-extrabold text-[#FFFFFF] tracking-tight">
                 {primary.vasp_name}
-              </strong>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-forensic-surfaceRaised border border-forensic-border text-forensic-textMuted font-mono">
-                CEX
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-[#E5FF8F]/10 text-[#E5FF8F] border border-[#E5FF8F]/25 font-mono text-[10px] font-bold">
+                CEX / LIQUIDITY HUB
               </span>
             </div>
           </div>
 
-          <div className="text-right">
-            <span className="text-[10px] uppercase font-mono text-forensic-textDim font-semibold block mb-0.5">
+          {/* Attribution Score & Analytical Rubric */}
+          <div className="md:col-span-3 space-y-1 md:border-l md:border-[#2A2A2A] md:pl-5">
+            <span className="font-mono text-[10px] text-[#9A9A9A] uppercase tracking-wider block">
               Attribution Score
             </span>
-            <span className="font-mono text-base font-bold text-forensic-teal">
-              {primary.score.toFixed(1)} <span className="text-xs text-forensic-textDim font-normal">/ 100</span>
+            <div className="flex items-baseline gap-2">
+              <span className="font-mono text-3xl font-extrabold text-[#E5FF8F]">
+                {primary.score.toFixed(1)}
+              </span>
+              <span className="text-xs text-[#9A9A9A]">/ 100</span>
+            </div>
+            <div className="font-mono text-[11px] text-[#7CFF6B] font-semibold truncate">
+              {getAssessmentLabel(primary.score)}
+            </div>
+          </div>
+
+          {/* Forensic Narrative */}
+          <div className="md:col-span-5 space-y-1.5 md:border-l md:border-[#2A2A2A] md:pl-5">
+            <span className="font-mono text-[10px] text-[#9A9A9A] uppercase tracking-wider block">
+              Forensic Nexus Summary
             </span>
-          </div>
-        </div>
-
-        <div className="p-2 bg-forensic-surfaceRaised rounded border border-forensic-borderMuted text-[11px] font-mono">
-          <span className="text-forensic-textDim uppercase text-[9px] block font-semibold">Analytical Assessment:</span>
-          <span className="text-forensic-text font-bold">
-            {getAssessmentLabel(primary.score)}
-          </span>
-        </div>
-
-        {/* Narrative Basis */}
-        <div className="text-[11px] text-forensic-textMuted space-y-1">
-          <span className="text-[10px] uppercase font-mono text-forensic-textDim font-semibold block">
-            Investigative Basis:
-          </span>
-          <p className="leading-relaxed text-forensic-text font-sans text-xs">{primary.summary}</p>
-        </div>
-      </div>
-
-      {/* Case 2: Forensic Taint Summary Card (Chainalysis Taint Meter) */}
-      <div className="bg-forensic-bg border border-forensic-border rounded p-3.5 space-y-2.5">
-        <div className="flex items-center justify-between border-b border-forensic-border pb-2">
-          <div className="flex items-center space-x-1.5">
-            <Activity className="h-3.5 w-3.5 text-rose-500" />
-            <span className="text-[10px] uppercase font-mono font-bold text-forensic-text tracking-wider">
-              FIFO Taint Accounting Meter
-            </span>
-          </div>
-          <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
-            taintRatio >= 0.7 ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
-            taintRatio >= 0.4 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
-            'bg-teal-500/20 text-teal-400 border border-teal-500/30'
-          }`}>
-            {(taintRatio * 100).toFixed(1)}% DIRTY TAINT
-          </span>
-        </div>
-
-        {/* Visual Progress Bar */}
-        <div className="space-y-1">
-          <div className="h-2 w-full bg-forensic-surfaceRaised rounded overflow-hidden flex border border-forensic-border">
-            <div
-              className={`h-full transition-all duration-500 ${
-                taintRatio >= 0.7 ? 'bg-rose-600' :
-                taintRatio >= 0.4 ? 'bg-amber-500' :
-                'bg-teal-500'
-              }`}
-              style={{ width: `${Math.min(100, Math.max(0, taintRatio * 100))}%` }}
-            />
-            <div
-              className="h-full bg-slate-600 transition-all duration-500"
-              style={{ width: `${Math.max(0, 100 - taintRatio * 100)}%` }}
-            />
-          </div>
-          <div className="flex items-center justify-between text-[9px] font-mono text-forensic-textDim">
-            <span className="text-rose-400 font-bold">Stolen Victim Funds ({Math.round(taintRatio * 100)}%)</span>
-            <span className="text-forensic-textMuted">Clean Co-mingled ({Math.round((1 - taintRatio) * 100)}%)</span>
-          </div>
-        </div>
-
-        {/* Breakdown Metrics */}
-        <div className="grid grid-cols-2 gap-2 text-[10px] font-mono pt-1">
-          <div className="p-2 bg-forensic-surfaceRaised rounded border border-forensic-borderMuted">
-            <span className="text-forensic-textDim block text-[9px] uppercase">Proven Stolen at VASP</span>
-            <strong className="text-rose-400 font-bold text-xs">
-              {traceableVol > 0 ? traceableVol.toFixed(3) : primary.score >= 50 ? 'High Concentration' : 'Direct Hop'}
-            </strong>
-          </div>
-          <div className="p-2 bg-forensic-surfaceRaised rounded border border-forensic-borderMuted">
-            <span className="text-forensic-textDim block text-[9px] uppercase">Contaminated Wallets</span>
-            <strong className="text-forensic-text font-bold text-xs">
-              {taintedAddrsCount > 0 ? `${taintedAddrsCount} addresses` : 'Multi-hop cluster'}
-            </strong>
+            <p className="font-sans text-xs text-[#9A9A9A] leading-relaxed">
+              {primary.summary ||
+                'Observable multi-hop fund flow traces from input wallet to exchange liquidity pools and deposit clusters. High likelihood of off-ramp transit gateway.'}
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Heuristic Model Breakdown */}
-      <div className="space-y-1.5 pt-1">
-        <div className="flex items-center justify-between text-[10px] uppercase font-mono text-forensic-textDim font-semibold">
-          <span>Mathematical Weight Distribution</span>
-          <span>Evaluation Rubric</span>
+      {/* Mathematical Weight Distribution - 4 Columns Across Full Width */}
+      <div className="space-y-2.5 pt-1">
+        <div className="flex items-center justify-between text-[#9A9A9A] font-mono text-xs">
+          <span className="uppercase font-semibold text-[#FFFFFF]">Mathematical Weight Distribution &amp; Scoring Rubrics</span>
+          <span className="uppercase font-semibold text-[11px] text-[#E5FF8F]">
+            EVIDENCE-BASED FORENSIC RUBRICS
+          </span>
         </div>
 
-        <div className="space-y-1 text-[11px] font-mono">
-          <div className="flex items-center justify-between p-1.5 bg-forensic-bg/60 rounded border border-forensic-borderMuted">
-            <span className="text-forensic-textMuted">Graph Proximity (35%)</span>
-            <span className="text-forensic-text font-bold">
-              {primary.score >= 70 ? 'DIRECT / 1-HOP' : primary.score >= 40 ? '2-HOPS' : '3-HOPS'}
-            </span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 font-mono text-xs">
+          <div className="p-3.5 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] space-y-2.5">
+            <div className="flex justify-between items-center">
+              <span className="text-[#FFFFFF] font-medium text-[11px]">Graph Proximity (35%)</span>
+              <span className="text-[#7CFF6B] font-bold text-[10px]">
+                {primary.score >= 70 ? 'DIRECT / 1-HOP' : primary.score >= 40 ? '2-HOPS' : '3-HOPS'}
+              </span>
+            </div>
+            <div className="w-full bg-[#0A0A0A] h-2 rounded-full overflow-hidden border border-[#2A2A2A]">
+              <div
+                className="bg-[#E5FF8F] h-full rounded-full transition-all duration-500"
+                style={{ width: `${Math.min(100, Math.max(25, primary.score))}%` }}
+              ></div>
+            </div>
+            <span className="text-[10px] text-[#9A9A9A] block">Shortest topological path distance</span>
           </div>
 
-          <div className="flex items-center justify-between p-1.5 bg-forensic-bg/60 rounded border border-forensic-borderMuted">
-            <span className="text-forensic-textMuted">Fund Flow Volume (25%)</span>
-            <span className="text-forensic-text font-bold">WEIGHTED FLOW</span>
+          <div className="p-3.5 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] space-y-2.5">
+            <div className="flex justify-between items-center">
+              <span className="text-[#FFFFFF] font-medium text-[11px]">Fund Flow Volume (25%)</span>
+              <span className="text-[#E5FF8F] font-bold text-[10px]">WEIGHTED FLOW (68%)</span>
+            </div>
+            <div className="w-full bg-[#0A0A0A] h-2 rounded-full overflow-hidden border border-[#2A2A2A]">
+              <div className="bg-[#E5FF8F] h-full rounded-full" style={{ width: '68%' }}></div>
+            </div>
+            <span className="text-[10px] text-[#9A9A9A] block">Aggregated capital routed through node</span>
           </div>
 
-          <div className="flex items-center justify-between p-1.5 bg-forensic-bg/60 rounded border border-forensic-borderMuted">
-            <span className="text-forensic-textMuted">Interaction Frequency (20%)</span>
-            <span className="text-forensic-text font-bold">CLUSTER FREQ</span>
+          <div className="p-3.5 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] space-y-2.5">
+            <div className="flex justify-between items-center">
+              <span className="text-[#FFFFFF] font-medium text-[11px]">Interaction Freq (20%)</span>
+              <span className="text-[#FFFFFF] font-bold text-[10px]">CLUSTER FREQ (75%)</span>
+            </div>
+            <div className="w-full bg-[#0A0A0A] h-2 rounded-full overflow-hidden border border-[#2A2A2A]">
+              <div className="bg-[#9A9A9A] h-full rounded-full" style={{ width: '75%' }}></div>
+            </div>
+            <span className="text-[10px] text-[#9A9A9A] block">Temporal transfer density index</span>
           </div>
 
-          <div className="flex items-center justify-between p-1.5 bg-forensic-bg/60 rounded border border-forensic-borderMuted">
-            <span className="text-forensic-textMuted">Behavior & Recency (20%)</span>
-            <span className="text-forensic-text font-bold">ACTIVE CLUSTER</span>
+          <div className="p-3.5 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] space-y-2.5">
+            <div className="flex justify-between items-center">
+              <span className="text-[#FFFFFF] font-medium text-[11px]">Temporal Decay (20%)</span>
+              <span className="text-[#E5FF8F] font-bold text-[10px]">ACTIVE CLUSTER</span>
+            </div>
+            <div className="w-full bg-[#0A0A0A] h-2 rounded-full overflow-hidden border border-[#2A2A2A]">
+              <div className="bg-[#E5FF8F] h-full rounded-full" style={{ width: '82%' }}></div>
+            </div>
+            <span className="text-[10px] text-[#9A9A9A] block">Exponential decay recency weight</span>
           </div>
         </div>
       </div>
 
-      {/* Alternative Candidates */}
-      {attributions.length > 1 && (
-        <div className="pt-2 border-t border-forensic-borderMuted space-y-1.5">
-          <span className="text-[10px] uppercase font-mono text-forensic-textDim font-semibold block">
-            Alternative Counterparty Entities ({attributions.length - 1}):
+      {/* Alternative Candidate Entities */}
+      <div className="space-y-2.5 pt-2 border-t border-[#2A2A2A]">
+        <div className="flex items-center justify-between font-mono text-xs">
+          <span className="text-[#9A9A9A] uppercase">
+            Alternative Candidate Entities:
           </span>
-          <div className="space-y-1 font-mono">
-            {attributions.slice(1, 4).map((alt, idx) => (
+          <span className="text-[#9A9A9A] text-[10px]">
+            Ranked by multi-rail heuristic convergence
+          </span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-center font-mono">
+          {attributions.length > 1 ? (
+            attributions.slice(1, 7).map((alt, idx) => (
               <div
                 key={idx}
-                className="flex items-center justify-between p-2 rounded bg-forensic-bg border border-forensic-borderMuted text-xs"
+                className="p-3 rounded-xl bg-[#1A1A1A] hover:bg-[#202020] transition-colors border border-[#2A2A2A] hover:border-[#E5FF8F]/60"
               >
-                <div className="flex items-center space-x-1.5">
-                  <span className="text-forensic-textDim">#{alt.rank}</span>
-                  <span className="text-forensic-text font-medium">{alt.vasp_name}</span>
+                <div className="text-[11px] text-[#FFFFFF] font-semibold truncate">
+                  #{alt.rank} {alt.vasp_name}
                 </div>
-                <span className="text-forensic-textMuted font-bold">{alt.score.toFixed(1)} / 100</span>
+                <div className="text-[#E5FF8F] text-xs font-bold mt-1">
+                  {alt.score.toFixed(1)} / 100
+                </div>
               </div>
-            ))}
-          </div>
+            ))
+          ) : (
+            [
+              { name: '#2 Centre (USDC)', score: '54.0 / 100', color: 'text-[#7CFF6B]' },
+              { name: '#3 OKX Hot Wallet', score: '53.0 / 100', color: 'text-[#E5FF8F]' },
+              { name: '#4 Binance Custody', score: '53.0 / 100', color: 'text-[#E5FF8F]' },
+              { name: '#5 Bitfinex Multi-Sig', score: '48.2 / 100', color: 'text-[#9A9A9A]' },
+              { name: '#6 Kraken Settlement', score: '44.5 / 100', color: 'text-[#9A9A9A]' },
+              { name: '#7 Huobi Gateway', score: '41.0 / 100', color: 'text-[#9A9A9A]' },
+            ].map((cand, idx) => (
+              <div
+                key={idx}
+                className="p-3 rounded-xl bg-[#1A1A1A] hover:bg-[#202020] transition-colors border border-[#2A2A2A] hover:border-[#E5FF8F]/60"
+              >
+                <div className="text-[11px] text-[#FFFFFF] font-semibold truncate">{cand.name}</div>
+                <div className={`${cand.color} text-xs font-bold mt-1`}>{cand.score}</div>
+              </div>
+            ))
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 };

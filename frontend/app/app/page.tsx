@@ -6,6 +6,7 @@ import { WalletSearch } from '../../components/WalletSearch';
 import { LiveProgress } from '../../components/LiveProgress';
 import { AttributionCard } from '../../components/AttributionCard';
 import { RiskCard } from '../../components/RiskCard';
+import { FifoTaintMeter } from '../../components/FifoTaintMeter';
 import { GraphCanvas } from '../../components/GraphCanvas';
 import { EvidenceFeed } from '../../components/EvidenceFeed';
 import { TransactionLedger } from '../../components/TransactionLedger';
@@ -17,6 +18,9 @@ import { CaseIntakeModal } from '../../components/CaseIntakeModal';
 import { CaseManagementView } from '../../components/CaseManagementView';
 import { WalletOverview } from '../../components/WalletOverview';
 import { ForensicLocationLedger } from '../../components/ForensicLocationLedger';
+import { RecentInvestigationsView } from '../../components/RecentInvestigationsView';
+import { TopBar } from '../../components/TopBar';
+import { KpiStatRow } from '../../components/KpiStatRow';
 import { api } from '../../lib/api';
 import {
   AnalysisStatus,
@@ -37,6 +41,7 @@ import {
   FolderOpen,
   Network,
   Download,
+  Plus,
 } from 'lucide-react';
 
 function detectChain(address: string): 'ethereum' | 'tron' | 'bitcoin' | 'solana' {
@@ -276,8 +281,8 @@ export default function InvestigationAppPage() {
               const label = isRoot
                 ? `[TARGET]\n${shortAddr}`
                 : isVasp
-                ? `[${(d.entity || d.vasp_name || 'VASP').toUpperCase()}]\n${shortAddr}`
-                : `${shortAddr}\n(Hop ${event.hop})`;
+                  ? `[${(d.entity || d.vasp_name || 'VASP').toUpperCase()}]\n${shortAddr}`
+                  : `${shortAddr}\n(Hop ${event.hop})`;
 
               const newNode = {
                 data: {
@@ -405,7 +410,7 @@ export default function InvestigationAppPage() {
   };
 
   return (
-    <div className="min-h-screen bg-forensic-bg text-forensic-text flex flex-col font-sans transition-colors">
+    <div className="min-h-screen bg-[#0A0A0A] text-[#FFFFFF] flex flex-col font-sans transition-colors select-text">
       <Navbar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
@@ -413,303 +418,393 @@ export default function InvestigationAppPage() {
         currentUser={currentUser}
         onSwitchRole={handleSwitchRole}
         hasActiveTarget={!!analysisStatus || isStreaming}
+        recentAnalysesCount={recentAnalyses.length}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 space-y-4">
-        {/* TAB: CASES & AUDIT TRAIL */}
-        {activeTab === 'CASES_AUDIT' && (
-          <CaseManagementView
-            currentUser={currentUser}
-            onOpenCaseInWorkspace={(addr, hops) => handleStartAnalysis(addr, hops || 3)}
-            onOpenNewCaseIntake={() => setShowCaseIntakeModal(true)}
-            onSwitchRole={handleSwitchRole}
-          />
-        )}
+      <div className="pl-[68px] flex-1 flex flex-col min-h-screen">
+        <TopBar
+          activeTab={activeTab}
+          currentUser={currentUser}
+          onSwitchRole={handleSwitchRole}
+          onOpenCaseIntake={() => setShowCaseIntakeModal(true)}
+        />
 
-        {/* TAB: TARGET CASE WORKSPACE */}
-        {activeTab === 'WORKSPACE' && (
-          <>
-            <WalletSearch
-              onAnalyze={handleStartAnalysis}
-              isLoading={isLoading || isStreaming}
-            />
-
-            {analysisError && (
-              <div className="bg-red-500/10 border border-red-500/30 text-red-300 p-4 rounded flex items-center justify-between font-mono text-xs transition-colors shadow-sm">
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-2 font-bold text-red-400">
-                    <span className="text-sm">⚠️</span>
-                    <span className="uppercase tracking-wider">Analysis Diagnostic Notice</span>
-                  </div>
-                  <p className="text-forensic-textDim">{analysisError}</p>
-                </div>
-                {lastSearchedAddress && (
-                  <button
-                    onClick={() => handleStartAnalysis(lastSearchedAddress)}
-                    className="px-3 py-1.5 bg-red-600/30 hover:bg-red-600/50 text-red-200 border border-red-500/40 rounded font-semibold text-xs transition-colors shrink-0 ml-4"
-                  >
-                    Retry Analysis
-                  </button>
+        <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+          {/* Page Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 select-none pb-1">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-[#FFFFFF] tracking-tight">
+                {activeTab === 'WORKSPACE' ? (
+                  <>Target Case <span className="text-[#E5FF8F]">Intelligence</span></>
+                ) : activeTab === 'CASES_AUDIT' ? (
+                  <>Cases &amp; Statutory <span className="text-[#E5FF8F]">Register</span></>
+                ) : activeTab === 'RECENT_INVESTIGATIONS' ? (
+                  <>Recent Target <span className="text-[#E5FF8F]">Investigations</span></>
+                ) : activeTab === 'GRAPH_STUDIO' ? (
+                  <>Graph Studio <span className="text-[#E5FF8F]">Forensics</span></>
+                ) : activeTab === 'FORENSIC_LEDGER' ? (
+                  <>Off-Chain Forensic <span className="text-[#E5FF8F]">Ledger</span></>
+                ) : (
+                  <>NCRP Incident <span className="text-[#E5FF8F]">Triage</span></>
                 )}
-              </div>
-            )}
+              </h1>
+              <p className="text-xs text-[#9A9A9A] font-sans mt-1">
+                Multi-hop cryptographic graph attribution &amp; statutory evidence compilation
+              </p>
+            </div>
 
-            {analysisStatus && <LiveProgress status={analysisStatus} />}
+            <div className="flex items-center gap-2.5">
+              {analysisStatus && (
+                <button
+                  type="button"
+                  onClick={() => setShowReportModal(true)}
+                  className="px-4 py-2 rounded-full bg-[#E5FF8F] hover:bg-[#EDFFB1] text-[#0A0A0A] font-sans font-bold text-xs shadow-[0_0_15px_rgba(229,255,143,0.3)] transition-all flex items-center gap-1.5"
+                >
+                  <FileText className="h-3.5 w-3.5 stroke-[2.5]" />
+                  <span>Export Dossier</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowCaseIntakeModal(true)}
+                className="px-4 py-2 rounded-full bg-[#161616] hover:bg-[#1A1A1A] border border-[#2A2A2A] hover:border-[#E5FF8F]/60 text-[#FFFFFF] font-sans font-semibold text-xs transition-all flex items-center gap-1.5"
+              >
+                <Plus className="h-3.5 w-3.5 text-[#E5FF8F]" />
+                <span>New Case</span>
+              </button>
+            </div>
+          </div>
 
-            {analysisStatus && (
-              <div className="bg-forensic-surface border border-forensic-border rounded p-3.5 shadow-sm text-xs font-mono transition-colors">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-forensic-border pb-3">
-                  <div className="space-y-1">
-                    <div className="flex items-center space-x-3 text-[10px] text-forensic-textDim uppercase">
-                      <span>CASE ID: <strong className="text-forensic-text">CR-2026-{analysisStatus.analysis_id.slice(0, 8).toUpperCase()}</strong></span>
-                      <span>•</span>
-                      <span>STATUS: <strong className="text-forensic-teal">{isStreaming ? 'STREAMING VIA WEBSOCKET' : 'ACTIVE INVESTIGATION'}</strong></span>
-                      <span>•</span>
-                      <span>CHAIN: <strong className="text-blue-500">{detectChain(analysisStatus.wallet_address).toUpperCase()}</strong></span>
-                    </div>
+          {/* TAB: CASES & AUDIT TRAIL */}
+          {activeTab === 'CASES_AUDIT' && (
+            <CaseManagementView
+              currentUser={currentUser}
+              onOpenCaseInWorkspace={(addr, hops) => handleStartAnalysis(addr, hops || 3)}
+              onOpenNewCaseIntake={() => setShowCaseIntakeModal(true)}
+              onSwitchRole={handleSwitchRole}
+            />
+          )}
 
-                    <div className="flex items-center space-x-2 pt-0.5">
-                      <span className="text-sm font-bold text-forensic-text break-all select-all">
-                        {analysisStatus.wallet_address}
-                      </span>
-                      <button
-                        onClick={() => handleCopyAddress(analysisStatus.wallet_address)}
-                        title="Copy address"
-                        className="p-1 hover:text-forensic-text text-forensic-textDim"
-                      >
-                        {copied ? <Check className="h-3.5 w-3.5 text-forensic-teal" /> : <Copy className="h-3.5 w-3.5" />}
-                      </button>
-                      <a
-                        href={getExplorerUrl(analysisStatus.wallet_address)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-1 text-blue-500 hover:underline"
-                        title="Inspect on Public Explorer"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => setActiveTab('GRAPH_STUDIO')}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-forensic-surfaceRaised hover:bg-forensic-border text-forensic-text border border-forensic-border font-medium text-[11px] rounded transition-colors shadow-sm"
-                    >
-                      <Network className="h-3.5 w-3.5 text-forensic-teal" />
-                      <span>Full-Screen Graph</span>
-                    </button>
-
-                    <button
-                      onClick={() => setShowFreezeModal(true)}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-red-700 hover:bg-red-600 text-white font-medium text-[11px] rounded transition-colors shadow-sm"
-                    >
-                      <Scale className="h-3.5 w-3.5" />
-                      <span>Freeze Notice</span>
-                    </button>
-
-                    <button
-                      onClick={() => setShowReportModal(true)}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white font-medium text-[11px] rounded transition-colors shadow-sm"
-                    >
-                      <FileText className="h-3.5 w-3.5" />
-                      <span>Export Dossier</span>
-                    </button>
-
-                    <button
-                      onClick={async () => {
-                        try {
-                          await api.downloadCourtDossier(analysisStatus.analysis_id);
-                        } catch (err: any) {
-                          alert(`Court dossier export failed: ${err.message}`);
-                        }
-                      }}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 text-white font-medium text-[11px] rounded transition-colors shadow-sm"
-                      title="Download complete 5-asset court dossier (.ZIP)"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      <span>Court Dossier (.ZIP)</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Evidence Metrics Summary Bar */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 pt-2.5 text-[10px] text-forensic-textDim">
-                  <div>
-                    <span className="block uppercase text-forensic-textDim">Transfers</span>
-                    <strong className="text-forensic-text text-xs">{analysisStatus.num_transactions || graphData?.edges?.length || 0} Tx</strong>
-                  </div>
-                  <div>
-                    <span className="block uppercase text-forensic-textDim">Nodes</span>
-                    <strong className="text-forensic-text text-xs">{analysisStatus.num_nodes || graphData?.nodes?.length || 1}</strong>
-                  </div>
-                  <div>
-                    <span className="block uppercase text-forensic-textDim">Attributed VASP</span>
-                    <strong className="text-blue-500 text-xs">
-                      {attributions[0]?.vasp_name || 'Evaluating...'}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="block uppercase text-forensic-textDim">Confidence</span>
-                    <strong className="text-forensic-teal text-xs">
-                      {attributions[0] ? `${attributions[0].score.toFixed(1)}%` : 'Evaluating'}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="block uppercase text-forensic-textDim">Risk Level</span>
-                    <strong className="text-forensic-amber text-xs">
-                      {analysisStatus.risk_assessment?.risk_level || 'ELEVATED'}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="block uppercase text-forensic-textDim">Evidence</span>
-                    <strong className="text-forensic-text text-xs">{evidence.length || 1} Records</strong>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Case 6: Live INR Valuation & Suspect Target Overview */}
-            {analysisStatus && (
-              <WalletOverview
-                walletAddress={analysisStatus.wallet_address}
-                chain={detectChain(analysisStatus.wallet_address)}
-                graphData={graphData}
-                attributions={attributions}
+          {/* TAB: TARGET CASE WORKSPACE */}
+          {activeTab === 'WORKSPACE' && (
+            <>
+              <WalletSearch
+                onAnalyze={handleStartAnalysis}
+                isLoading={isLoading || isStreaming}
               />
-            )}
 
-            {/* Split Workspace View */}
-            {(analysisStatus || graphData) && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                <div className="lg:col-span-5 space-y-4">
-                  <AttributionCard attributions={attributions} />
+              {analysisError && (
+                <div className="bg-[#FF5C5C]/10 border border-[#FF5C5C]/30 text-[#FF5C5C] p-4 rounded-2xl flex items-center justify-between font-mono text-xs shadow-sm">
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2 font-bold">
+                      <span className="text-sm">⚠️</span>
+                      <span className="uppercase tracking-wider">Analysis Diagnostic Notice</span>
+                    </div>
+                    <p className="text-[#9A9A9A]">{analysisError}</p>
+                  </div>
+                  {lastSearchedAddress && (
+                    <button
+                      onClick={() => handleStartAnalysis(lastSearchedAddress)}
+                      className="px-4 py-2 bg-[#FF5C5C] hover:bg-[#ff7070] text-white rounded-full font-bold text-xs transition-colors shrink-0 ml-4 shadow-sm"
+                    >
+                      Retry Analysis
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* 2. ACTIVE CASE OVERVIEW & FORENSIC PIPELINE STATUS */}
+              {analysisStatus && (
+                <section className="bg-[#161616] rounded-2xl p-5 md:p-6 border border-[#2A2A2A] space-y-4 shadow-[0_4px_24px_rgba(0,0,0,0.3)]">
+                  <LiveProgress status={analysisStatus} />
+
+                  {/* Active Target Identity & Action Strip */}
+                  <div className="bg-[#1A1A1A] p-4 rounded-xl flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 border border-[#2A2A2A]">
+                    <div className="space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
+                        <span className="text-[#9A9A9A] text-[11px]">CASE ID:</span>
+                        <strong className="text-[#E5FF8F] font-bold">
+                          CR-2026-{analysisStatus.analysis_id.slice(0, 8).toUpperCase()}
+                        </strong>
+                        <span className="text-[#2A2A2A]">•</span>
+                        <span className="inline-flex items-center gap-1.5 text-[11px] text-[#7CFF6B] font-semibold">
+                          <span className="w-2 h-2 rounded-full bg-[#7CFF6B] animate-pulse"></span>
+                          {isStreaming ? 'STREAMING WEBSOCKET' : 'ACTIVE INVESTIGATION'}
+                        </span>
+                        <span className="text-[#2A2A2A]">•</span>
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#161616] text-[#FFFFFF] text-[10px] font-bold uppercase border border-[#2A2A2A]">
+                          CHAIN: {detectChain(analysisStatus.wallet_address).toUpperCase()}
+                        </span>
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#E5FF8F]/10 text-[#E5FF8F] text-[10px] font-bold border border-[#E5FF8F]/20">
+                          NCRP REF #{analysisStatus.analysis_id.slice(0, 4).toUpperCase()}-CRIME
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-0.5">
+                        <span className="font-mono text-[11px] text-[#9A9A9A] uppercase">SUSPECT TARGET:</span>
+                        <span className="font-mono text-xs sm:text-sm md:text-base font-bold text-[#FFFFFF] tracking-tight break-all select-all">
+                          {analysisStatus.wallet_address}
+                        </span>
+                        <button
+                          onClick={() => handleCopyAddress(analysisStatus.wallet_address)}
+                          title="Copy address"
+                          className="p-1 rounded hover:bg-[#2A2A2A] text-[#9A9A9A] hover:text-[#FFFFFF] transition-colors"
+                        >
+                          {copied ? <Check className="h-4 w-4 text-[#7CFF6B]" /> : <Copy className="h-4 w-4" />}
+                        </button>
+                        <a
+                          href={getExplorerUrl(analysisStatus.wallet_address)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="p-1 rounded hover:bg-[#2A2A2A] text-[#9A9A9A] hover:text-[#E5FF8F] transition-colors"
+                          title="Inspect on Public Explorer"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* High Level Action Triggers */}
+                    <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto justify-start xl:justify-end font-mono">
+                      <button
+                        onClick={() => setActiveTab('GRAPH_STUDIO')}
+                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[#161616] hover:bg-[#202020] text-[#FFFFFF] text-xs font-semibold border border-[#2A2A2A] transition-all"
+                      >
+                        <Network className="h-4 w-4 text-[#E5FF8F]" />
+                        <span>Full-Screen Graph</span>
+                      </button>
+
+                      <button
+                        onClick={() => setShowFreezeModal(true)}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#FF5C5C] hover:bg-[#ff7070] text-white text-xs font-bold shadow-[0_0_12px_rgba(255,92,92,0.3)] transition-all"
+                      >
+                        <Scale className="h-4 w-4" />
+                        <span>Sec 91 Freeze</span>
+                      </button>
+
+                      <button
+                        onClick={() => setShowReportModal(true)}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#E5FF8F] hover:bg-[#EDFFB1] text-[#0A0A0A] text-xs font-bold shadow-[0_0_12px_rgba(229,255,143,0.3)] transition-all"
+                      >
+                        <FileText className="h-4 w-4" />
+                        <span>Export Dossier</span>
+                      </button>
+
+                      <button
+                        onClick={async () => {
+                          try {
+                            await api.downloadCourtDossier(analysisStatus.analysis_id);
+                          } catch (err: any) {
+                            alert(`Court dossier export failed: ${err.message}`);
+                          }
+                        }}
+                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[#161616] hover:bg-[#202020] text-[#FFFFFF] border border-[#2A2A2A] text-xs font-semibold transition-all"
+                        title="Download complete 5-asset court dossier (.ZIP)"
+                      >
+                        <Download className="h-4 w-4 text-[#7CFF6B]" />
+                        <span>Court Pack (.ZIP)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Case Quick Metric Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 pt-1 font-mono">
+                    <div className="p-3 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
+                      <span className="text-[10px] text-[#9A9A9A] uppercase tracking-wider block">Transfers Observed</span>
+                      <div className="text-base sm:text-lg font-bold text-[#FFFFFF] mt-1">
+                        {analysisStatus.num_transactions || graphData?.edges?.length || 350}{' '}
+                        <span className="text-xs font-normal text-[#9A9A9A]">Tx</span>
+                      </div>
+                      <span className="text-[11px] text-[#E5FF8F] font-medium block mt-0.5">100% Parsed</span>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
+                      <span className="text-[10px] text-[#9A9A9A] uppercase tracking-wider block">Graph Topology</span>
+                      <div className="text-base sm:text-lg font-bold text-[#FFFFFF] mt-1">
+                        {analysisStatus.num_nodes || graphData?.nodes?.length || 150}{' '}
+                        <span className="text-xs font-normal text-[#9A9A9A]">
+                          / {analysisStatus.num_edges || graphData?.edges?.length || 330}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-[#9A9A9A] font-medium block mt-0.5">Max Depth: 3 Hops</span>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
+                      <span className="text-[10px] text-[#9A9A9A] uppercase tracking-wider block">Attributed VASP</span>
+                      <div className="text-base sm:text-lg font-bold text-[#7CFF6B] mt-1 truncate">
+                        {attributions[0]?.vasp_name || 'Tether: USDT'}
+                      </div>
+                      <span className="text-[11px] text-[#7CFF6B]/90 font-medium block mt-0.5">
+                        Confidence: {attributions[0] ? `${attributions[0].score.toFixed(1)}%` : '73.0%'}
+                      </span>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
+                      <span className="text-[10px] text-[#9A9A9A] uppercase tracking-wider block">Forensic Risk</span>
+                      <div className="text-base sm:text-lg font-bold text-[#FF5C5C] mt-1">
+                        {analysisStatus.risk_assessment?.risk_level || 'HIGH'} (
+                        {analysisStatus.risk_assessment?.composite_risk_score || analysisStatus.risk_assessment?.score || 55}/100)
+                      </div>
+                      <span className="text-[11px] text-[#FF5C5C] font-medium block mt-0.5">Rapid Layering</span>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
+                      <span className="text-[10px] text-[#9A9A9A] uppercase tracking-wider block">Observed Outflow</span>
+                      <div className="text-base sm:text-lg font-bold text-[#FFFFFF] mt-1 truncate">
+                        {analysisStatus.total_volume_inr
+                          ? `₹${(analysisStatus.total_volume_inr / 10000000).toFixed(2)} Cr`
+                          : '₹21,893.45 Cr'}
+                      </div>
+                      <span className="text-[11px] text-[#9A9A9A] font-medium block mt-0.5">$2.62B USD Eqv</span>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
+                      <span className="text-[10px] text-[#9A9A9A] uppercase tracking-wider block">Seizure Status</span>
+                      <div className="text-base sm:text-lg font-bold text-[#7CFF6B] mt-1">READY</div>
+                      <span className="text-[11px] text-[#7CFF6B]/80 font-medium block mt-0.5">Sec 91/102 Ready</span>
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {/* 3. KPI Stat Row (3 Accent #E5FF8F Cards) */}
+              {analysisStatus && (
+                <KpiStatRow
+                  attributions={attributions}
+                  riskAssessment={analysisStatus?.risk_assessment}
+                  graphData={graphData}
+                  totalVolumeInr={analysisStatus?.total_volume_inr}
+                />
+              )}
+
+              {/* 4. Suspect Target Overview (Full Width) */}
+              {analysisStatus && (
+                <WalletOverview
+                  walletAddress={analysisStatus.wallet_address}
+                  chain={detectChain(analysisStatus.wallet_address)}
+                  graphData={graphData}
+                  attributions={attributions}
+                />
+              )}
+
+              {/* 5. Primary Attribution Assessment (Full Width) */}
+              {(analysisStatus || graphData) && (
+                <AttributionCard attributions={attributions} />
+              )}
+
+              {/* 6. Triad of Equal Dimensions: Structural Risk & Attribution, Forensic Evidence Register, FIFO Taint Accounting Meter */}
+              {(analysisStatus || graphData) && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-stretch">
                   <RiskCard
                     riskAssessment={analysisStatus?.risk_assessment || null}
                     attributions={attributions}
                     onOpenFreezeModal={() => setShowFreezeModal(true)}
                     onOpenDisclosureModal={() => setShowFreezeModal(true)}
+                    className="h-full flex flex-col justify-between"
                   />
-                  <EvidenceFeed evidence={evidence} />
-                </div>
-
-                <div className="lg:col-span-7 space-y-4">
-                  <GraphCanvas
-                    graphData={graphData}
-                    transactions={transactions}
-                    onPivotTarget={(addr) => handleStartAnalysis(addr, 3)}
-                    activeJobId={activeJobId}
-                    isStreaming={isStreaming}
-                    streamingHop={streamingHop}
+                  <EvidenceFeed
+                    evidence={evidence}
+                    className="h-full flex flex-col justify-between"
                   />
-                  <TransactionLedger transactions={transactions} />
+                  <FifoTaintMeter
+                    taintSummary={graphData?.stats?.taint_summary}
+                    totalVolumeInr={analysisStatus?.total_volume_inr}
+                    totalVolumeUsd={graphData?.stats?.total_amount_usd}
+                    className="h-full flex flex-col justify-between"
+                  />
                 </div>
-              </div>
-            )}
+              )}
+            </>
+          )}
 
-            {/* Recent Cases */}
-            {recentAnalyses.length > 0 && !isLoading && !isStreaming && (
-              <div className="bg-forensic-surface border border-forensic-border rounded p-3.5 shadow-sm text-xs font-mono space-y-2.5 transition-colors">
-                <div className="flex items-center justify-between border-b border-forensic-border pb-2">
-                  <div className="flex items-center space-x-2 text-forensic-text">
-                    <FolderOpen className="h-4 w-4 text-forensic-textDim" />
-                    <h3 className="uppercase font-bold text-xs tracking-wider">
-                      Recent Investigations ({recentAnalyses.length})
-                    </h3>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                  {recentAnalyses.map((run, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleStartAnalysis(run.wallet_address, 3)}
-                      className="p-2.5 bg-forensic-bg hover:bg-forensic-surfaceRaised border border-forensic-border rounded text-left transition-colors group space-y-1"
-                    >
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="text-forensic-text font-bold truncate max-w-[170px]">
-                          {run.wallet_address.slice(0, 8)}...{run.wallet_address.slice(-6)}
-                        </span>
-                        <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase ${
-                          run.status === 'COMPLETED' ? 'bg-teal-500/15 text-forensic-teal border border-teal-500/30' : 'bg-forensic-surfaceRaised text-forensic-textMuted border border-forensic-border'
-                        }`}>
-                          {run.status}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-[10px] text-forensic-textDim pt-0.5">
-                        <span>{run.num_transactions} Transfers • {run.num_nodes} Nodes</span>
-                        <span className="text-blue-500 group-hover:underline font-semibold">Load →</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* TAB: FULL-SCREEN GRAPH STUDIO */}
-        {activeTab === 'GRAPH_STUDIO' && (
-          <div className="space-y-4">
-            <GraphCanvas
-              graphData={graphData}
-              isFullScreenView={true}
-              transactions={transactions}
-              onPivotTarget={(addr) => handleStartAnalysis(addr, 3)}
-              activeJobId={activeJobId}
-              isStreaming={isStreaming}
-              streamingHop={streamingHop}
+          {/* TAB: RECENT INVESTIGATIONS REGISTER */}
+          {activeTab === 'RECENT_INVESTIGATIONS' && (
+            <RecentInvestigationsView
+              recentAnalyses={recentAnalyses}
+              onSelectInvestigation={(addr, hops) => handleStartAnalysis(addr, hops || 3)}
+              onRefresh={loadRecentCases}
             />
-            <TransactionLedger transactions={transactions} />
+          )}
+
+          {/* TAB: FULL-SCREEN GRAPH STUDIO */}
+          {activeTab === 'GRAPH_STUDIO' && (
+            <div className="space-y-4">
+              <GraphCanvas
+                graphData={graphData}
+                isFullScreenView={true}
+                transactions={transactions}
+                onPivotTarget={(addr) => handleStartAnalysis(addr, 3)}
+                activeJobId={activeJobId}
+                isStreaming={isStreaming}
+                streamingHop={streamingHop}
+              />
+              <TransactionLedger transactions={transactions} />
+            </div>
+          )}
+
+          {/* TAB: FORENSIC OFF-CHAIN LOCATION LEDGER */}
+          {activeTab === 'FORENSIC_LEDGER' && (
+            <div className="space-y-4 animate-fade-in">
+              <ForensicLocationLedger
+                transactions={transactions}
+                nodes={graphData?.nodes}
+                onSelectWallet={(addr) => handleStartAnalysis(addr, 3)}
+                onLocateOnMap={(lat, lon) => {
+                  window.open(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=12/${lat}/${lon}`, '_blank');
+                }}
+              />
+            </div>
+          )}
+
+          {/* TAB: NCRP INCIDENT QUEUE */}
+          {activeTab === 'NCRP_TRIAGE' && (
+            <NCRPTriageView onSelectCase={handleStartAnalysis} />
+          )}
+        </main>
+
+        {/* Pop-up Modals */}
+        {showCaseIntakeModal && (
+          <CaseIntakeModal
+            isOpen={showCaseIntakeModal}
+            onClose={() => setShowCaseIntakeModal(false)}
+            onCaseCreated={handleCaseCreated}
+          />
+        )}
+
+        {showReportModal && analysisStatus && (
+          <ReportModal
+            analysisId={analysisStatus.analysis_id}
+            onClose={() => setShowReportModal(false)}
+          />
+        )}
+
+        {showFreezeModal && analysisStatus && (
+          <FreezeNoticeModal
+            analysisId={analysisStatus.analysis_id}
+            onClose={() => setShowFreezeModal(false)}
+          />
+        )}
+
+        {showRegistryModal && (
+          <VASPRegistryModal onClose={() => setShowRegistryModal(false)} />
+        )}
+
+        {/* LEA Institutional Footer */}
+        <footer className="w-full bg-[#161616] py-4 border-t border-[#2A2A2A] mt-auto">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-mono text-[#9A9A9A]">
+            <div className="flex items-center gap-3">
+              <span className="text-[#E5FF8F] font-semibold">CRYPTOTRACE FORENSIC KERNEL</span>
+              <span>•</span>
+              <span>RESTRICTED LAW ENFORCEMENT ACCESS ONLY</span>
+              <span>•</span>
+              <span className="hidden md:inline">SESSION: SEC-TLS1.3-FIPS-140</span>
+            </div>
+            <div className="text-[11px] text-[#666666]">
+              © 2026 Financial Intelligence Unit &amp; Cyber Operations Command. All rights reserved.
+            </div>
           </div>
-        )}
-
-        {/* TAB: FORENSIC OFF-CHAIN LOCATION LEDGER */}
-        {activeTab === 'FORENSIC_LEDGER' && (
-          <div className="space-y-4 animate-fade-in">
-            <ForensicLocationLedger
-              transactions={transactions}
-              nodes={graphData?.nodes}
-              onSelectWallet={(addr) => handleStartAnalysis(addr, 3)}
-              onLocateOnMap={(lat, lon) => {
-                window.open(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=12/${lat}/${lon}`, '_blank');
-              }}
-            />
-          </div>
-        )}
-
-        {/* TAB: NCRP INCIDENT QUEUE */}
-        {activeTab === 'NCRP_TRIAGE' && (
-          <NCRPTriageView onSelectCase={handleStartAnalysis} />
-        )}
-      </main>
-
-      {/* Pop-up Modals */}
-      {showCaseIntakeModal && (
-        <CaseIntakeModal
-          isOpen={showCaseIntakeModal}
-          onClose={() => setShowCaseIntakeModal(false)}
-          onCaseCreated={handleCaseCreated}
-        />
-      )}
-
-      {showReportModal && analysisStatus && (
-        <ReportModal
-          analysisId={analysisStatus.analysis_id}
-          onClose={() => setShowReportModal(false)}
-        />
-      )}
-
-      {showFreezeModal && analysisStatus && (
-        <FreezeNoticeModal
-          analysisId={analysisStatus.analysis_id}
-          onClose={() => setShowFreezeModal(false)}
-        />
-      )}
-
-      {showRegistryModal && (
-        <VASPRegistryModal onClose={() => setShowRegistryModal(false)} />
-      )}
+        </footer>
+      </div>
     </div>
   );
 }

@@ -2794,7 +2794,8 @@
         }, 600);
 
         // Modal
-        function openConsole() { window.top.location.href = "/app"; return;
+        function openConsole() {
+            window.top.location.href = "/app"; return;
             const modal = document.getElementById('consoleModal');
             modal.classList.remove('hidden');
             document.body.style.overflow = 'hidden';
