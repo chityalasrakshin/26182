@@ -142,21 +142,23 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
     rawCat.includes('anonymiz')
   );
 
-  // Dynamically resolve entity name from backend attributes without ANY hardcoded fallbacks
-  const entityName = 
+  // 1. Resolve exact entity identity (Zero attribution bleed-over)
+  const entityIdentity = 
     nodeData?.entity_name || 
     nodeData?.entityName || 
     (isRoot ? (analysisStatus?.entity_name || analysisStatus?.entity_label) : null) ||
     (nodeData?.label && !nodeData.label.includes('0x') && !nodeData.label.startsWith('[TARGET]') && !nodeData.label.startsWith('Hop-') ? nodeData.label : null);
 
-  const vaspName = 
-    entityName || 
-    nodeData?.vasp_name || 
-    nodeData?.vaspName || 
-    attributions[0]?.vasp_name || 
+  // 2. Resolve display name strictly for the entity card title
+  const displayTitle = 
+    entityIdentity || 
+    (nodeData?.role === 'KNOWN_VASP' ? (nodeData?.vasp_name || nodeData?.vaspName) : null) ||
     (isRoot 
-      ? (isSanctioned ? 'Sanctioned Threat Actor' : isExploit ? 'Exploit Drainer Entity' : 'Suspect Target Wallet') 
-      : 'External Wallet');
+      ? (isSanctioned ? 'Sanctioned Threat Actor' : isExploit ? 'Exploit Drainer Entity' : 'Unknown Suspect Wallet') 
+      : 'External Counterparty');
+
+  // 3. Isolated nearest downstream VASP attribution
+  const topAttribution = attributions && attributions.length > 0 ? attributions[0] : null;
 
   const rawRiskScore = analysisStatus?.risk_assessment?.composite_risk_score ?? analysisStatus?.risk_assessment?.score;
   const riskScore = (isSanctioned || isExploit) ? (rawRiskScore ? Math.max(rawRiskScore, 95) : 100) : (rawRiskScore ?? 0);
@@ -329,8 +331,8 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
 
         {/* Address and Entity Display */}
         <div>
-          <h3 className="font-bold text-sm text-[#0F172A] truncate" title={vaspName}>
-            {vaspName}
+          <h3 className="font-bold text-sm text-[#0F172A] truncate" title={displayTitle}>
+            {displayTitle}
           </h3>
           <p className="font-mono text-[11px] text-[#64748B] truncate select-all mt-0.5">
             {activeAddress || 'No active target loaded'}
@@ -371,7 +373,7 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
                 </span>
               </div>
               <p className="text-xs font-bold truncate">
-                {entityName || (isSanctioned ? 'Designated Sanctioned Entity' : isExploit ? 'Protocol Exploit Actor' : isMixer ? 'Cryptographic Tumbler Protocol' : 'High-Risk Suspect Target')}
+                {entityIdentity || (isSanctioned ? 'Designated Sanctioned Entity' : isExploit ? 'Protocol Exploit Actor' : isMixer ? 'Cryptographic Tumbler Protocol' : 'High-Risk Suspect Target')}
               </p>
               <p className="text-[10px] leading-snug opacity-90">
                 {isSanctioned
@@ -609,28 +611,84 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
               </div>
             </div>
 
-            {/* VASP Cluster Attribution */}
-            <div className="p-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-[10px] font-bold text-[#64748B] uppercase tracking-wider">
-                  VASP Attribution &amp; Jurisdiction
-                </span>
-                <span className={`font-bold text-[10px] px-2 py-0.5 rounded border ${attributions.length > 0 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-slate-600 bg-slate-100 border-slate-200'}`}>
-                  {attributions.length > 0 ? `${Math.round(attributions[0].score)}% MATCH` : 'UNATTRIBUTED'}
-                </span>
-              </div>
-              <div className="flex items-start space-x-3 pt-1">
-                <div className="p-2 rounded-lg bg-white border border-[#E2E8F0] text-[#0284C7] shrink-0">
-                  <Building2 className="h-4 w-4" />
+            {/* Dedicated Nearest Identified VASP Intelligence Card */}
+            {isRoot && topAttribution && (
+              <div className="p-4 bg-emerald-50/50 border border-emerald-200/80 rounded-xl space-y-3 shadow-xs animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span className="font-mono text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
+                      Nearest Identified VASP
+                    </span>
+                  </div>
+                  <span className="font-mono font-bold text-[10px] px-2 py-0.5 rounded-full text-emerald-700 bg-emerald-100 border border-emerald-300">
+                    {Math.round(topAttribution.score || 0)}% Confidence
+                  </span>
                 </div>
-                <div>
-                  <h4 className="font-bold text-xs text-[#0F172A]">{vaspName}</h4>
-                  <p className="text-[11px] text-[#64748B] mt-0.5">
-                    {attributions[0]?.summary || (attributions.length > 0 ? 'Designated compliance reporting entity.' : 'No recognized VASP cluster matched on-chain.')}
-                  </p>
+
+                <div className="flex items-start space-x-3">
+                  <div className="p-2.5 rounded-xl bg-white border border-emerald-200 text-emerald-600 shadow-xs shrink-0">
+                    <Building2 className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-bold text-sm text-[#0F172A] truncate">
+                      {topAttribution.vasp_name}
+                    </h4>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-white border border-emerald-200 text-emerald-800">
+                        {topAttribution.metrics?.shortest_hop !== undefined
+                          ? `Hop ${topAttribution.metrics.shortest_hop} ${topAttribution.metrics.shortest_hop === 1 ? 'Direct Deposit' : 'via Mixer'}`
+                          : 'Hop 1 Direct Deposit'}
+                      </span>
+                      <span className="text-[10px] text-[#64748B] font-mono">
+                        {topAttribution.evidence_strength ? `${topAttribution.evidence_strength} Strength` : 'High Nexus'}
+                      </span>
+                    </div>
+                    {topAttribution.summary && (
+                      <p className="text-[11px] text-[#64748B] mt-1.5 leading-snug">
+                        {topAttribution.summary}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onOpenFreeze}
+                  className="w-full py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm transition-all flex items-center justify-center gap-2 mt-1"
+                >
+                  <Scale className="h-3.5 w-3.5" />
+                  <span>Route Section 91 CrPC Request via SAHYOG</span>
+                </button>
+              </div>
+            )}
+
+            {/* General VASP Attribution Card when not root or no attribution */}
+            {(!isRoot || !topAttribution) && (
+              <div className="p-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[10px] font-bold text-[#64748B] uppercase tracking-wider">
+                    VASP Attribution &amp; Jurisdiction
+                  </span>
+                  <span className={`font-bold text-[10px] px-2 py-0.5 rounded border ${attributions.length > 0 ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-slate-600 bg-slate-100 border-slate-200'}`}>
+                    {attributions.length > 0 ? `${Math.round(attributions[0].score)}% MATCH` : 'UNATTRIBUTED'}
+                  </span>
+                </div>
+                <div className="flex items-start space-x-3 pt-1">
+                  <div className="p-2 rounded-lg bg-white border border-[#E2E8F0] text-[#0284C7] shrink-0">
+                    <Building2 className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-xs text-[#0F172A]">
+                      {nodeData?.role === 'KNOWN_VASP' ? (nodeData?.vasp_name || nodeData?.vaspName || displayTitle) : (topAttribution?.vasp_name || 'Unattributed Entity')}
+                    </h4>
+                    <p className="text-[11px] text-[#64748B] mt-0.5">
+                      {topAttribution?.summary || (attributions.length > 0 ? 'Designated compliance reporting entity.' : 'No recognized VASP cluster matched on-chain.')}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* FIFO Taint Haircut Meter */}
             <div className="p-4 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl space-y-2.5">
