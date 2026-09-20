@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Shield, Bell, Calendar, UserCheck, ChevronLeft, ChevronRight, Activity, Terminal } from 'lucide-react';
+import Link from 'next/link';
+import { Shield, Bell, Calendar, UserCheck, ChevronLeft, ChevronRight, Activity, Terminal, Zap } from 'lucide-react';
 import { UserAuth } from '../lib/types';
 import { ActiveTabType } from './Navbar';
 
@@ -124,6 +125,16 @@ export const TopBar: React.FC<TopBarProps> = ({
           >
             Forensic Ledger
           </button>
+          <Link
+            href="/forensics"
+            className="px-2.5 py-1 rounded-md font-sans text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 transition-all flex items-center gap-1.5 shadow-2xs"
+          >
+            <Zap className="w-3 h-3 text-sky-600" />
+            <span>Reactor Forensics</span>
+            <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-sky-600 text-white uppercase tracking-tight">
+              REACTOR
+            </span>
+          </Link>
         </div>
       )}
 

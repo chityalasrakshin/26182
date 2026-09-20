@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import {
   Shield,
   LayoutGrid,
@@ -13,6 +14,7 @@ import {
   Lock,
   Unlock,
   Activity,
+  Zap,
 } from 'lucide-react';
 import { UserAuth } from '../lib/types';
 
@@ -131,6 +133,46 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Center: Nav Icon Stack */}
         <nav className="flex flex-col items-center space-y-2.5">
+          {/* Reactor Forensics Direct Route Link */}
+          <div
+            className="relative"
+            onMouseEnter={() => setHoveredTab('REACTOR_FORENSICS')}
+            onMouseLeave={() => setHoveredTab(null)}
+          >
+            <Link
+              href="/forensics"
+              className="h-11 w-11 rounded-xl flex items-center justify-center transition-all bg-slate-900 hover:bg-slate-800 text-sky-400 hover:text-white shadow-sm border border-slate-700/60 relative group"
+              aria-label="Reactor Forensics"
+            >
+              <Zap className="h-5 w-5 stroke-[2.2] text-sky-400 group-hover:scale-110 transition-transform" />
+              <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full text-[7px] font-mono font-extrabold bg-sky-500 text-white shadow-xs uppercase">
+                RX
+              </span>
+            </Link>
+
+            {/* Floating Tooltip */}
+            {hoveredTab === 'REACTOR_FORENSICS' && (
+              <div className="absolute left-[58px] top-1/2 -translate-y-1/2 z-50 pointer-events-none pl-3 animate-fade-in">
+                <div className="bg-[#0F172A] border border-slate-800 text-left p-2.5 rounded-xl shadow-2xl min-w-[220px] whitespace-nowrap">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-sans font-bold text-xs text-white flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Reactor Forensics</span>
+                    </span>
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded font-bold bg-sky-500 text-white uppercase tracking-wider">
+                      REACTOR
+                    </span>
+                  </div>
+                  <p className="text-[11px] font-sans text-slate-400 mt-1 leading-tight">
+                    High-density law enforcement cyber-forensics canvas
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="w-6 h-[1px] bg-[#E2E8F0] my-0.5" />
+
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
