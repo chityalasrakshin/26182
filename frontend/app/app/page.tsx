@@ -2,25 +2,19 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Navbar, ActiveTabType } from '../../components/Navbar';
-import { WalletSearch } from '../../components/WalletSearch';
-import { LiveProgress } from '../../components/LiveProgress';
-import { AttributionCard } from '../../components/AttributionCard';
-import { RiskCard } from '../../components/RiskCard';
-import { FifoTaintMeter } from '../../components/FifoTaintMeter';
+import { TopBar } from '../../components/TopBar';
 import { GraphCanvas } from '../../components/GraphCanvas';
-import { EvidenceFeed } from '../../components/EvidenceFeed';
-import { TransactionLedger } from '../../components/TransactionLedger';
+import { InspectorSidebar } from '../../components/InspectorSidebar';
+import { ComplianceOverviewView } from '../../components/ComplianceOverviewView';
 import { ReportModal } from '../../components/ReportModal';
 import { FreezeNoticeModal } from '../../components/FreezeNoticeModal';
 import { NCRPTriageView } from '../../components/NCRPTriageView';
 import { VASPRegistryModal } from '../../components/VASPRegistryModal';
 import { CaseIntakeModal } from '../../components/CaseIntakeModal';
 import { CaseManagementView } from '../../components/CaseManagementView';
-import { WalletOverview } from '../../components/WalletOverview';
 import { ForensicLocationLedger } from '../../components/ForensicLocationLedger';
 import { RecentInvestigationsView } from '../../components/RecentInvestigationsView';
-import { TopBar } from '../../components/TopBar';
-import { KpiStatRow } from '../../components/KpiStatRow';
+import { TransactionLedger } from '../../components/TransactionLedger';
 import { api } from '../../lib/api';
 import {
   AnalysisStatus,
@@ -38,32 +32,66 @@ import {
   Copy,
   Check,
   Scale,
-  FolderOpen,
   Network,
   Download,
   Plus,
+  Search,
+  Radar,
+  Activity,
+  Layers,
+  SlidersHorizontal,
+  ChevronRight,
+  Shield,
+  Building2,
 } from 'lucide-react';
 
+function extractCleanAddress(input: string): string {
+  if (!input) return '';
+  const trimmed = input.trim();
+  
+  // EVM 0x address (case-insensitive)
+  const ethMatch = trimmed.match(/0x[a-fA-F0-9]{40}/);
+  if (ethMatch) return ethMatch[0];
+
+  // Tron T... address (34 chars base58)
+  const tronMatch = trimmed.match(/T[a-zA-Z0-9]{33}/);
+  if (tronMatch) return tronMatch[0];
+
+  // Bitcoin addresses (bc1... or 1... or 3...)
+  const btcMatch = trimmed.match(/(?:bc1|[13])[a-zA-HJ-NP-Z0-9]{25,39}/);
+  if (btcMatch) return btcMatch[0];
+
+  // Solana base58 address
+  const solMatch = trimmed.match(/[1-9A-HJ-NP-Za-km-z]{32,44}/);
+  if (solMatch) return solMatch[0];
+
+  return trimmed;
+}
+
 function detectChain(address: string): 'ethereum' | 'tron' | 'bitcoin' | 'solana' {
-  if (address.startsWith('0x')) return 'ethereum';
-  if (address.startsWith('T') && address.length === 34) return 'tron';
-  if (address.startsWith('1') || address.startsWith('3') || address.startsWith('bc1')) return 'bitcoin';
+  const clean = extractCleanAddress(address);
+  if (!clean) return 'ethereum';
+  if (clean.startsWith('0x')) return 'ethereum';
+  if (clean.startsWith('T') && clean.length === 34) return 'tron';
+  if (clean.startsWith('1') || clean.startsWith('3') || clean.startsWith('bc1')) return 'bitcoin';
   return 'solana';
 }
 
 function getExplorerUrl(address: string): string {
-  const chain = detectChain(address);
+  const clean = extractCleanAddress(address);
+  const chain = detectChain(clean);
   switch (chain) {
     case 'ethereum':
-      return `https://etherscan.io/address/${address}`;
+      return `https://etherscan.io/address/${clean}`;
     case 'tron':
-      return `https://tronscan.org/#/address/${address}`;
+      return `https://tronscan.org/#/address/${clean}`;
     case 'bitcoin':
-      return `https://mempool.space/address/${address}`;
+      return `https://mempool.space/address/${clean}`;
     case 'solana':
-      return `https://solscan.io/account/${address}`;
+      return `https://solscan.io/account/${clean}`;
   }
 }
+
 
 export default function InvestigationAppPage() {
   const [activeTab, setActiveTab] = useState<ActiveTabType>('WORKSPACE');
@@ -73,6 +101,14 @@ export default function InvestigationAppPage() {
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [transactions, setTransactions] = useState<NormalizedTransaction[]>([]);
   const [recentAnalyses, setRecentAnalyses] = useState<AnalysisStatus[]>([]);
+
+  // Selected node in Cytoscape for right-hand inspector
+  const [selectedNode, setSelectedNode] = useState<any | null>(null);
+
+  // Search input & parameters for Top Search HUD
+  const [searchInput, setSearchInput] = useState<string>('');
+  const [hops, setHops] = useState<number>(3);
+  const [selectedChainFilter, setSelectedChainFilter] = useState<'ALL' | 'ETH' | 'TRX' | 'BTC' | 'SOL'>('ALL');
 
   // Auth & Role state
   const [currentUser, setCurrentUser] = useState<UserAuth | null>(null);
@@ -138,7 +174,10 @@ export default function InvestigationAppPage() {
     }
   };
 
-  const handleStartAnalysis = async (walletAddress: string, maxHops: number = 3, existingJobId?: string) => {
+  const handleStartAnalysis = async (rawAddress: string, maxHops: number = 3, existingJobId?: string) => {
+    const walletAddress = extractCleanAddress(rawAddress);
+    if (!walletAddress) return;
+
     if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
     if (activeWsRef.current) {
       activeWsRef.current.close();
@@ -151,14 +190,48 @@ export default function InvestigationAppPage() {
     setStreamingHop(1);
     setAnalysisError(null);
     setLastSearchedAddress(walletAddress);
+    setSearchInput(walletAddress);
+    setSelectedNode(null);
+
+    // FLUSH old analysis state immediately to prevent showing stale wallet results
+    setAnalysisStatus(null);
+    setAttributions([]);
+    setEvidence([]);
+    setTransactions([]);
+
+    // 1. Instantaneous pre-flight intelligence lookup from label store
+    let preflight: any = null;
+    try {
+      preflight = await api.lookupAddress(walletAddress);
+    } catch (e) {
+      console.debug('Preflight lookup error:', e);
+    }
+
+    const isSanctioned = Boolean(preflight?.is_sanctioned);
+    const isExploit = !isSanctioned && Boolean(preflight?.is_exploit || preflight?.category === 'exploit' || preflight?.category === 'hack');
+    const entityName = preflight?.entity || preflight?.label || null;
+
     setGraphData({
       nodes: [
         {
           data: {
             id: walletAddress.toLowerCase(),
             address: walletAddress,
-            label: `[TARGET]\n${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`,
-            is_vasp: false,
+            label: isSanctioned
+              ? `🚨 TARGET (SANCTIONED)\n${entityName ? entityName + '\n' : ''}${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+              : isExploit
+              ? `⚠️ TARGET (EXPLOIT)\n${entityName ? entityName + '\n' : ''}${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+              : entityName
+              ? `[TARGET: ${entityName}]\n${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+              : `[TARGET]\n${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`,
+            is_vasp: Boolean(preflight?.is_vasp),
+            is_sanctioned: isSanctioned,
+            is_exploit: isExploit,
+            entity_name: entityName,
+            category: preflight?.category || (isSanctioned ? 'sanctioned' : isExploit ? 'exploit' : null),
+            risk_level: preflight?.risk_level || (isSanctioned || isExploit ? 'CRITICAL' : 'UNKNOWN'),
+            is_mixer: Boolean(preflight?.is_mixer),
+            sanctions_program: preflight?.notes || null,
             hop: 0,
             role: 'INPUT_WALLET',
             tx_count: 0,
@@ -176,12 +249,38 @@ export default function InvestigationAppPage() {
         max_hop_reached: 0,
       },
     });
-    setAttributions([]);
-    setEvidence([]);
-    setTransactions([]);
+
+    // If there is an existing completed analysis for this exact wallet in DB, load it instantaneously!
+    if (preflight?.cached_analysis_id) {
+      const cachedId = preflight.cached_analysis_id;
+      try {
+        const [cachedStatus, gData, attrs, evs, txs] = await Promise.all([
+          api.getAnalysisStatus(cachedId).catch(() => null),
+          api.getAnalysisGraph(cachedId).catch(() => null),
+          api.getAnalysisAttributions(cachedId).catch(() => []),
+          api.getAnalysisEvidence(cachedId).catch(() => []),
+          api.getAnalysisTransactions(cachedId).catch(() => []),
+        ]);
+        if (cachedStatus && cachedStatus.status === 'COMPLETED') {
+          setAnalysisStatus(cachedStatus);
+          if (gData && gData.nodes && gData.nodes.length > 0) {
+            setGraphData(gData);
+          }
+          setAttributions(attrs);
+          setEvidence(evs);
+          setTransactions(txs);
+          setIsLoading(false);
+          setIsStreaming(false);
+          loadRecentCases();
+          return;
+        }
+      } catch (cacheErr) {
+        console.warn('Instant cache load skipped, continuing to fresh trace:', cacheErr);
+      }
+    }
 
     try {
-      // 1. Launch Async Trace Orchestration (Phase 2 & Phase 7)
+      // 2. Launch Async Trace Orchestration
       let traceJobId = existingJobId;
       if (!traceJobId) {
         try {
@@ -195,11 +294,10 @@ export default function InvestigationAppPage() {
 
       if (traceJobId) {
         setActiveJobId(traceJobId);
-        // Connect live WebSocket stream
         connectTraceStreaming(traceJobId, walletAddress);
       }
 
-      // 2. Start Full Ingestion Analysis
+      // 3. Start Full Ingestion Analysis
       const initialStatus = await api.startAnalysis(walletAddress, maxHops);
       setAnalysisStatus(initialStatus);
 
@@ -245,157 +343,72 @@ export default function InvestigationAppPage() {
     }
   };
 
+
   // Real-time WebSocket trace streaming event subscriber
   const connectTraceStreaming = (jobId: string, rootAddress: string) => {
     try {
       const ws = api.connectTraceWebSocket(
         jobId,
-        (event: TraceStreamEvent) => {
-          if (event.event === 'JOB_STARTED') {
-            setIsStreaming(true);
-            setStreamingHop(0);
-          } else if (event.event === 'HOP_STARTED') {
-            setStreamingHop(event.hop);
-          } else if (event.event === 'NODE_DISCOVERED') {
-            const d = event.data;
-            const nodeAddr = (d.address || '').toLowerCase();
-            if (!nodeAddr) return;
-
-            setGraphData((prev) => {
-              const existingNodes = prev?.nodes || [];
-              if (existingNodes.some((n) => (n.data?.id || '').toLowerCase() === nodeAddr)) {
-                return prev;
-              }
-
-              const isVasp = !!d.is_vasp;
-              const isRoot = nodeAddr === rootAddress.toLowerCase() || event.hop === 0;
-              const rawCat = (d.category || d.entity || d.label || '').toLowerCase();
-
-              let nodeTag: any = 'unknown';
-              if (isRoot) nodeTag = 'target';
-              else if (isVasp || rawCat.includes('exchange') || rawCat.includes('binance') || rawCat.includes('okx')) nodeTag = 'exchange';
-              else if (rawCat.includes('mixer') || rawCat.includes('tornado')) nodeTag = 'mixer';
-              else if (rawCat.includes('sanction') || rawCat.includes('ofac') || d.risk_level === 'CRITICAL') nodeTag = 'sanctioned';
-
-              const shortAddr = `${nodeAddr.slice(0, 6)}...${nodeAddr.slice(-4)}`;
-              const label = isRoot
-                ? `[TARGET]\n${shortAddr}`
-                : isVasp
-                  ? `[${(d.entity || d.vasp_name || 'VASP').toUpperCase()}]\n${shortAddr}`
-                  : `${shortAddr}\n(Hop ${event.hop})`;
-
-              const newNode = {
-                data: {
-                  id: nodeAddr,
-                  address: nodeAddr,
-                  label,
-                  is_vasp: isVasp,
-                  vasp_name: d.vasp_name || (isVasp ? d.entity : undefined),
-                  hop: event.hop,
-                  role: (isRoot ? 'INPUT_WALLET' : isVasp ? 'KNOWN_VASP' : 'INTERMEDIARY') as any,
-                  category: nodeTag,
-                  tag: nodeTag,
-                  risk_level: d.risk_level || 'LOW',
-                  tx_count: 1,
-                  total_inflow: 0,
-                  total_outflow: 0,
-                },
-              };
-
-              return {
-                nodes: [...existingNodes, newNode],
-                edges: prev?.edges || [],
-                stats: prev?.stats || {
-                  root_wallet: rootAddress,
-                  total_nodes: existingNodes.length + 1,
-                  total_edges: prev?.edges?.length || 0,
-                  vasp_nodes_found: isVasp ? 1 : 0,
-                  max_hop_reached: event.hop,
-                },
-              };
-            });
-          } else if (event.event === 'EDGE_ADDED') {
-            const d = event.data;
-            const src = (d.source || '').toLowerCase();
-            const tgt = (d.target || '').toLowerCase();
-            if (!src || !tgt) return;
-
-            setGraphData((prev) => {
-              const existingEdges = prev?.edges || [];
-              const edgeKey = `${src}_${tgt}_${d.tx_hash || ''}`;
-              if (existingEdges.some((e) => (e.data?.id || '') === edgeKey)) {
-                return prev;
-              }
-
-              const newEdge = {
-                data: {
-                  id: edgeKey,
-                  source: src,
-                  target: tgt,
-                  tx_hash: d.tx_hash || '',
-                  asset_symbol: d.asset_symbol || 'ETH',
-                  amount: Number(d.amount || 0),
-                  timestamp: new Date().toISOString(),
-                  hop: event.hop,
-                },
-              };
-
-              return {
-                nodes: prev?.nodes || [],
-                edges: [...existingEdges, newEdge],
-                stats: prev?.stats || {
-                  root_wallet: rootAddress,
-                  total_nodes: prev?.nodes?.length || 0,
-                  total_edges: existingEdges.length + 1,
-                  vasp_nodes_found: 0,
-                  max_hop_reached: event.hop,
-                },
-              };
-            });
-          } else if (event.event === 'VASP_REACHED') {
-            const d = event.data;
-            const vName = d.vasp_name || d.entity;
-            if (vName) {
-              setAttributions((prev) => {
-                if (prev.some((a) => a.vasp_name === vName)) return prev;
-                const hopCount = d.hop || 1;
-                const dynamicScore = typeof d.score === 'number' ? d.score : Math.max(50, 95 - (hopCount - 1) * 10);
-                return [
-                  ...prev,
-                  {
-                    vasp_name: vName,
-                    score: dynamicScore,
-                    evidence_strength: d.evidence_strength || (hopCount <= 2 ? 'High' : 'Medium'),
-                    rank: prev.length + 1,
-                    summary: d.summary || `Direct trace path identified to ${vName} deposit cluster at hop ${hopCount}.`,
-                    metrics: {
-                      shortest_hop: hopCount,
-                      total_cluster_flow: Number(d.amount || 0),
-                      total_interactions: Number(d.tx_count || 1),
-                      breakdown: d.breakdown || {
-                        proximity_score: Math.max(10, 100 - hopCount * 15),
-                        flow_score: 80,
-                        frequency_score: 75,
-                        behavioral_score: 80,
-                        recency_score: 85,
-                      },
-                    },
-                  },
-                ];
-              });
-            }
-          } else if (event.event === 'TRACE_COMPLETED') {
-            setIsStreaming(false);
-          }
+        (payload: TraceStreamEvent) => {
+          handleTraceStreamMessage(payload, rootAddress);
         },
-        () => setIsStreaming(false),
-        () => setIsStreaming(false)
+        (err) => {
+          console.warn('[TraceStream] WebSocket error:', err);
+        },
+        () => {
+          console.log(`[TraceStream] Connection closed for job ${jobId}`);
+        }
       );
-
       activeWsRef.current = ws;
-    } catch (wsErr) {
-      console.warn('WebSocket stream error (falling back to standard polling):', wsErr);
+    } catch (e) {
+      console.warn('[TraceStream] WebSocket subscription failed:', e);
+    }
+  };
+
+  const handleTraceStreamMessage = (event: TraceStreamEvent, rootAddress: string) => {
+    const eventType = ((event as any).type || event.event || '').toLowerCase();
+    const data = event.data || (event as any);
+    const hop = event.hop ?? (data?.hop || 1);
+
+    if (eventType === 'hop_start' || eventType === 'hop_started') {
+      setStreamingHop(hop);
+    }
+
+    if (eventType === 'hop_completed' || eventType === 'hop_done') {
+      setStreamingHop(hop + 1);
+      if (data.nodes && data.nodes.length > 0) {
+        setGraphData((prev) => {
+          if (!prev) return null;
+          const existingIds = new Set(prev.nodes.map((n: any) => (n.data?.id || n.id).toLowerCase()));
+          const newNodes = data.nodes
+            .filter((n: any) => !existingIds.has((n.data?.id || n.id).toLowerCase()))
+            .map((n: any) => (n.data ? n : { data: n }));
+
+          const existingEdgeIds = new Set(prev.edges.map((e: any) => (e.data?.id || e.id || '')));
+          const newEdges = (data.edges || [])
+            .filter((e: any) => !existingEdgeIds.has(e.data?.id || e.id || ''))
+            .map((e: any) => (e.data ? e : { data: e }));
+
+          return {
+            ...prev,
+            nodes: [...prev.nodes, ...newNodes],
+            edges: [...prev.edges, ...newEdges],
+            stats: {
+              ...prev.stats,
+              total_nodes: prev.nodes.length + newNodes.length,
+              total_edges: prev.edges.length + newEdges.length,
+            },
+          };
+        });
+      }
+    }
+
+    if (eventType === 'trace_completed' || eventType === 'trace_failed') {
       setIsStreaming(false);
+      if (activeWsRef.current) {
+        activeWsRef.current.close();
+        activeWsRef.current = null;
+      }
     }
   };
 
@@ -409,8 +422,18 @@ export default function InvestigationAppPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = extractCleanAddress(searchInput);
+    if (!clean) return;
+    setSearchInput(clean);
+    handleStartAnalysis(clean, hops);
+  };
+
+
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-[#FFFFFF] flex flex-col font-sans transition-colors select-text">
+    <div className="h-screen w-screen bg-[#F4F6F8] text-[#0F172A] flex flex-col font-sans transition-colors select-text overflow-hidden">
+      {/* Left Navigation Rail */}
       <Navbar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
@@ -421,346 +444,249 @@ export default function InvestigationAppPage() {
         recentAnalysesCount={recentAnalyses.length}
       />
 
-      <div className="pl-[68px] flex-1 flex flex-col min-h-screen">
+      {/* Main Content Area (Offset by left navbar 68px) */}
+      <div className="pl-[68px] flex-1 flex flex-col h-screen overflow-hidden">
+        {/* Top Header Bar */}
         <TopBar
           activeTab={activeTab}
+          onSelectTab={setActiveTab}
           currentUser={currentUser}
           onSwitchRole={handleSwitchRole}
           onOpenCaseIntake={() => setShowCaseIntakeModal(true)}
         />
 
-        <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-          {/* Page Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 select-none pb-1">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-[#FFFFFF] tracking-tight">
-                {activeTab === 'WORKSPACE' ? (
-                  <>Target Case <span className="text-[#E5FF8F]">Intelligence</span></>
-                ) : activeTab === 'CASES_AUDIT' ? (
-                  <>Cases &amp; Statutory <span className="text-[#E5FF8F]">Register</span></>
-                ) : activeTab === 'RECENT_INVESTIGATIONS' ? (
-                  <>Recent Target <span className="text-[#E5FF8F]">Investigations</span></>
-                ) : activeTab === 'GRAPH_STUDIO' ? (
-                  <>Graph Studio <span className="text-[#E5FF8F]">Forensics</span></>
-                ) : activeTab === 'FORENSIC_LEDGER' ? (
-                  <>Off-Chain Forensic <span className="text-[#E5FF8F]">Ledger</span></>
-                ) : (
-                  <>NCRP Incident <span className="text-[#E5FF8F]">Triage</span></>
-                )}
-              </h1>
-              <p className="text-xs text-[#9A9A9A] font-sans mt-1">
-                Multi-hop cryptographic graph attribution &amp; statutory evidence compilation
-              </p>
-            </div>
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {/* TAB 1: WORKSPACE / INVESTIGATE (Chainalysis Reactor Split Layout) */}
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {activeTab === 'WORKSPACE' && (
+          <div className="flex-1 flex flex-row overflow-hidden w-full h-[calc(100vh-64px)]">
+            {/* Left/Center Area: Canvas + Floating Top Search HUD */}
+            <div className="flex-1 h-full relative overflow-hidden flex flex-col bg-[#F4F6F8]">
+              {/* Top Search HUD */}
+              <div className="bg-white border-b border-[#E2E8F0] px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs font-mono shadow-2xs z-10">
+                <form onSubmit={handleSearchSubmit} className="flex flex-1 items-center gap-2 max-w-3xl">
+                  {/* Chain Selector Pills */}
+                  <div className="flex items-center bg-[#F1F5F9] p-0.5 rounded-lg border border-[#E2E8F0] shrink-0">
+                    {(['ALL', 'ETH', 'TRX', 'BTC', 'SOL'] as const).map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setSelectedChainFilter(c)}
+                        className={`px-2.5 py-1 rounded text-[11px] font-bold transition-all ${
+                          selectedChainFilter === c
+                            ? 'bg-white text-[#0284C7] shadow-xs border border-[#E2E8F0]'
+                            : 'text-[#64748B] hover:text-[#0F172A]'
+                        }`}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
 
-            <div className="flex items-center gap-2.5">
-              {analysisStatus && (
-                <button
-                  type="button"
-                  onClick={() => setShowReportModal(true)}
-                  className="px-4 py-2 rounded-full bg-[#E5FF8F] hover:bg-[#EDFFB1] text-[#0A0A0A] font-sans font-bold text-xs shadow-[0_0_15px_rgba(229,255,143,0.3)] transition-all flex items-center gap-1.5"
-                >
-                  <FileText className="h-3.5 w-3.5 stroke-[2.5]" />
-                  <span>Export Dossier</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setShowCaseIntakeModal(true)}
-                className="px-4 py-2 rounded-full bg-[#161616] hover:bg-[#1A1A1A] border border-[#2A2A2A] hover:border-[#E5FF8F]/60 text-[#FFFFFF] font-sans font-semibold text-xs transition-all flex items-center gap-1.5"
-              >
-                <Plus className="h-3.5 w-3.5 text-[#E5FF8F]" />
-                <span>New Case</span>
-              </button>
-            </div>
-          </div>
+                  {/* Search Input */}
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[#94A3B8]" />
+                    <input
+                      type="text"
+                      placeholder="Enter target wallet (0x...), Tron (T...), BTC, or Solana address..."
+                      value={searchInput}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.includes('http://') || val.includes('https://') || val.includes('etherscan.io') || val.includes('tronscan.org') || val.includes('mempool.space') || val.includes('solscan.io')) {
+                          setSearchInput(extractCleanAddress(val));
+                        } else {
+                          setSearchInput(val);
+                        }
+                      }}
+                      className="w-full bg-[#F8FAFC] border border-[#E2E8F0] rounded-lg pl-9 pr-3 py-1.5 text-xs text-[#0F172A] placeholder-[#94A3B8] focus:outline-none focus:border-[#0284C7] font-mono"
+                    />
+                  </div>
 
-          {/* TAB: CASES & AUDIT TRAIL */}
-          {activeTab === 'CASES_AUDIT' && (
-            <CaseManagementView
-              currentUser={currentUser}
-              onOpenCaseInWorkspace={(addr, hops) => handleStartAnalysis(addr, hops || 3)}
-              onOpenNewCaseIntake={() => setShowCaseIntakeModal(true)}
-              onSwitchRole={handleSwitchRole}
-            />
-          )}
+                  {/* Hop Selector */}
+                  <div className="flex items-center gap-1.5 shrink-0 bg-[#F8FAFC] px-2.5 py-1.5 rounded-lg border border-[#E2E8F0]">
+                    <span className="text-[10px] text-[#64748B] uppercase font-bold">Hops:</span>
+                    <select
+                      value={hops}
+                      onChange={(e) => setHops(Number(e.target.value))}
+                      className="bg-transparent text-xs font-bold text-[#0F172A] focus:outline-none cursor-pointer"
+                    >
+                      <option value={1}>1 Hop</option>
+                      <option value={2}>2 Hops</option>
+                      <option value={3}>3 Hops</option>
+                      <option value={4}>4 Hops</option>
+                    </select>
+                  </div>
 
-          {/* TAB: TARGET CASE WORKSPACE */}
-          {activeTab === 'WORKSPACE' && (
-            <>
-              <WalletSearch
-                onAnalyze={handleStartAnalysis}
-                isLoading={isLoading || isStreaming}
-              />
+                  {/* Submit Button */}
+                  <button
+                    type="submit"
+                    disabled={isLoading || isStreaming}
+                    className="px-4 py-1.5 bg-[#0284C7] hover:bg-[#0369A1] text-white rounded-lg font-bold text-xs shadow-sm transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                  >
+                    {isLoading || isStreaming ? (
+                      <>
+                        <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                        <span>Tracing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Network className="h-3.5 w-3.5" />
+                        <span>Trace</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
 
+              {/* Analysis Diagnostic Notification Banner */}
               {analysisError && (
-                <div className="bg-[#FF5C5C]/10 border border-[#FF5C5C]/30 text-[#FF5C5C] p-4 rounded-2xl flex items-center justify-between font-mono text-xs shadow-sm">
-                  <div className="space-y-1">
-                    <div className="flex items-center space-x-2 font-bold">
-                      <span className="text-sm">⚠️</span>
-                      <span className="uppercase tracking-wider">Analysis Diagnostic Notice</span>
-                    </div>
-                    <p className="text-[#9A9A9A]">{analysisError}</p>
+                <div className="bg-[#FEF2F2] border-b border-[#FECACA] text-[#DC2626] px-4 py-2 flex items-center justify-between font-mono text-xs shrink-0">
+                  <div className="flex items-center space-x-2">
+                    <span>⚠️</span>
+                    <span>{analysisError}</span>
                   </div>
                   {lastSearchedAddress && (
                     <button
-                      onClick={() => handleStartAnalysis(lastSearchedAddress)}
-                      className="px-4 py-2 bg-[#FF5C5C] hover:bg-[#ff7070] text-white rounded-full font-bold text-xs transition-colors shrink-0 ml-4 shadow-sm"
+                      onClick={() => handleStartAnalysis(lastSearchedAddress, hops)}
+                      className="px-2.5 py-1 bg-[#EF4444] text-white rounded text-[10px] font-bold"
                     >
-                      Retry Analysis
+                      Retry
                     </button>
                   )}
                 </div>
               )}
 
-              {/* 2. ACTIVE CASE OVERVIEW & FORENSIC PIPELINE STATUS */}
-              {analysisStatus && (
-                <section className="bg-[#161616] rounded-2xl p-5 md:p-6 border border-[#2A2A2A] space-y-4 shadow-[0_4px_24px_rgba(0,0,0,0.3)]">
-                  <LiveProgress status={analysisStatus} />
 
-                  {/* Active Target Identity & Action Strip */}
-                  <div className="bg-[#1A1A1A] p-4 rounded-xl flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 border border-[#2A2A2A]">
-                    <div className="space-y-1.5">
-                      <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
-                        <span className="text-[#9A9A9A] text-[11px]">CASE ID:</span>
-                        <strong className="text-[#E5FF8F] font-bold">
-                          CR-2026-{analysisStatus.analysis_id.slice(0, 8).toUpperCase()}
-                        </strong>
-                        <span className="text-[#2A2A2A]">•</span>
-                        <span className="inline-flex items-center gap-1.5 text-[11px] text-[#7CFF6B] font-semibold">
-                          <span className="w-2 h-2 rounded-full bg-[#7CFF6B] animate-pulse"></span>
-                          {isStreaming ? 'STREAMING WEBSOCKET' : 'ACTIVE INVESTIGATION'}
-                        </span>
-                        <span className="text-[#2A2A2A]">•</span>
-                        <span className="px-2.5 py-0.5 rounded-full bg-[#161616] text-[#FFFFFF] text-[10px] font-bold uppercase border border-[#2A2A2A]">
-                          CHAIN: {detectChain(analysisStatus.wallet_address).toUpperCase()}
-                        </span>
-                        <span className="px-2.5 py-0.5 rounded-full bg-[#E5FF8F]/10 text-[#E5FF8F] text-[10px] font-bold border border-[#E5FF8F]/20">
-                          NCRP REF #{analysisStatus.analysis_id.slice(0, 4).toUpperCase()}-CRIME
-                        </span>
-                      </div>
 
-                      <div className="flex items-center gap-2 pt-0.5">
-                        <span className="font-mono text-[11px] text-[#9A9A9A] uppercase">SUSPECT TARGET:</span>
-                        <span className="font-mono text-xs sm:text-sm md:text-base font-bold text-[#FFFFFF] tracking-tight break-all select-all">
-                          {analysisStatus.wallet_address}
-                        </span>
-                        <button
-                          onClick={() => handleCopyAddress(analysisStatus.wallet_address)}
-                          title="Copy address"
-                          className="p-1 rounded hover:bg-[#2A2A2A] text-[#9A9A9A] hover:text-[#FFFFFF] transition-colors"
-                        >
-                          {copied ? <Check className="h-4 w-4 text-[#7CFF6B]" /> : <Copy className="h-4 w-4" />}
-                        </button>
-                        <a
-                          href={getExplorerUrl(analysisStatus.wallet_address)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="p-1 rounded hover:bg-[#2A2A2A] text-[#9A9A9A] hover:text-[#E5FF8F] transition-colors"
-                          title="Inspect on Public Explorer"
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
-                      </div>
-                    </div>
-
-                    {/* High Level Action Triggers */}
-                    <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto justify-start xl:justify-end font-mono">
-                      <button
-                        onClick={() => setActiveTab('GRAPH_STUDIO')}
-                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[#161616] hover:bg-[#202020] text-[#FFFFFF] text-xs font-semibold border border-[#2A2A2A] transition-all"
-                      >
-                        <Network className="h-4 w-4 text-[#E5FF8F]" />
-                        <span>Full-Screen Graph</span>
-                      </button>
-
-                      <button
-                        onClick={() => setShowFreezeModal(true)}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#FF5C5C] hover:bg-[#ff7070] text-white text-xs font-bold shadow-[0_0_12px_rgba(255,92,92,0.3)] transition-all"
-                      >
-                        <Scale className="h-4 w-4" />
-                        <span>Sec 91 Freeze</span>
-                      </button>
-
-                      <button
-                        onClick={() => setShowReportModal(true)}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#E5FF8F] hover:bg-[#EDFFB1] text-[#0A0A0A] text-xs font-bold shadow-[0_0_12px_rgba(229,255,143,0.3)] transition-all"
-                      >
-                        <FileText className="h-4 w-4" />
-                        <span>Export Dossier</span>
-                      </button>
-
-                      <button
-                        onClick={async () => {
-                          try {
-                            await api.downloadCourtDossier(analysisStatus.analysis_id);
-                          } catch (err: any) {
-                            alert(`Court dossier export failed: ${err.message}`);
-                          }
-                        }}
-                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[#161616] hover:bg-[#202020] text-[#FFFFFF] border border-[#2A2A2A] text-xs font-semibold transition-all"
-                        title="Download complete 5-asset court dossier (.ZIP)"
-                      >
-                        <Download className="h-4 w-4 text-[#7CFF6B]" />
-                        <span>Court Pack (.ZIP)</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Case Quick Metric Cards */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 pt-1 font-mono">
-                    <div className="p-3 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
-                      <span className="text-[10px] text-[#9A9A9A] uppercase tracking-wider block">Transfers Observed</span>
-                      <div className="text-base sm:text-lg font-bold text-[#FFFFFF] mt-1">
-                        {analysisStatus.num_transactions || graphData?.edges?.length || 350}{' '}
-                        <span className="text-xs font-normal text-[#9A9A9A]">Tx</span>
-                      </div>
-                      <span className="text-[11px] text-[#E5FF8F] font-medium block mt-0.5">100% Parsed</span>
-                    </div>
-
-                    <div className="p-3 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
-                      <span className="text-[10px] text-[#9A9A9A] uppercase tracking-wider block">Graph Topology</span>
-                      <div className="text-base sm:text-lg font-bold text-[#FFFFFF] mt-1">
-                        {analysisStatus.num_nodes || graphData?.nodes?.length || 150}{' '}
-                        <span className="text-xs font-normal text-[#9A9A9A]">
-                          / {analysisStatus.num_edges || graphData?.edges?.length || 330}
-                        </span>
-                      </div>
-                      <span className="text-[11px] text-[#9A9A9A] font-medium block mt-0.5">Max Depth: 3 Hops</span>
-                    </div>
-
-                    <div className="p-3 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
-                      <span className="text-[10px] text-[#9A9A9A] uppercase tracking-wider block">Attributed VASP</span>
-                      <div className="text-base sm:text-lg font-bold text-[#7CFF6B] mt-1 truncate">
-                        {attributions[0]?.vasp_name || 'Tether: USDT'}
-                      </div>
-                      <span className="text-[11px] text-[#7CFF6B]/90 font-medium block mt-0.5">
-                        Confidence: {attributions[0] ? `${attributions[0].score.toFixed(1)}%` : '73.0%'}
-                      </span>
-                    </div>
-
-                    <div className="p-3 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
-                      <span className="text-[10px] text-[#9A9A9A] uppercase tracking-wider block">Forensic Risk</span>
-                      <div className="text-base sm:text-lg font-bold text-[#FF5C5C] mt-1">
-                        {analysisStatus.risk_assessment?.risk_level || 'HIGH'} (
-                        {analysisStatus.risk_assessment?.composite_risk_score || analysisStatus.risk_assessment?.score || 55}/100)
-                      </div>
-                      <span className="text-[11px] text-[#FF5C5C] font-medium block mt-0.5">Rapid Layering</span>
-                    </div>
-
-                    <div className="p-3 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
-                      <span className="text-[10px] text-[#9A9A9A] uppercase tracking-wider block">Observed Outflow</span>
-                      <div className="text-base sm:text-lg font-bold text-[#FFFFFF] mt-1 truncate">
-                        {analysisStatus.total_volume_inr
-                          ? `₹${(analysisStatus.total_volume_inr / 10000000).toFixed(2)} Cr`
-                          : '₹21,893.45 Cr'}
-                      </div>
-                      <span className="text-[11px] text-[#9A9A9A] font-medium block mt-0.5">$2.62B USD Eqv</span>
-                    </div>
-
-                    <div className="p-3 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A]">
-                      <span className="text-[10px] text-[#9A9A9A] uppercase tracking-wider block">Seizure Status</span>
-                      <div className="text-base sm:text-lg font-bold text-[#7CFF6B] mt-1">READY</div>
-                      <span className="text-[11px] text-[#7CFF6B]/80 font-medium block mt-0.5">Sec 91/102 Ready</span>
-                    </div>
-                  </div>
-                </section>
-              )}
-
-              {/* 3. KPI Stat Row (3 Accent #E5FF8F Cards) */}
-              {analysisStatus && (
-                <KpiStatRow
-                  attributions={attributions}
-                  riskAssessment={analysisStatus?.risk_assessment}
+              {/* Main Full-Height Graph Canvas */}
+              <div className="flex-1 w-full h-full relative overflow-hidden">
+                <GraphCanvas
                   graphData={graphData}
-                  totalVolumeInr={analysisStatus?.total_volume_inr}
+                  isFullScreenView={false}
+                  transactions={transactions}
+                  onPivotTarget={(addr) => {
+                    const clean = extractCleanAddress(addr);
+                    setSearchInput(clean);
+                    handleStartAnalysis(clean, hops);
+                  }}
+                  activeJobId={activeJobId}
+                  isStreaming={isStreaming}
+                  streamingHop={streamingHop}
+                  onSelectNode={(node) => setSelectedNode(node)}
+                  className="h-full w-full rounded-none border-none"
                 />
-              )}
+              </div>
+            </div>
 
-              {/* 4. Suspect Target Overview (Full Width) */}
-              {analysisStatus && (
-                <WalletOverview
-                  walletAddress={analysisStatus.wallet_address}
-                  chain={detectChain(analysisStatus.wallet_address)}
-                  graphData={graphData}
-                  attributions={attributions}
-                />
-              )}
+            {/* Right Inspector Sidebar Panel (Chainalysis Reactor Reference) */}
+            <div className="w-[400px] xl:w-[440px] 2xl:w-[480px] h-full shrink-0 border-l border-[#E2E8F0] bg-white flex flex-col shadow-sm">
+              <InspectorSidebar
+                selectedNode={selectedNode}
+                targetAddress={analysisStatus?.wallet_address || lastSearchedAddress || ''}
+                analysisStatus={analysisStatus}
+                attributions={attributions}
+                evidence={evidence}
+                transactions={transactions}
+                graphData={graphData}
+                onOpenReport={() => setShowReportModal(true)}
+                onOpenFreeze={() => setShowFreezeModal(true)}
+                onPivotTarget={(addr) => {
+                  const clean = extractCleanAddress(addr);
+                  setSearchInput(clean);
+                  handleStartAnalysis(clean, hops);
+                }}
+                isStreaming={isStreaming}
+              />
+            </div>
 
-              {/* 5. Primary Attribution Assessment (Full Width) */}
-              {(analysisStatus || graphData) && (
-                <AttributionCard attributions={attributions} />
-              )}
+          </div>
+        )}
 
-              {/* 6. Triad of Equal Dimensions: Structural Risk & Attribution, Forensic Evidence Register, FIFO Taint Accounting Meter */}
-              {(analysisStatus || graphData) && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-stretch">
-                  <RiskCard
-                    riskAssessment={analysisStatus?.risk_assessment || null}
-                    attributions={attributions}
-                    onOpenFreezeModal={() => setShowFreezeModal(true)}
-                    onOpenDisclosureModal={() => setShowFreezeModal(true)}
-                    className="h-full flex flex-col justify-between"
-                  />
-                  <EvidenceFeed
-                    evidence={evidence}
-                    className="h-full flex flex-col justify-between"
-                  />
-                  <FifoTaintMeter
-                    taintSummary={graphData?.stats?.taint_summary}
-                    totalVolumeInr={analysisStatus?.total_volume_inr}
-                    totalVolumeUsd={graphData?.stats?.total_amount_usd}
-                    className="h-full flex flex-col justify-between"
-                  />
-                </div>
-              )}
-            </>
-          )}
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {/* TAB 2: COMPLIANCE / KYT OVERVIEW (Elliptic 2x2 Grid Reference)   */}
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {activeTab === 'COMPLIANCE' && (
+          <main className="flex-1 w-full overflow-y-auto bg-[#F4F6F8]">
+            <ComplianceOverviewView
+              onSelectEntity={(addr) => {
+                setSearchInput(addr);
+                handleStartAnalysis(addr, 3);
+              }}
+              onOpenReport={() => setShowReportModal(true)}
+            />
+          </main>
+        )}
 
-          {/* TAB: RECENT INVESTIGATIONS REGISTER */}
-          {activeTab === 'RECENT_INVESTIGATIONS' && (
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {/* TAB 3: CASES & AUDIT REGISTER                                   */}
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {activeTab === 'CASES_AUDIT' && (
+          <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 overflow-y-auto">
+            <CaseManagementView
+              currentUser={currentUser}
+              onOpenCaseInWorkspace={(addr, caseHops) => handleStartAnalysis(addr, caseHops || 3)}
+              onOpenNewCaseIntake={() => setShowCaseIntakeModal(true)}
+              onSwitchRole={handleSwitchRole}
+            />
+          </main>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {/* TAB 4: RECENT INVESTIGATIONS REGISTER                           */}
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {activeTab === 'RECENT_INVESTIGATIONS' && (
+          <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 overflow-y-auto">
             <RecentInvestigationsView
               recentAnalyses={recentAnalyses}
-              onSelectInvestigation={(addr, hops) => handleStartAnalysis(addr, hops || 3)}
+              onSelectInvestigation={(addr, caseHops) => handleStartAnalysis(addr, caseHops || 3)}
               onRefresh={loadRecentCases}
             />
-          )}
+          </main>
+        )}
 
-          {/* TAB: FULL-SCREEN GRAPH STUDIO */}
-          {activeTab === 'GRAPH_STUDIO' && (
-            <div className="space-y-4">
-              <GraphCanvas
-                graphData={graphData}
-                isFullScreenView={true}
-                transactions={transactions}
-                onPivotTarget={(addr) => handleStartAnalysis(addr, 3)}
-                activeJobId={activeJobId}
-                isStreaming={isStreaming}
-                streamingHop={streamingHop}
-              />
-              <TransactionLedger transactions={transactions} />
-            </div>
-          )}
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {/* TAB 5: FULL-SCREEN GRAPH STUDIO                                 */}
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {activeTab === 'GRAPH_STUDIO' && (
+          <main className="flex-1 w-full p-4 overflow-y-auto space-y-4">
+            <GraphCanvas
+              graphData={graphData}
+              isFullScreenView={false}
+              transactions={transactions}
+              onPivotTarget={(addr) => handleStartAnalysis(addr, 3)}
+              activeJobId={activeJobId}
+              isStreaming={isStreaming}
+              streamingHop={streamingHop}
+              onSelectNode={(node) => setSelectedNode(node)}
+            />
+            <TransactionLedger transactions={transactions} />
+          </main>
+        )}
 
-          {/* TAB: FORENSIC OFF-CHAIN LOCATION LEDGER */}
-          {activeTab === 'FORENSIC_LEDGER' && (
-            <div className="space-y-4 animate-fade-in">
-              <ForensicLocationLedger
-                transactions={transactions}
-                nodes={graphData?.nodes}
-                onSelectWallet={(addr) => handleStartAnalysis(addr, 3)}
-                onLocateOnMap={(lat, lon) => {
-                  window.open(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=12/${lat}/${lon}`, '_blank');
-                }}
-              />
-            </div>
-          )}
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {/* TAB 6: FORENSIC OFF-CHAIN LOCATION LEDGER                       */}
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {activeTab === 'FORENSIC_LEDGER' && (
+          <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 overflow-y-auto animate-fade-in">
+            <ForensicLocationLedger
+              transactions={transactions}
+              nodes={graphData?.nodes}
+              onSelectWallet={(addr) => handleStartAnalysis(addr, 3)}
+              onLocateOnMap={(lat, lon) => {
+                window.open(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=12/${lat}/${lon}`, '_blank');
+              }}
+            />
+          </main>
+        )}
 
-          {/* TAB: NCRP INCIDENT QUEUE */}
-          {activeTab === 'NCRP_TRIAGE' && (
-            <NCRPTriageView onSelectCase={handleStartAnalysis} />
-          )}
-        </main>
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {/* TAB 7: NCRP INCIDENT QUEUE                                      */}
+        {/* ════════════════════════════════════════════════════════════════ */}
+        {activeTab === 'NCRP_TRIAGE' && (
+          <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 overflow-y-auto">
+            <NCRPTriageView onSelectCase={(addr) => handleStartAnalysis(addr, 3)} />
+          </main>
+        )}
 
         {/* Pop-up Modals */}
         {showCaseIntakeModal && (
@@ -788,22 +714,6 @@ export default function InvestigationAppPage() {
         {showRegistryModal && (
           <VASPRegistryModal onClose={() => setShowRegistryModal(false)} />
         )}
-
-        {/* LEA Institutional Footer */}
-        <footer className="w-full bg-[#161616] py-4 border-t border-[#2A2A2A] mt-auto">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-mono text-[#9A9A9A]">
-            <div className="flex items-center gap-3">
-              <span className="text-[#E5FF8F] font-semibold">CRYPTOTRACE FORENSIC KERNEL</span>
-              <span>•</span>
-              <span>RESTRICTED LAW ENFORCEMENT ACCESS ONLY</span>
-              <span>•</span>
-              <span className="hidden md:inline">SESSION: SEC-TLS1.3-FIPS-140</span>
-            </div>
-            <div className="text-[11px] text-[#666666]">
-              © 2026 Financial Intelligence Unit &amp; Cyber Operations Command. All rights reserved.
-            </div>
-          </div>
-        </footer>
       </div>
     </div>
   );

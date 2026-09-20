@@ -91,8 +91,23 @@
     "notes": "North Korea Lazarus Group Axie Infinity Ronin Bridge hack funds recipient"
   },
   {
+    "address": "0xc66dfa84bc1b93df194bd964a41282da65d73c9a",
+
+    "chain": "ethereum",
+    "entity": "Euler Finance Exploiter",
+    "label": "Euler Finance Exploiter 4",
+    "category": "exploit",
+    "risk_level": "CRITICAL",
+    "confidence": "HIGH",
+    "confidence_score": 99.0,
+    "source_name": "Etherscan Verified Entity Label",
+    "source_url": "https://etherscan.io/address/0xc66dfa84bc1b93df194bd964a41282da65d73c9a",
+    "notes": "Euler Finance flash loan exploit recipient address ($197M exploit in March 2023)"
+  },
+  {
     "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     "chain": "ethereum",
+
     "entity": "WETH",
     "label": "Wrapped Ether Canonical Contract",
     "category": "defi",

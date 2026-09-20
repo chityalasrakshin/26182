@@ -22,6 +22,7 @@ from backend.app.services.vasp.matcher import vasp_matcher
 from backend.app.services.bridge.detector import bridge_detector
 from backend.app.services.valuation.price_service import get_price_service
 from backend.app.services.attribution.fifo_taint import compute_fifo_taint
+from backend.app.services.labels.store import label_store
 
 logger = logging.getLogger(__name__)
 
@@ -272,12 +273,45 @@ class TransactionGraphBuilder:
         """Helper to register node attributes."""
         node_chain = chain or self.node_chains.get(address, "ethereum")
         self.node_chains[address] = node_chain
+
+        # 1. Lookup in forensic label_store (OFAC Sanctions, Exploiters, Mixers, Scams)
+        lbl = label_store.lookup(address, node_chain) if label_store else None
+
+        # 2. Lookup in vasp_matcher
         vasp_info = vasp_matcher.match_address(address, node_chain)
-        is_vasp = vasp_info is not None
+        is_vasp = (vasp_info is not None) or (lbl is not None and lbl.is_vasp)
+
+        is_sanctioned = False
+        is_exploit = False
+        is_mixer = False
+        entity_name = None
+        category = None
+        risk_level = None
+        sanctions_program = None
+
+        if lbl:
+            entity_name = lbl.entity
+            category = (lbl.category or "").lower()
+            risk_level = lbl.risk_level
+            notes_lower = (lbl.notes or "").lower()
+            if category in ("sanctioned", "sanctions") or "ofac" in notes_lower or "sdn" in notes_lower:
+                is_sanctioned = True
+            elif category in ("exploit", "hack", "drainer", "theft"):
+                is_exploit = True
+            elif category == "mixer":
+                is_mixer = True
+            if "ofac" in notes_lower or "sdn" in notes_lower:
+                sanctions_program = lbl.notes
 
         if role is None:
             if hop == 0:
                 role = "INPUT_WALLET"
+            elif is_sanctioned:
+                role = "SANCTIONED_ENTITY"
+            elif is_exploit:
+                role = "EXPLOIT_ENTITY"
+            elif is_mixer:
+                role = "MIXER_PROTOCOL"
             elif is_vasp:
                 role = "KNOWN_VASP"
             elif hop == 1:
@@ -291,8 +325,17 @@ class TransactionGraphBuilder:
 
         if role == "BRIDGE_PROTOCOL":
             short_label = f"[Bridge: {bridge_protocol or 'Bridge'}]"
+        elif is_sanctioned:
+            short_label = f"[SANCTIONED: {entity_name or 'OFAC Target'}] {address[:6]}...{address[-4:]}"
+        elif is_exploit:
+            short_label = f"[EXPLOIT: {entity_name or 'Exploiter'}] {address[:6]}...{address[-4:]}"
+        elif is_mixer:
+            short_label = f"[MIXER: {entity_name or 'Tornado Cash'}] {address[:6]}...{address[-4:]}"
         elif is_vasp:
-            short_label = f"[{vasp_info['vasp_name']}] {address[:6]}...{address[-4:]}"
+            v_name = (vasp_info["vasp_name"] if vasp_info else None) or entity_name or "VASP"
+            short_label = f"[{v_name}] {address[:6]}...{address[-4:]}"
+        elif entity_name and entity_name != "Unknown Entity":
+            short_label = f"[{entity_name}] {address[:6]}...{address[-4:]}"
         else:
             short_label = f"{address[:6]}...{address[-4:]}"
 
@@ -304,11 +347,18 @@ class TransactionGraphBuilder:
             hop=hop,
             chain=node_chain,
             is_vasp=is_vasp,
-            vasp_name=vasp_info["vasp_name"] if vasp_info else None,
-            vasp_confidence=vasp_info["confidence"] if vasp_info else None,
-            address_type=vasp_info["address_type"] if vasp_info else None,
-            notes=vasp_info["notes"] if vasp_info else None,
-            bridge_protocol=bridge_protocol
+            vasp_name=(vasp_info["vasp_name"] if vasp_info else None) or (entity_name if is_vasp else None),
+            vasp_confidence=(vasp_info["confidence"] if vasp_info else None) or (str(lbl.confidence_score) if lbl else None),
+            address_type=(vasp_info["address_type"] if vasp_info else None) or (lbl.notes if lbl else None),
+            notes=(vasp_info["notes"] if vasp_info else None) or (lbl.notes if lbl else None),
+            bridge_protocol=bridge_protocol,
+            is_sanctioned=is_sanctioned,
+            is_exploit=is_exploit,
+            entity_name=entity_name,
+            category=category,
+            risk_level=risk_level,
+            is_mixer=is_mixer,
+            sanctions_program=sanctions_program
         )
 
     def export_cytoscape_data(self, root_wallet: str) -> GraphData:
@@ -430,7 +480,14 @@ class TransactionGraphBuilder:
                         chain=data.get("chain"),
                         tx_count=stats["tx_count"],
                         total_inflow=stats["inflow"],
-                        total_outflow=stats["outflow"]
+                        total_outflow=stats["outflow"],
+                        is_sanctioned=data.get("is_sanctioned", False),
+                        is_exploit=data.get("is_exploit", False),
+                        entity_name=data.get("entity_name"),
+                        category=data.get("category"),
+                        risk_level=data.get("risk_level"),
+                        is_mixer=data.get("is_mixer", False),
+                        sanctions_program=data.get("sanctions_program")
                     )
                 )
             )

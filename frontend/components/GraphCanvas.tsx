@@ -62,6 +62,8 @@ interface GraphCanvasProps {
   activeJobId?: string | null;
   isStreaming?: boolean;
   streamingHop?: number;
+  onSelectNode?: (nodeData: any) => void;
+  className?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,15 +85,42 @@ const hopOpacity = (hop: number): number => {
 function buildNodeElement(n: any): cytoscape.ElementDefinition {
   const d = n.data || n;
   const nodeId = d.id || d.address;
-  const isRoot = d.role === 'INPUT_WALLET' || d.is_root || d.hop === 0;
-  const isVasp = d.is_vasp || d.role === 'KNOWN_VASP';
+  const isRoot = d.role === 'INPUT_WALLET' || d.is_root || d.isRoot || d.hop === 0;
+  const isVasp = d.is_vasp || d.isVasp || d.role === 'KNOWN_VASP';
   const isBridge = d.role === 'BRIDGE_PROTOCOL' || Boolean(d.bridge_protocol);
   const hop = d.hop ?? 1;
   const nodeChain = (d.chain || 'ethereum').toLowerCase();
 
-  const rawCat = (d.category || d.entity || d.label || d.role || d.vasp_name || '').toLowerCase();
-  let nodeTag: 'target' | 'exchange' | 'mixer' | 'sanctioned' | 'bridge' | 'unknown' = 'unknown';
-  if (isRoot) {
+  const rawCat = (d.category || d.entity || d.entity_name || d.label || d.role || d.vasp_name || '').toLowerCase();
+  const isSanctioned = Boolean(
+    d.is_sanctioned ||
+    d.isSanctioned ||
+    d.sanctions_program ||
+    d.sanctionsProgram ||
+    d.tag === 'sanctioned' ||
+    rawCat.includes('sanction') ||
+    rawCat.includes('ofac') ||
+    rawCat.includes('sdn')
+  );
+
+  const isExploit = Boolean(
+    !isSanctioned && (
+      d.is_exploit ||
+      (d as any).isExploit ||
+      d.role === 'EXPLOIT_ENTITY' ||
+      rawCat.includes('exploit') ||
+      rawCat.includes('drainer') ||
+      rawCat.includes('hack') ||
+      rawCat.includes('heist')
+    )
+  );
+
+  let nodeTag: 'target' | 'exchange' | 'mixer' | 'sanctioned' | 'exploit' | 'bridge' | 'unknown' = 'unknown';
+  if (isSanctioned) {
+    nodeTag = 'sanctioned';
+  } else if (isExploit) {
+    nodeTag = 'exploit';
+  } else if (isRoot) {
     nodeTag = 'target';
   } else if (isBridge) {
     nodeTag = 'bridge';
@@ -115,19 +144,10 @@ function buildNodeElement(n: any): cytoscape.ElementDefinition {
     rawCat.includes('anonymizer')
   ) {
     nodeTag = 'mixer';
-  } else if (
-    rawCat.includes('sanction') ||
-    rawCat.includes('ofac') ||
-    rawCat.includes('illicit') ||
-    rawCat.includes('crime') ||
-    d.risk_level === 'CRITICAL' ||
-    d.risk_level === 'SANCTIONED'
-  ) {
-    nodeTag = 'sanctioned';
   }
 
   const shortAddr = `${nodeId.slice(0, 6)}...${nodeId.slice(-4)}`;
-  const chainBadge = nodeChain === 'solana' ? '[SOL] ' : nodeChain === 'tron' ? '[TRX] ' : nodeChain === 'bitcoin' ? '[BTC] ' : nodeChain === 'bsc' ? '[BSC] ' : '';
+  const entityTitle = d.entity_name || (d as any).entityName || d.label || (isSanctioned ? 'OFAC SANCTIONED' : isExploit ? 'EXPLOIT DRAINER' : null);
 
   const isTreasury = d.role === 'COLD_TREASURY' || rawCat.includes('treasury') || rawCat.includes('cold');
   const isLiquidity = d.role === 'EXCHANGE_LIQUIDITY' || rawCat.includes('liquidity');
@@ -144,36 +164,49 @@ function buildNodeElement(n: any): cytoscape.ElementDefinition {
       : '73.0%';
 
   const label = isRoot
-    ? `TARGET SUSPECT\n${shortAddr}`
-    : isBridge
-      ? `[Bridge: ${d.bridge_protocol || 'Bridge'}]\n${shortAddr}`
-      : isTreasury
-        ? `Cold Treasury\n${shortAddr}`
-        : isLiquidity
-          ? `Exchange Liquidity\n${shortAddr}`
-          : nodeTag === 'exchange' || isVasp
-            ? `${d.vasp_name?.toUpperCase() || 'TETHER VASP'}\nCONF: ${confDisplay}`
-            : nodeTag === 'mixer'
-              ? `Mixer Gateway\n${shortAddr}`
-              : nodeTag === 'sanctioned'
-                ? `Peeling Cluster\n${shortAddr}`
+    ? isSanctioned
+      ? `🚨 TARGET (SANCTIONED)\n${entityTitle ? entityTitle + '\n' : ''}${shortAddr}`
+      : isExploit
+        ? `⚠️ TARGET (EXPLOIT)\n${entityTitle ? entityTitle + '\n' : ''}${shortAddr}`
+        : entityTitle && !entityTitle.includes('0x')
+          ? `[TARGET: ${entityTitle}]\n${shortAddr}`
+          : `TARGET SUSPECT\n${shortAddr}`
+    : isSanctioned
+      ? `🚨 ${entityTitle || 'SANCTIONED'}\n${shortAddr}`
+      : isExploit
+        ? `⚠️ ${entityTitle || 'EXPLOIT'}\n${shortAddr}`
+        : isBridge
+        ? `[Bridge: ${d.bridge_protocol || 'Bridge'}]\n${shortAddr}`
+        : isTreasury
+          ? `Cold Treasury\n${shortAddr}`
+          : isLiquidity
+            ? `Exchange Liquidity\n${shortAddr}`
+            : nodeTag === 'exchange' || isVasp
+              ? `${d.vasp_name?.toUpperCase() || 'TETHER VASP'}\nCONF: ${confDisplay}`
+              : nodeTag === 'mixer'
+                ? `Mixer Gateway\n${shortAddr}`
                 : hop === 1
                   ? `Hop-1 Layer (${shortAddr})`
                   : `${shortAddr}\nHop ${hop}`;
 
   return {
     group: 'nodes',
-    classes: `tag-${nodeTag} chain-${nodeChain} ${isRoot ? 'is-root tag-target' : ''} ${isVasp || nodeTag === 'exchange' ? 'is-vasp tag-exchange' : ''} ${isBridge ? 'is-bridge tag-bridge' : ''} ${isTreasury ? 'node-treasury' : ''} ${isLiquidity ? 'node-liquidity' : ''} ${hop === 1 ? 'hop-1' : ''}`.trim(),
+    classes: `tag-${nodeTag} chain-${nodeChain} ${isRoot ? 'is-root tag-target' : ''} ${isSanctioned ? 'is-sanctioned tag-sanctioned' : ''} ${isExploit ? 'is-exploit tag-exploit' : ''} ${isVasp || nodeTag === 'exchange' ? 'is-vasp tag-exchange' : ''} ${isBridge ? 'is-bridge tag-bridge' : ''} ${isTreasury ? 'node-treasury' : ''} ${isLiquidity ? 'node-liquidity' : ''} ${hop === 1 ? 'hop-1' : ''}`.trim(),
     data: {
       id: nodeId,
       label: label,
       isRoot: isRoot,
+      isSanctioned: isSanctioned,
+      entityName: entityTitle,
+      category: d.category || (isSanctioned ? 'sanctioned' : nodeTag),
+      riskLevel: isSanctioned ? 'CRITICAL' : (d.risk_level || d.riskLevel || 'LOW'),
+      sanctionsProgram: d.sanctions_program || d.sanctionsProgram,
+      isMixer: nodeTag === 'mixer',
       isVasp: isVasp || nodeTag === 'exchange',
       isBridge: isBridge,
       bridgeProtocol: d.bridge_protocol,
       chain: nodeChain,
-      tag: nodeTag,
-      category: nodeTag,
+      tag: isSanctioned ? 'sanctioned' : nodeTag,
       vaspName: d.vasp_name,
       vaspConfidence: d.vasp_confidence || 95,
       hop: hop,
@@ -182,11 +215,12 @@ function buildNodeElement(n: any): cytoscape.ElementDefinition {
       totalInflow: d.total_inflow || 0,
       totalOutflow: d.total_outflow || 0,
       txCount: d.tx_count || 0,
-      role: d.role || (isRoot ? 'TARGET' : isVasp ? 'VASP' : isBridge ? 'BRIDGE' : hop <= 3 ? 'INTERMEDIARY' : 'EXTERNAL'),
+      role: d.role || (isRoot ? 'TARGET' : isSanctioned ? 'SANCTIONED' : isVasp ? 'VASP' : isBridge ? 'BRIDGE' : hop <= 3 ? 'INTERMEDIARY' : 'EXTERNAL'),
       nodeOpacity: hopOpacity(hop),
     },
   };
 }
+
 
 function buildEdgeElement(e: any, edgeId: string): cytoscape.ElementDefinition {
   const d = e.data || e;
@@ -365,10 +399,11 @@ function applyFilters(
 
       // Entity type filter
       let entityType = 'EXTERNAL';
-      if (isRoot) entityType = 'TARGET';
+      if (isRoot || d.isSanctioned || d.tag === 'sanctioned') entityType = 'TARGET';
       else if (isVasp) entityType = 'VASP';
       else if (isBridge) entityType = 'BRIDGE';
       else if (hop >= 1 && hop <= 3) entityType = 'INTERMEDIARY';
+
 
       if (!selectedEntityTypes.has(entityType) && !isBridge) {
         n.addClass('filter-hidden');
@@ -427,6 +462,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   activeJobId,
   isStreaming = false,
   streamingHop = 1,
+  onSelectNode,
+  className = '',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
@@ -439,7 +476,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const [viewMode, setViewMode] = useState<ViewMode>('NETWORK');
   const [dimensionMode, setDimensionMode] = useState<'2D' | '3D'>('2D');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
-  const [isFullScreen, setIsFullScreen] = useState<boolean>(isFullScreenView);
+  const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
 
   // 3D Camera Micro-Tool Refs
   const fit3DRef = useRef<(() => void) | null>(null);
@@ -655,12 +692,12 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     const spacingScale = nodeCount > 40 ? 1.3 : nodeCount > 20 ? 1.1 : 1.0;
     const layoutConfig = getLayoutConfig(layoutMode, nodeCount, spacingScale, currentRoot);
 
-    const isDarkMode = typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : true;
-    const baseTextColor = isDarkMode ? '#FFFFFF' : '#0F172A';
-    const dimTextColor = isDarkMode ? '#9A9A9A' : '#64748B';
-    const surfaceColor = isDarkMode ? '#161616' : '#FFFFFF';
-    const borderColor = isDarkMode ? '#2A2A2A' : '#CBD5E1';
-    const canvasBg = isDarkMode ? '#0A0A0A' : '#FFFFFF';
+    const isDarkMode = typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : false;
+    const baseTextColor = '#0F172A';
+    const dimTextColor = '#64748B';
+    const surfaceColor = '#FFFFFF';
+    const borderColor = '#CBD5E1';
+    const canvasBg = '#FFFFFF';
 
     // Adaptive node sizing: scale down for dense graphs
     const sizeScale = nodeCount > 120 ? 0.65 : nodeCount > 80 ? 0.75 : nodeCount > 40 ? 0.85 : 1.0;
@@ -713,36 +750,36 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'transition-duration': 200,
           },
         },
-        // ────────────────── TARGET / ROOT (Star) ──────────────────
+        // ────────────────── TARGET / ROOT (Concentric Coral & Amber Rings - Chainalysis Reactor) ──────────────────
         {
           selector: 'node[tag = "target"], node.tag-target, node.is-root',
           style: {
-            'background-color': isDarkMode ? '#450a0a' : '#0F172A',
-            'border-color': isDarkMode ? '#ef4444' : '#0F172A',
+            'background-color': '#FFFFFF',
+            'border-color': '#EF4444',
             'border-width': 3.5,
-            'color': isDarkMode ? '#fca5a5' : '#0F172A',
-            'width': sz(80),
-            'height': sz(80),
+            'color': '#0F172A',
+            'width': sz(76),
+            'height': sz(76),
             'font-weight': 'bold',
             'font-size': `${fs(10)}px`,
-            'shape': 'star',
+            'shape': 'ellipse',
             'text-valign': 'bottom',
             'text-margin-y': sz(10),
             'opacity': 1,
-            'overlay-color': isDarkMode ? '#ef4444' : '#2563EB',
-            'overlay-opacity': 0.15,
-            'overlay-padding': sz(12),
+            'overlay-color': '#F59E0B',
+            'overlay-opacity': 0.25,
+            'overlay-padding': sz(8),
           },
         },
-        // ────────────────── EXCHANGE / VASP (Roundrectangle) ──────────────────
+        // ────────────────── EXCHANGE / VASP (Chainalysis Reactor Style) ──────────────────
         {
           selector: 'node[tag = "exchange"], node.tag-exchange, node.is-vasp',
           style: {
-            'background-color': isDarkMode ? '#042f2e' : '#ECFDF5',
-            'border-color': isDarkMode ? '#14b8a6' : '#059669',
+            'background-color': '#FFFFFF',
+            'border-color': '#0284C7',
             'border-width': 3,
-            'color': isDarkMode ? '#5eead4' : '#047857',
-            'width': sz(72),
+            'color': '#0F172A',
+            'width': sz(76),
             'height': sz(60),
             'shape': 'roundrectangle',
             'font-weight': 'bold',
@@ -771,24 +808,88 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         },
         // ────────────────── SANCTIONED / OFAC (Octagon) ──────────────────
         {
-          selector: 'node[tag = "sanctioned"], node.tag-sanctioned',
+          selector: 'node[tag = "sanctioned"], node.tag-sanctioned, node.is-sanctioned',
           style: {
-            'background-color': isDarkMode ? '#450a0a' : '#FFF1F2',
-            'border-color': isDarkMode ? '#dc2626' : '#B91C1C',
-            'border-width': 3.5,
-            'color': isDarkMode ? '#fca5a5' : '#B91C1C',
-            'width': sz(66),
-            'height': sz(58),
+            'background-color': isDarkMode ? '#450a0a' : '#FEF2F2',
+            'border-color': isDarkMode ? '#ef4444' : '#DC2626',
+            'border-width': 4,
+            'color': isDarkMode ? '#fca5a5' : '#991B1B',
+            'width': sz(72),
+            'height': sz(64),
             'shape': 'octagon',
             'font-weight': 'bold',
             'font-size': `${fs(10)}px`,
             'text-valign': 'bottom',
             'text-margin-y': sz(10),
-            'overlay-color': '#dc2626',
-            'overlay-opacity': 0.1,
+            'overlay-color': '#DC2626',
+            'overlay-opacity': 0.2,
             'overlay-padding': sz(8),
           },
         },
+        // ────────────────── SANCTIONED ROOT TARGET ──────────────────
+        {
+          selector: 'node.is-root.is-sanctioned, node.is-root.tag-sanctioned, node.is-root[tag = "sanctioned"]',
+          style: {
+            'background-color': isDarkMode ? '#450a0a' : '#FEF2F2',
+            'border-color': '#DC2626',
+            'border-width': 5,
+            'color': isDarkMode ? '#fecaca' : '#7F1D1D',
+            'width': sz(88),
+            'height': sz(88),
+            'shape': 'octagon',
+            'font-weight': 'bold',
+            'font-size': `${fs(11)}px`,
+            'text-valign': 'bottom',
+            'text-margin-y': sz(12),
+            'opacity': 1,
+            'overlay-color': '#DC2626',
+            'overlay-opacity': 0.35,
+            'overlay-padding': sz(10),
+          },
+        },
+
+        // ────────────────── EXPLOIT DRAINER (Diamond) ──────────────────
+        {
+          selector: 'node[tag = "exploit"], node.tag-exploit, node.is-exploit',
+          style: {
+            'background-color': isDarkMode ? '#4c0519' : '#FFF1F2',
+            'border-color': isDarkMode ? '#f43f5e' : '#E11D48',
+            'border-width': 4,
+            'color': isDarkMode ? '#fda4af' : '#9F1239',
+            'width': sz(72),
+            'height': sz(64),
+            'shape': 'diamond',
+            'font-weight': 'bold',
+            'font-size': `${fs(10)}px`,
+            'text-valign': 'bottom',
+            'text-margin-y': sz(10),
+            'overlay-color': '#E11D48',
+            'overlay-opacity': 0.25,
+            'overlay-padding': sz(8),
+          },
+        },
+        // ────────────────── EXPLOIT ROOT TARGET ──────────────────
+        {
+          selector: 'node.is-root.is-exploit, node.is-root.tag-exploit, node.is-root[tag = "exploit"]',
+          style: {
+            'background-color': isDarkMode ? '#4c0519' : '#FFF1F2',
+            'border-color': '#E11D48',
+            'border-width': 5,
+            'color': isDarkMode ? '#ffe4e6' : '#881337',
+            'width': sz(88),
+            'height': sz(88),
+            'shape': 'diamond',
+            'font-weight': 'bold',
+            'font-size': `${fs(11)}px`,
+            'text-valign': 'bottom',
+            'text-margin-y': sz(12),
+            'opacity': 1,
+            'overlay-color': '#E11D48',
+            'overlay-opacity': 0.35,
+            'overlay-padding': sz(10),
+          },
+        },
+
         // ────────────────── BRIDGE PROTOCOL (Hexagon) ──────────────────
         {
           selector: 'node[tag = "bridge"], node.tag-bridge, node.is-bridge, node[role = "BRIDGE_PROTOCOL"]',
@@ -918,24 +1019,27 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           },
         },
 
-        // ────────────────── BASE EDGE ──────────────────
+        // ────────────────── BASE EDGE (Chainalysis Reactor Cyan Arrows & Amount Tags) ──────────────────
         {
           selector: 'edge',
           style: {
             'width': 2.5,
-            'line-color': isDarkMode ? '#334155' : '#94A3B8',
-            'target-arrow-color': isDarkMode ? '#3B82F6' : '#2563EB',
+            'line-color': '#38BDF8',
+            'target-arrow-color': '#0284C7',
             'target-arrow-shape': 'triangle',
-            'arrow-scale': 0.95,
+            'arrow-scale': 1.05,
             'curve-style': 'unbundled-bezier',
             'control-point-step-size': nodeCount > 80 ? 30 : 45,
             'label': nodeCount > 100 ? '' : 'data(label)',
             'font-size': `${fs(8)}px`,
             'font-family': 'JetBrains Mono, ui-monospace, SFMono-Regular, monospace',
-            'color': isDarkMode ? '#cbd5e1' : '#475569',
+            'color': '#0F172A',
             'text-rotation': 'autorotate',
-            'text-background-opacity': 0.95,
-            'text-background-color': isDarkMode ? '#090D16' : '#FFFFFF',
+            'text-background-opacity': 0.98,
+            'text-background-color': '#FFFFFF',
+            'text-border-color': '#CBD5E1',
+            'text-border-width': 1,
+            'text-border-opacity': 1,
             'text-background-padding': '3px',
             'text-background-shape': 'roundrectangle',
             'text-margin-y': -8,
@@ -1283,6 +1387,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         type: 'NODE',
         data: node.data(),
       });
+      onSelectNode?.(node.data());
       highlightPathToNode(node);
     });
 
@@ -1297,6 +1402,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     cy.on('tap', (evt) => {
       if (evt.target === cy) {
         setSelectedElement(null);
+        onSelectNode?.(null);
         cy.elements().removeClass('path-focused path-dimmed neighbor-dim node-hover edge-hover');
         updateFocusedPath(null);
       }
@@ -1450,7 +1556,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         isFullScreen
           ? 'fixed inset-0 z-[9999] w-screen h-screen rounded-none border-none m-0 p-0 overflow-hidden flex flex-col'
           : `border border-slate-200 dark:border-[#1E293B] rounded-xl shadow-sm dark:shadow-2xl flex flex-col relative text-xs overflow-hidden transition-all duration-300 ${
-              isFullScreenView ? 'h-[85vh]' : 'h-auto min-h-[740px]'
+              className ? className : isFullScreenView ? 'h-[85vh]' : 'h-auto min-h-[740px]'
             }`
       }`}
     >
@@ -1466,23 +1572,33 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           <div>
             <div className="flex items-center space-x-2">
               <span className="font-bold text-slate-900 dark:text-[#F8FAFC] text-base tracking-wide font-sans">Graph Studio</span>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-blue-50 dark:bg-[#1E293B] text-[#2563EB] dark:text-[#3B82F6] border border-blue-200 dark:border-[#1E293B] font-mono font-bold tracking-wider uppercase">
-                PRO ENGINE
-              </span>
             </div>
             <div className="flex items-center space-x-1.5 text-xs font-mono text-slate-500 dark:text-[#94A3B8] mt-0.5">
               <span>Target:</span>
-              <span className="text-slate-800 dark:text-[#E2E8F0] font-medium">{rootAddress ? `${rootAddress.slice(0, 8)}...${rootAddress.slice(-4)}` : '0x3f8702...aae3'}</span>
-              <button
-                onClick={() => handleCopy(rootAddress)}
-                className="hover:text-slate-900 dark:hover:text-white transition-colors p-0.5 text-slate-400 dark:text-[#94A3B8]"
-                title="Copy Target Wallet"
-              >
-                {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-              </button>
+              <span className="text-slate-800 dark:text-[#E2E8F0] font-medium">{rootAddress && rootAddress !== '0x...' ? `${rootAddress.slice(0, 8)}...${rootAddress.slice(-4)}` : 'No active target'}</span>
+              {(rootNode?.category === 'exploit' || (rootNode as any)?.category === 'hack' || (rootNode as any)?.is_exploit || (rootNode as any)?.isExploit) ? (
+                <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-rose-100 text-rose-700 border border-rose-200 animate-pulse">
+                  EXPLOIT DRAINER
+                </span>
+              ) : (rootNode?.is_sanctioned || (rootNode as any)?.isSanctioned || (rootNode as any)?.tag === 'sanctioned') ? (
+                <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-red-100 text-red-700 border border-red-200 animate-pulse">
+                  OFAC SANCTIONED
+                </span>
+              ) : null}
+
+              {rootAddress && rootAddress !== '0x...' && (
+                <button
+                  onClick={() => handleCopy(rootAddress)}
+                  className="hover:text-slate-900 dark:hover:text-white transition-colors p-0.5 text-slate-400 dark:text-[#94A3B8]"
+                  title="Copy Target Wallet"
+                >
+                  {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+                </button>
+              )}
             </div>
           </div>
         </div>
+
 
         {/* Center/Right: 2D / 3D Dimension Switcher & View Mode Tabs */}
         <div className="flex items-center space-x-2.5">
@@ -1881,68 +1997,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           </div>
         ) : (
           <div className="flex-1 relative bg-forensic-bg h-full flex flex-col">
-            {/* Live Streaming Indicator & Tag Color Legend Overlay */}
+            {/* Tag Color Legend Overlay */}
             <div className="absolute top-3 left-3 z-10 flex flex-col gap-2 pointer-events-none">
-              {/* Case 3: Active Cross-Chain Bridge Continuity Alert Banner */}
-              {(() => {
-                const bEdges = (graphData?.edges || []).filter(
-                  (e: any) => e.data?.is_cross_chain || Boolean(e.data?.bridge_protocol)
-                );
-                const bNodes = (graphData?.nodes || []).filter(
-                  (n: any) => n.data?.role === 'BRIDGE_PROTOCOL'
-                );
-                if (bEdges.length === 0 && bNodes.length === 0) return null;
-                const primaryEdge = bEdges[0]?.data;
-                const protoName = primaryEdge?.bridge_protocol || bNodes[0]?.data?.bridge_protocol || 'Cross-Chain Bridge';
-                const srcChain = primaryEdge?.source_chain || 'Ethereum';
-                const dstChain = primaryEdge?.target_chain || 'Destination Chain';
-                const txHash = primaryEdge?.tx_hash || '';
-
-                return (
-                  <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-purple-950/90 backdrop-blur-md border border-purple-500/50 text-purple-200 text-xs font-mono shadow-xl pointer-events-auto animate-fade-in max-w-xl">
-                    <div className="flex items-center space-x-2">
-                      <div className="p-1 rounded bg-purple-600 text-white animate-pulse">
-                        <Network className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <div className="flex items-center space-x-1.5">
-                          <span className="font-bold text-white uppercase text-[11px] tracking-wide">
-                            Bridge Continuity: {protoName}
-                          </span>
-                          <span className="px-1.5 py-0.2 rounded text-[9px] bg-purple-800 text-purple-200 uppercase font-bold">
-                            Active Hop
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-purple-300 mt-0.5">
-                          {srcChain.toUpperCase()} → <strong className="text-white">{dstChain.toUpperCase()}</strong>
-                          {txHash ? ` • Tx: ${txHash.slice(0, 10)}...` : ''}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        if (!cyRef.current) return;
-                        const cy = cyRef.current;
-                        const bEls = cy.$('.is-cross-chain, [role = "BRIDGE_PROTOCOL"]');
-                        if (bEls.length > 0) {
-                          cy.animate({ center: { eles: bEls }, zoom: 1.3, duration: 400 });
-                          bEls.select();
-                        }
-                      }}
-                      className="px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold uppercase transition-colors shrink-0 shadow"
-                    >
-                      Focus Rail →
-                    </button>
-                  </div>
-                );
-              })()}
-
-              {isStreaming && (
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-blue-600/90 text-white font-mono text-[10px] font-bold shadow-lg animate-pulse pointer-events-auto border border-blue-400 w-fit">
-                  <span className="w-2 h-2 rounded-full bg-white" />
-                  <span>STREAMING HOP {streamingHop} VIA WEBSOCKET...</span>
-                </div>
-              )}
 
               {/* Overlay Legend */}
               <div className="flex items-center space-x-2.5 px-3 py-1.5 rounded-lg bg-white/95 dark:bg-[#0D131F]/95 backdrop-blur-md border border-slate-200 dark:border-[#1E293B] text-[10px] font-mono shadow-md pointer-events-auto animate-fade-in w-fit text-slate-800 dark:text-[#F8FAFC]">
@@ -1976,7 +2032,19 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               className={`w-full flex-1 graph-canvas-grid relative ${
                 isFullScreen ? 'h-full min-h-full' : 'min-h-[440px]'
               } ${dimensionMode === '2D' ? 'block' : 'hidden'}`}
-            />
+            >
+              {(!graphData || !graphData.nodes || graphData.nodes.length === 0) && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 bg-[#F8FAFC]/80 backdrop-blur-[1px] text-center p-6 select-none">
+                  <div className="w-14 h-14 rounded-2xl bg-white border border-[#E2E8F0] shadow-sm flex items-center justify-center text-[#0284C7] mb-3">
+                    <Network className="w-7 h-7 text-[#0284C7]" />
+                  </div>
+                  <h3 className="font-bold text-sm text-[#0F172A] tracking-tight">Awaiting Suspect Wallet Address</h3>
+                  <p className="text-xs text-[#64748B] mt-1 max-w-sm">
+                    Paste a suspect wallet address in the search console above and click Trace to begin transaction flow analysis.
+                  </p>
+                </div>
+              )}
+            </div>
 
             {dimensionMode === '3D' && (
               <div

@@ -7,15 +7,29 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, W
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, Field
 
 from backend.app.core.address_validator import detect_blockchain, is_valid_crypto_address, normalize_address
 from backend.app.core.auth import get_optional_current_user
-from backend.app.models.database import get_db, AnalysisRun, VASP, VASPAddress, User
+from backend.app.models.database import (
+    get_db,
+    AnalysisRun,
+    VASP,
+    VASPAddress,
+    User,
+    RiskAssessment as DBRiskAssessment,
+    Attribution as DBAttribution,
+    Evidence as DBEvidence,
+    Transaction as DBTransaction
+)
 from backend.app.services.audit.logger import audit_logger, AuditAction, AuditResourceType
 from backend.app.api.v1.auth import auth_router
 from backend.app.api.v1.cases import cases_router
 from backend.app.api.v1.audit import audit_api_router
+from backend.app.services.labels.store import label_store
+from backend.app.services.graph.builder import TransactionGraphBuilder
+from backend.app.services.blockchain.factory import BlockchainProviderFactory
 from backend.app.schemas.analysis import (
     AnalyzeRequest,
     AnalysisStatusResponse,
@@ -24,7 +38,8 @@ from backend.app.schemas.analysis import (
     AttributionSchema,
     EvidenceSchema,
     InvestigationReportSchema,
-    VASPSchema
+    VASPSchema,
+    RiskAssessmentSchema
 )
 from backend.app.schemas.vasp_directory import (
     VASPDirectoryResponse,
@@ -305,6 +320,12 @@ async def start_analysis(
         max_hops=req.max_hops
     )
 
+    lbl = label_store.lookup(norm_address) if label_store else None
+    cat = (lbl.category or "").lower() if lbl else ""
+    notes_lower = (lbl.notes or "").lower() if lbl else ""
+    is_sanctioned = (cat in ("sanctioned", "sanctions") or "ofac" in notes_lower or "sdn" in notes_lower) if lbl else False
+    is_exploit = (cat in ("exploit", "hack", "drainer", "theft")) if lbl else False
+
     return AnalysisStatusResponse(
         analysis_id=analysis_id,
         wallet_address=norm_address,
@@ -313,8 +334,88 @@ async def start_analysis(
         num_transactions=0,
         num_nodes=1,
         num_edges=0,
-        demo_mode=False
+        demo_mode=False,
+        entity_name=lbl.entity if lbl else None,
+        entity_label=lbl.label if lbl else None,
+        category=lbl.category if lbl else None,
+        is_sanctioned=is_sanctioned,
+        is_exploit=is_exploit
     )
+
+
+@api_router.get("/address/{address}/lookup")
+async def lookup_address_intelligence(
+    address: str, 
+    chain: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Instantaneous (<2ms) pre-flight forensic intelligence lookup from unified label store.
+    Detects OFAC sanctions, Lazarus Group, mixers, phishing scams, and known VASPs.
+    Also returns existing cached_analysis_id if previously completed.
+    """
+    if not is_valid_crypto_address(address):
+        raise HTTPException(status_code=400, detail="Invalid cryptocurrency address format.")
+
+    norm_addr = normalize_address(address)
+    detected_chain = chain or detect_blockchain(norm_addr)
+    lbl = label_store.lookup(norm_addr, detected_chain) if label_store else None
+
+    # Check for existing completed analysis run in DB
+    cached_run_id = None
+    try:
+        recent_run = await db.execute(
+            select(AnalysisRun.id)
+            .where(AnalysisRun.wallet_address == norm_addr, AnalysisRun.status == "COMPLETED")
+            .order_by(AnalysisRun.started_at.desc())
+            .limit(1)
+        )
+        cached_run_id = recent_run.scalar_one_or_none()
+    except Exception as db_err:
+        logger.debug(f"Lookup DB check skipped: {db_err}")
+
+    if not lbl:
+        return {
+            "address": norm_addr,
+            "chain": detected_chain,
+            "has_label": False,
+            "is_sanctioned": False,
+            "is_exploit": False,
+            "is_vasp": False,
+            "is_mixer": False,
+            "risk_level": "LOW",
+            "entity": None,
+            "label": "Unlabeled External Address",
+            "category": "unknown",
+            "cached_analysis_id": cached_run_id
+        }
+
+    cat = (lbl.category or "").lower()
+    notes_lower = (lbl.notes or "").lower()
+    is_sanctioned = cat in ("sanctioned", "sanctions") or "ofac" in notes_lower or "sdn" in notes_lower
+    is_exploit = cat in ("exploit", "hack", "drainer", "theft")
+    is_mixer = cat == "mixer"
+
+    return {
+        "address": norm_addr,
+        "chain": detected_chain,
+        "has_label": True,
+        "is_sanctioned": is_sanctioned,
+        "is_exploit": is_exploit,
+        "is_vasp": lbl.is_vasp,
+        "is_mixer": is_mixer,
+        "risk_level": lbl.risk_level,
+        "entity": lbl.entity,
+        "label": lbl.label,
+        "category": lbl.category,
+        "confidence": lbl.confidence,
+        "confidence_score": lbl.confidence_score,
+        "source_name": lbl.source_name,
+        "source_url": lbl.source_url,
+        "notes": lbl.notes,
+        "cached_analysis_id": cached_run_id
+    }
+
 
 
 @api_router.get("/analysis/{analysis_id}", response_model=AnalysisStatusResponse)
@@ -322,13 +423,19 @@ async def get_analysis_status(
     analysis_id: str,
     db: AsyncSession = Depends(get_db)
 ):
-    """Polls the current status, metrics, and top attribution."""
+    """Polls the current status, metrics, and top attribution with robust DB recovery."""
     if analysis_id in active_analyses_cache:
         cached = active_analyses_cache[analysis_id]
+        wallet_addr = cached["wallet_address"]
+        lbl = label_store.lookup(wallet_addr) if label_store else None
         top_attr = cached["attributions"][0] if cached.get("attributions") else None
+        cat = (lbl.category or "").lower() if lbl else ""
+        notes_lower = (lbl.notes or "").lower() if lbl else ""
+        is_sanctioned = (cat in ("sanctioned", "sanctions") or "ofac" in notes_lower or "sdn" in notes_lower) if lbl else False
+        is_exploit = (cat in ("exploit", "hack", "drainer", "theft")) if lbl else False
         return AnalysisStatusResponse(
             analysis_id=analysis_id,
-            wallet_address=cached["wallet_address"],
+            wallet_address=wallet_addr,
             status=cached["status"],
             error_message=cached.get("error_message"),
             started_at=cached["started_at"],
@@ -338,15 +445,56 @@ async def get_analysis_status(
             num_edges=cached.get("num_edges", 0),
             demo_mode=False,
             top_attribution=top_attr,
-            risk_assessment=cached.get("risk_assessment")
+            risk_assessment=cached.get("risk_assessment"),
+            entity_name=lbl.entity if lbl else None,
+            entity_label=lbl.label if lbl else None,
+            category=lbl.category if lbl else None,
+            is_sanctioned=is_sanctioned,
+            is_exploit=is_exploit
         )
 
-    stmt = select(AnalysisRun).where(AnalysisRun.id == analysis_id)
+    stmt = (
+        select(AnalysisRun)
+        .options(
+            selectinload(AnalysisRun.attributions),
+            selectinload(AnalysisRun.risk_assessment)
+        )
+        .where(AnalysisRun.id == analysis_id)
+    )
     res = await db.execute(stmt)
     run = res.scalar_one_or_none()
 
     if not run:
         raise HTTPException(status_code=404, detail="Analysis case not found.")
+
+    lbl = label_store.lookup(run.wallet_address) if label_store else None
+    cat = (lbl.category or "").lower() if lbl else ""
+    notes_lower = (lbl.notes or "").lower() if lbl else ""
+    is_sanctioned = (cat in ("sanctioned", "sanctions") or "ofac" in notes_lower or "sdn" in notes_lower) if lbl else False
+    is_exploit = (cat in ("exploit", "hack", "drainer", "theft")) if lbl else False
+
+    top_attr = None
+    if run.attributions:
+        first_attr = run.attributions[0]
+        metrics = json.loads(first_attr.metrics_json) if first_attr.metrics_json else {}
+        top_attr = AttributionSchema(
+            vasp_name=first_attr.vasp_name,
+            score=first_attr.score,
+            evidence_strength=first_attr.evidence_strength,
+            rank=first_attr.rank,
+            summary=first_attr.summary,
+            metrics=metrics
+        )
+
+    risk_schema = None
+    if run.risk_assessment:
+        indicators = json.loads(run.risk_assessment.indicators_json) if run.risk_assessment.indicators_json else []
+        risk_schema = RiskAssessmentSchema(
+            risk_level=run.risk_assessment.risk_level,
+            score=run.risk_assessment.score,
+            indicators=indicators,
+            explanation=run.risk_assessment.explanation
+        )
 
     return AnalysisStatusResponse(
         analysis_id=run.id,
@@ -357,44 +505,148 @@ async def get_analysis_status(
         completed_at=run.completed_at,
         num_transactions=run.num_transactions,
         num_nodes=run.num_nodes,
-        num_edges=run.num_edges
+        num_edges=run.num_edges,
+        demo_mode=False,
+        top_attribution=top_attr,
+        risk_assessment=risk_schema,
+        entity_name=lbl.entity if lbl else None,
+        entity_label=lbl.label if lbl else None,
+        category=lbl.category if lbl else None,
+        is_sanctioned=is_sanctioned,
+        is_exploit=is_exploit
     )
 
 
 @api_router.get("/analysis/{analysis_id}/graph", response_model=GraphData)
-async def get_analysis_graph(analysis_id: str):
-    """Retrieves Cytoscape graph nodes and edges."""
+async def get_analysis_graph(
+    analysis_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieves Cytoscape graph nodes and edges with automatic DB/Cache recovery."""
     if analysis_id in active_analyses_cache and active_analyses_cache[analysis_id].get("graph_data"):
         return active_analyses_cache[analysis_id]["graph_data"]
 
-    raise HTTPException(status_code=404, detail="Graph data not available yet.")
+    stmt = select(AnalysisRun).where(AnalysisRun.id == analysis_id)
+    res = await db.execute(stmt)
+    run = res.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Graph data not available yet.")
+
+    try:
+        provider = BlockchainProviderFactory.get_provider(run.wallet_address)
+        graph_builder = TransactionGraphBuilder(provider, max_hops=run.max_hops or 3)
+        await graph_builder.build_graph_for_wallet(run.wallet_address)
+        graph_data = graph_builder.export_cytoscape_data(run.wallet_address)
+        if analysis_id in active_analyses_cache:
+            active_analyses_cache[analysis_id]["graph_data"] = graph_data
+        return graph_data
+    except Exception as e:
+        logger.warning(f"Graph recovery fallback error for {analysis_id}: {e}")
+        raise HTTPException(status_code=404, detail="Graph data not available yet.")
 
 
 @api_router.get("/analysis/{analysis_id}/attributions", response_model=List[AttributionSchema])
-async def get_analysis_attributions(analysis_id: str):
-    """Retrieves ranked VASP attributions and breakdown."""
-    if analysis_id in active_analyses_cache:
-        return active_analyses_cache[analysis_id].get("attributions", [])
+async def get_analysis_attributions(
+    analysis_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieves ranked VASP attributions with DB persistence fallback."""
+    if analysis_id in active_analyses_cache and active_analyses_cache[analysis_id].get("attributions"):
+        return active_analyses_cache[analysis_id]["attributions"]
 
-    raise HTTPException(status_code=404, detail="Attributions not found.")
+    stmt = select(DBAttribution).where(DBAttribution.analysis_id == analysis_id).order_by(DBAttribution.rank.asc())
+    res = await db.execute(stmt)
+    db_attrs = res.scalars().all()
+    if not db_attrs:
+        return []
+
+    result = []
+    for a in db_attrs:
+        metrics = json.loads(a.metrics_json) if a.metrics_json else {}
+        result.append(
+            AttributionSchema(
+                vasp_name=a.vasp_name,
+                score=a.score,
+                evidence_strength=a.evidence_strength,
+                rank=a.rank,
+                summary=a.summary,
+                metrics=metrics
+            )
+        )
+    return result
 
 
 @api_router.get("/analysis/{analysis_id}/evidence", response_model=List[EvidenceSchema])
-async def get_analysis_evidence(analysis_id: str):
-    """Retrieves verifiable evidence items."""
-    if analysis_id in active_analyses_cache:
-        return active_analyses_cache[analysis_id].get("evidence", [])
+async def get_analysis_evidence(
+    analysis_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieves verifiable evidence items with DB persistence fallback."""
+    if analysis_id in active_analyses_cache and active_analyses_cache[analysis_id].get("evidence"):
+        return active_analyses_cache[analysis_id]["evidence"]
 
-    raise HTTPException(status_code=404, detail="Evidence not found.")
+    stmt = select(DBEvidence).where(DBEvidence.analysis_id == analysis_id)
+    res = await db.execute(stmt)
+    db_evs = res.scalars().all()
+    if not db_evs:
+        return []
+
+    return [
+        EvidenceSchema(
+            evidence_type=e.evidence_type,
+            source_address=e.source_address,
+            target_address=e.target_address,
+            tx_hash=e.tx_hash,
+            hop_distance=e.hop_distance,
+            amount=e.amount,
+            asset_symbol=e.asset_symbol,
+            explanation=e.explanation,
+            strength=e.strength
+        )
+        for e in db_evs
+    ]
 
 
 @api_router.get("/analysis/{analysis_id}/transactions")
-async def get_analysis_transactions(analysis_id: str):
-    """Retrieves normalized transactions list."""
-    if analysis_id in active_analyses_cache:
-        return active_analyses_cache[analysis_id].get("transactions", [])
+async def get_analysis_transactions(
+    analysis_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieves normalized transactions list with DB persistence fallback."""
+    if analysis_id in active_analyses_cache and active_analyses_cache[analysis_id].get("transactions"):
+        return active_analyses_cache[analysis_id]["transactions"]
 
-    return []
+    stmt = select(AnalysisRun).where(AnalysisRun.id == analysis_id)
+    res = await db.execute(stmt)
+    run = res.scalar_one_or_none()
+    if not run:
+        return []
+
+    # Query stored transactions for this address
+    addr = run.wallet_address
+    tx_stmt = (
+        select(DBTransaction)
+        .where((DBTransaction.from_address == addr) | (DBTransaction.to_address == addr))
+        .order_by(DBTransaction.timestamp.desc())
+        .limit(100)
+    )
+    tx_res = await db.execute(tx_stmt)
+    rows = tx_res.scalars().all()
+    return [
+        {
+            "tx_hash": r.tx_hash,
+            "chain": r.chain,
+            "block_number": r.block_number,
+            "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+            "from_address": r.from_address,
+            "to_address": r.to_address,
+            "asset_type": r.asset_type,
+            "token_symbol": r.token_symbol,
+            "amount": r.amount,
+            "is_error": r.is_error
+        }
+        for r in rows
+    ]
 
 
 @api_router.get("/analysis/{analysis_id}/taint")
@@ -1127,6 +1379,11 @@ async def list_recent_analyses(db: AsyncSession = Depends(get_db)):
 
     output = []
     for r in runs:
+        lbl = label_store.lookup(r.wallet_address) if label_store else None
+        cat = (lbl.category or "").lower() if lbl else ""
+        notes_lower = (lbl.notes or "").lower() if lbl else ""
+        is_sanctioned = (cat in ("sanctioned", "sanctions") or "ofac" in notes_lower or "sdn" in notes_lower) if lbl else False
+        is_exploit = (cat in ("exploit", "hack", "drainer", "theft")) if lbl else False
         output.append(
             AnalysisStatusResponse(
                 analysis_id=r.id,
@@ -1136,7 +1393,12 @@ async def list_recent_analyses(db: AsyncSession = Depends(get_db)):
                 completed_at=r.completed_at,
                 num_transactions=r.num_transactions,
                 num_nodes=r.num_nodes,
-                num_edges=r.num_edges
+                num_edges=r.num_edges,
+                entity_name=lbl.entity if lbl else None,
+                entity_label=lbl.label if lbl else None,
+                category=lbl.category if lbl else None,
+                is_sanctioned=is_sanctioned,
+                is_exploit=is_exploit
             )
         )
     return output

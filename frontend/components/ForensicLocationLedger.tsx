@@ -178,7 +178,7 @@ export const ForensicLocationLedger: React.FC<ForensicLocationLedgerProps> = ({
           <div>
             <h3 className="font-bold text-forensic-text text-[12px] uppercase tracking-wide flex items-center space-x-2">
               <span>Crypto Wallet Accts- Location</span>
-              <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-700/50 font-semibold">
+              <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
                 Off-Chain Fusion Ledger
               </span>
             </h3>
@@ -275,7 +275,7 @@ export const ForensicLocationLedger: React.FC<ForensicLocationLedgerProps> = ({
               <tr>
                 <td colSpan={11} className="p-10 text-center">
                   <div className="max-w-xl mx-auto space-y-3 font-mono">
-                    <div className="inline-flex p-3 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400">
+                    <div className="inline-flex p-3 rounded-full bg-sky-50 border border-sky-200 text-sky-700">
                       <Radio className="h-6 w-6" />
                     </div>
                     <h4 className="text-sm font-bold text-forensic-text uppercase tracking-wide">
@@ -285,7 +285,7 @@ export const ForensicLocationLedger: React.FC<ForensicLocationLedgerProps> = ({
                       Public blockchain ledgers record decentralized cryptographic transfers without capturing client IP addresses or device operating systems.
                     </p>
                     <div className="p-3 bg-forensic-bg border border-forensic-border rounded text-left text-[11px] text-forensic-textDim space-y-1.5">
-                      <div className="font-bold text-forensic-text uppercase text-[10px] text-teal-400">
+                      <div className="font-bold text-forensic-text uppercase text-[10px] text-sky-800">
                         Law Enforcement Correlation Options:
                       </div>
                       <div>1. Issue a Section 94 BNSS / Section 91 CrPC Preservation Requisition to attributed VASPs to subpoena exchange nodal access and login IP logs.</div>
@@ -312,7 +312,7 @@ export const ForensicLocationLedger: React.FC<ForensicLocationLedgerProps> = ({
                         title="Copy Wallet"
                       >
                         {copiedId === `w-${idx}` ? (
-                          <Check className="h-3 w-3 text-emerald-400" />
+                          <Check className="h-3 w-3 text-emerald-600" />
                         ) : (
                           <Copy className="h-3 w-3" />
                         )}
@@ -324,7 +324,7 @@ export const ForensicLocationLedger: React.FC<ForensicLocationLedgerProps> = ({
                   <td className="p-2.5 text-forensic-textMuted whitespace-nowrap">{r.date}</td>
 
                   {/* Time */}
-                  <td className="p-2.5 text-amber-400 font-semibold whitespace-nowrap">{r.time}</td>
+                  <td className="p-2.5 text-amber-600 font-semibold whitespace-nowrap">{r.time}</td>
 
                   {/* Amount */}
                   <td className="p-2.5 font-bold text-forensic-text whitespace-nowrap">
@@ -332,7 +332,7 @@ export const ForensicLocationLedger: React.FC<ForensicLocationLedgerProps> = ({
                   </td>
 
                   {/* Personal IP Address */}
-                  <td className="p-2.5 text-blue-400 font-bold whitespace-nowrap">
+                  <td className="p-2.5 text-sky-700 font-bold whitespace-nowrap">
                     <div className="flex items-center space-x-1">
                       <span>{r.ipAddress}</span>
                       <button
@@ -341,7 +341,7 @@ export const ForensicLocationLedger: React.FC<ForensicLocationLedgerProps> = ({
                         title="Copy IP"
                       >
                         {copiedId === `ip-${idx}` ? (
-                          <Check className="h-3 w-3 text-emerald-400" />
+                          <Check className="h-3 w-3 text-emerald-600" />
                         ) : (
                           <Copy className="h-3 w-3" />
                         )}
@@ -359,7 +359,7 @@ export const ForensicLocationLedger: React.FC<ForensicLocationLedgerProps> = ({
                   {/* Location Name */}
                   <td className="p-2.5 text-forensic-text font-semibold whitespace-nowrap">
                     <div className="flex items-center space-x-1">
-                      <Globe className="h-3 w-3 text-forensic-teal" />
+                      <Globe className="h-3 w-3 text-emerald-600" />
                       <span>{r.locationName}</span>
                     </div>
                   </td>
@@ -374,11 +374,11 @@ export const ForensicLocationLedger: React.FC<ForensicLocationLedgerProps> = ({
                   {/* Threat Status */}
                   <td className="p-2.5 text-center whitespace-nowrap">
                     {r.isThreatFlagged ? (
-                      <span className="px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/40 text-[9px] font-bold uppercase">
+                      <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[9px] font-bold uppercase">
                         {r.threatType || 'THREAT'}
                       </span>
                     ) : (
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold uppercase">
+                      <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold uppercase">
                         RESIDENTIAL
                       </span>
                     )}
@@ -390,7 +390,7 @@ export const ForensicLocationLedger: React.FC<ForensicLocationLedgerProps> = ({
                       {onLocateOnMap && (
                         <button
                           onClick={() => onLocateOnMap(r.latitude, r.longitude, `${r.locationName} (${r.ipAddress})`)}
-                          className="p-1 rounded bg-blue-600/15 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 transition-colors"
+                          className="p-1 rounded bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 transition-colors"
                           title="Locate on Map"
                         >
                           <MapPin className="h-3.5 w-3.5" />
@@ -422,10 +422,10 @@ export const ForensicLocationLedger: React.FC<ForensicLocationLedgerProps> = ({
           Displaying {filteredRecords.length} of {records.length} forensic cross-referenced records
         </span>
         <div className="flex items-center space-x-3">
-          <span className="text-emerald-400 font-semibold">
+          <span className="text-emerald-600 font-semibold">
             {records.filter((r) => !r.isThreatFlagged).length} Residential
           </span>
-          <span className="text-red-400 font-semibold">
+          <span className="text-rose-600 font-semibold">
             {records.filter((r) => r.isThreatFlagged).length} Flagged Endpoints
           </span>
         </div>

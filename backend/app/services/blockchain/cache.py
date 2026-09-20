@@ -162,6 +162,26 @@ class BlockchainCache:
         if raw_json is None:
             raw_json = await self._in_memory.get(key)
 
+        # 3. Disk cache fallback for pre-warmed offline/benchmark transaction datasets
+        if raw_json is None and self._disk_cache_dir and self._disk_cache_dir.exists():
+            try:
+                # Key format: chain:<chain>:addr:<addr>:op:<method>
+                parts = dict(p.split(":", 1) for p in key.split(":") if ":" in p)
+                chain_val = parts.get("chain", "").lower()
+                addr_val = parts.get("addr", "").lower()
+                if chain_val and addr_val:
+                    pattern = f"{chain_val}_{addr_val}*.json"
+                    matches = list(self._disk_cache_dir.glob(pattern))
+                    if matches:
+                        with open(matches[0], "r", encoding="utf-8") as f:
+                            raw_disk_data = json.load(f)
+                        if isinstance(raw_disk_data, list):
+                            raw_json = raw_disk_data
+                            # Cache in memory for subsequent instant accesses
+                            await self._in_memory.set(key, raw_json)
+            except Exception as disk_err:
+                logger.debug(f"Disk cache read skipped for {key}: {disk_err}")
+
         if raw_json is not None:
             try:
                 data = json.loads(raw_json) if isinstance(raw_json, str) else raw_json

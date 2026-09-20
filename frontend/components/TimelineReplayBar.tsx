@@ -88,7 +88,7 @@ export const TimelineReplayBar: React.FC<TimelineReplayBarProps> = ({
   if (totalSteps === 0) return null;
 
   return (
-    <div className="p-3.5 bg-[#161616] border border-[#2A2A2A] rounded-2xl shadow-lg flex flex-col space-y-3 font-sans">
+    <div className="p-3.5 bg-white border border-[#E2E8F0] rounded-2xl shadow-sm flex flex-col space-y-3 font-sans">
       {/* Top Controls & Status Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         {/* Playback Button Group */}
@@ -96,7 +96,7 @@ export const TimelineReplayBar: React.FC<TimelineReplayBarProps> = ({
           <button
             onClick={handleReset}
             title="Reset to beginning"
-            className="p-1.5 rounded-full bg-[#1A1A1A] hover:bg-[#252525] text-[#9A9A9A] hover:text-[#FFFFFF] border border-[#2A2A2A] transition-colors"
+            className="p-1.5 rounded-full bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#64748B] hover:text-[#0F172A] border border-[#E2E8F0] transition-colors"
           >
             <RotateCcw className="h-3.5 w-3.5" />
           </button>
@@ -105,14 +105,14 @@ export const TimelineReplayBar: React.FC<TimelineReplayBarProps> = ({
             onClick={handleStepBack}
             disabled={currentIndex === 0}
             title="Previous Step"
-            className="p-1.5 rounded-full bg-[#1A1A1A] hover:bg-[#252525] text-[#9A9A9A] hover:text-[#FFFFFF] border border-[#2A2A2A] disabled:opacity-40 transition-colors"
+            className="p-1.5 rounded-full bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#64748B] hover:text-[#0F172A] border border-[#E2E8F0] disabled:opacity-40 transition-colors"
           >
             <SkipBack className="h-3.5 w-3.5" />
           </button>
 
           <button
             onClick={handleTogglePlay}
-            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full font-bold text-xs shadow-sm transition-all bg-[#E5FF8F] hover:bg-[#d8f575] text-[#0A0A0A]"
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full font-bold text-xs shadow-sm transition-all bg-[#0284C7] hover:bg-[#0369A1] text-white"
           >
             {isPlaying ? (
               <>
@@ -131,20 +131,20 @@ export const TimelineReplayBar: React.FC<TimelineReplayBarProps> = ({
             onClick={handleStepForward}
             disabled={currentIndex === totalSteps - 1}
             title="Next Step"
-            className="p-1.5 rounded-full bg-[#1A1A1A] hover:bg-[#252525] text-[#9A9A9A] hover:text-[#FFFFFF] border border-[#2A2A2A] disabled:opacity-40 transition-colors"
+            className="p-1.5 rounded-full bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#64748B] hover:text-[#0F172A] border border-[#E2E8F0] disabled:opacity-40 transition-colors"
           >
             <SkipForward className="h-3.5 w-3.5" />
           </button>
 
           {/* Speed Selector */}
-          <div className="flex items-center bg-[#1A1A1A] rounded-full border border-[#2A2A2A] p-0.5 ml-2 font-mono text-[10px]">
+          <div className="flex items-center bg-[#F8FAFC] rounded-full border border-[#E2E8F0] p-0.5 ml-2 font-mono text-[10px]">
             {[1, 2, 5].map(s => (
               <button
                 key={s}
                 onClick={() => setSpeed(s)}
                 className={`px-2 py-0.5 rounded-full transition-all ${speed === s
-                  ? 'bg-[#E5FF8F] text-[#0A0A0A] font-bold'
-                  : 'text-[#9A9A9A] hover:text-[#FFFFFF]'
+                  ? 'bg-[#0284C7] text-white font-bold'
+                  : 'text-[#64748B] hover:text-[#0F172A]'
                   }`}
               >
                 {s}x
@@ -154,15 +154,15 @@ export const TimelineReplayBar: React.FC<TimelineReplayBarProps> = ({
         </div>
 
         {/* Step Indicator & Active Timestamp */}
-        <div className="flex items-center space-x-3 font-mono text-xs text-[#9A9A9A]">
+        <div className="flex items-center space-x-3 font-mono text-xs text-[#64748B]">
           <span className="flex items-center space-x-1">
-            <Clock className="h-3.5 w-3.5 text-[#E5FF8F]" />
-            <span className="text-[#FFFFFF] font-bold">
+            <Clock className="h-3.5 w-3.5 text-[#0284C7]" />
+            <span className="text-[#0F172A] font-bold">
               {currentTx ? new Date(currentTx.timestamp).toUTCString() : '-'}
             </span>
           </span>
 
-          <span className="px-2.5 py-0.5 rounded-full bg-[#1A1A1A] border border-[#2A2A2A] text-[10px] font-bold text-[#FFFFFF]">
+          <span className="px-2.5 py-0.5 rounded-full bg-[#F8FAFC] border border-[#E2E8F0] text-[10px] font-bold text-[#0F172A]">
             Step {currentIndex + 1} of {totalSteps}
           </span>
         </div>
@@ -176,32 +176,32 @@ export const TimelineReplayBar: React.FC<TimelineReplayBarProps> = ({
           max={totalSteps - 1}
           value={currentIndex}
           onChange={handleSliderChange}
-          className="w-full h-1.5 bg-[#2A2A2A] rounded-lg appearance-none cursor-pointer accent-[#E5FF8F]"
+          className="w-full h-1.5 bg-[#E2E8F0] rounded-lg appearance-none cursor-pointer accent-[#0284C7]"
         />
       </div>
 
       {/* Active Transaction Snapshot Card */}
       {currentTx && (
-        <div className="p-2.5 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] flex flex-wrap items-center justify-between text-[11px] font-mono text-[#9A9A9A] gap-2">
+        <div className="p-2.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex flex-wrap items-center justify-between text-[11px] font-mono text-[#64748B] gap-2">
           <div className="flex items-center space-x-2">
-            <span className="text-[#7CFF6B] font-bold flex items-center space-x-1">
+            <span className="text-[#10B981] font-bold flex items-center space-x-1">
               <Zap className="h-3 w-3 inline" />
               <span>
                 {currentTx.amount.toFixed(4)} {currentTx.token_symbol || 'ETH'}
               </span>
             </span>
             <span>•</span>
-            <span className="text-[#FFFFFF] truncate max-w-[120px]" title={currentTx.from_address}>
+            <span className="text-[#0F172A] truncate max-w-[120px]" title={currentTx.from_address}>
               From: {currentTx.from_address.slice(0, 6)}...{currentTx.from_address.slice(-4)}
             </span>
             <span>→</span>
-            <span className="text-[#FFFFFF] truncate max-w-[120px]" title={currentTx.to_address}>
+            <span className="text-[#0F172A] truncate max-w-[120px]" title={currentTx.to_address}>
               To: {currentTx.to_address.slice(0, 6)}...{currentTx.to_address.slice(-4)}
             </span>
           </div>
 
           <div className="flex items-center space-x-2">
-            <span className="text-[#666666] text-[10px]">
+            <span className="text-[#94A3B8] text-[10px]">
               Tx: {currentTx.tx_hash.slice(0, 10)}...
             </span>
           </div>

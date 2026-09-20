@@ -109,24 +109,24 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
   const totalPages = Math.ceil(totalMatches / pageSize) || 1;
 
   const content = (
-    <div className={`bg-[#161616] border border-[#2A2A2A] rounded-2xl w-full flex flex-col font-mono text-xs overflow-hidden transition-colors ${isFullPageView ? 'shadow-sm' : 'max-w-6xl max-h-[92vh] shadow-2xl'
+    <div className={`bg-white border border-[#E2E8F0] rounded-2xl w-full flex flex-col font-mono text-xs overflow-hidden transition-colors ${isFullPageView ? 'shadow-sm' : 'max-w-6xl max-h-[92vh] shadow-2xl'
       }`}>
       {/* Header */}
-      <div className="p-4 border-b border-[#2A2A2A] flex items-center justify-between bg-[#1A1A1A]/90 backdrop-blur-md">
+      <div className="p-4 border-b border-[#E2E8F0] flex items-center justify-between bg-[#F8FAFC]">
         <div className="flex items-center space-x-3">
-          <div className="p-2.5 rounded-xl bg-[#E5FF8F]/10 border border-[#E5FF8F]/20 text-[#E5FF8F]">
+          <div className="p-2.5 rounded-xl bg-[#0284C7]/10 border border-[#0284C7]/20 text-[#0284C7]">
             <Database className="h-5 w-5" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <h2 className="text-sm font-bold text-[#FFFFFF] uppercase tracking-wider">
+              <h2 className="text-sm font-bold text-[#0F172A] uppercase tracking-wider">
                 VASPs &amp; Entity Intelligence Registry
               </h2>
-              <span className="px-2.5 py-0.5 rounded-full bg-[#7CFF6B]/10 text-[#7CFF6B] border border-[#7CFF6B]/30 text-[10px] font-bold">
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
                 {stats ? `${stats.total_addresses.toLocaleString()} VERIFIED ADDRESSES` : 'LOADING...'}
               </span>
             </div>
-            <p className="text-[11px] text-[#9A9A9A] font-sans mt-0.5">
+            <p className="text-[11px] text-[#64748B] font-sans mt-0.5">
               Curated public Proof-of-Reserves, Etherscan verified labels, Tronscan tags &amp; FIU-IND registrations
             </p>
           </div>
@@ -135,7 +135,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
         {onClose && (
           <button
             onClick={onClose}
-            className="p-1.5 rounded-full text-[#9A9A9A] hover:text-[#FFFFFF] hover:bg-[#2A2A2A] transition-colors"
+            className="p-1.5 rounded-full text-[#64748B] hover:text-[#0F172A] hover:bg-[#F1F5F9] transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -144,26 +144,26 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
 
       {/* High-Level Stat Counters */}
       {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-[#1A1A1A] border-b border-[#2A2A2A] text-xs">
-          <div className="p-3.5 bg-[#161616] rounded-xl border border-[#2A2A2A]">
-            <span className="text-[10px] uppercase text-[#9A9A9A] block">Registered Entities</span>
-            <strong className="text-base text-[#E5FF8F] font-bold">{stats.total_vasps} VASPs</strong>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-[#F8FAFC] border-b border-[#E2E8F0] text-xs">
+          <div className="p-3.5 bg-white rounded-xl border border-[#E2E8F0]">
+            <span className="text-[10px] uppercase text-[#64748B] block">Registered Entities</span>
+            <strong className="text-base text-[#0284C7] font-bold">{stats.total_vasps} VASPs</strong>
           </div>
-          <div className="p-3.5 bg-[#161616] rounded-xl border border-[#2A2A2A]">
-            <span className="text-[10px] uppercase text-[#9A9A9A] block">Known Addresses</span>
-            <strong className="text-base text-[#7CFF6B] font-bold">
+          <div className="p-3.5 bg-white rounded-xl border border-[#E2E8F0]">
+            <span className="text-[10px] uppercase text-[#64748B] block">Known Addresses</span>
+            <strong className="text-base text-[#10B981] font-bold">
               {stats.total_addresses.toLocaleString()}
             </strong>
           </div>
-          <div className="p-3.5 bg-[#161616] rounded-xl border border-[#2A2A2A]">
-            <span className="text-[10px] uppercase text-[#9A9A9A] block">ETH Addresses</span>
-            <strong className="text-base text-[#FFFFFF] font-bold">
+          <div className="p-3.5 bg-white rounded-xl border border-[#E2E8F0]">
+            <span className="text-[10px] uppercase text-[#64748B] block">ETH Addresses</span>
+            <strong className="text-base text-[#0F172A] font-bold">
               {stats.by_chain?.ETHEREUM || 0}
             </strong>
           </div>
-          <div className="p-3.5 bg-[#161616] rounded-xl border border-[#2A2A2A]">
-            <span className="text-[10px] uppercase text-[#9A9A9A] block">TRON Addresses</span>
-            <strong className="text-base text-[#FF5C5C] font-bold">
+          <div className="p-3.5 bg-white rounded-xl border border-[#E2E8F0]">
+            <span className="text-[10px] uppercase text-[#64748B] block">TRON Addresses</span>
+            <strong className="text-base text-[#EF4444] font-bold">
               {stats.by_chain?.TRON || 0}
             </strong>
           </div>
@@ -171,13 +171,13 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
       )}
 
       {/* Sub-Tab Navigation */}
-      <div className="flex items-center justify-between px-4 py-3 bg-[#161616] border-b border-[#2A2A2A] text-xs">
+      <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-[#E2E8F0] text-xs">
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setActiveTab('SAHYOG_DIRECTORY')}
             className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-full font-bold transition-all ${activeTab === 'SAHYOG_DIRECTORY'
-              ? 'bg-[#E5FF8F] text-[#0A0A0A] shadow-sm'
-              : 'text-[#9A9A9A] hover:text-[#FFFFFF] hover:bg-[#1A1A1A]'
+              ? 'bg-[#0284C7] text-white shadow-sm'
+              : 'text-[#64748B] hover:text-[#0F172A] hover:bg-[#F1F5F9]'
               }`}
           >
             <Building className="h-3.5 w-3.5" />
@@ -187,8 +187,8 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
           <button
             onClick={() => setActiveTab('ADDRESSES')}
             className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-full font-bold transition-all ${activeTab === 'ADDRESSES'
-              ? 'bg-[#E5FF8F] text-[#0A0A0A] shadow-sm'
-              : 'text-[#9A9A9A] hover:text-[#FFFFFF] hover:bg-[#1A1A1A]'
+              ? 'bg-[#0284C7] text-white shadow-sm'
+              : 'text-[#64748B] hover:text-[#0F172A] hover:bg-[#F1F5F9]'
               }`}
           >
             <Database className="h-3.5 w-3.5" />
@@ -197,12 +197,12 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
         </div>
 
         {activeTab === 'SAHYOG_DIRECTORY' && (
-          <label className="flex items-center space-x-2 cursor-pointer text-[#9A9A9A] hover:text-[#FFFFFF]">
+          <label className="flex items-center space-x-2 cursor-pointer text-[#64748B] hover:text-[#0F172A]">
             <input
               type="checkbox"
               checked={fiuOnly}
               onChange={(e) => setFiuOnly(e.target.checked)}
-              className="rounded border-[#2A2A2A] text-[#E5FF8F] focus:ring-[#E5FF8F]"
+              className="rounded border-[#CBD5E1] text-[#0284C7] focus:ring-[#0284C7]"
             />
             <span className="text-[11px]">FIU-IND Registered Only</span>
           </label>
@@ -216,20 +216,20 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
             {/* Search and Filters */}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex-1 min-w-[240px] relative">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#9A9A9A]" />
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#64748B]" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search VASP name, jurisdiction, or routing code..."
-                  className="w-full bg-[#1A1A1A] border border-[#2A2A2A] rounded-full pl-10 pr-4 py-2 text-xs text-[#FFFFFF] placeholder-[#666666] focus:outline-none focus:border-[#E5FF8F]"
+                  className="w-full bg-white border border-[#E2E8F0] rounded-full pl-10 pr-4 py-2 text-xs text-[#0F172A] placeholder-[#94A3B8] focus:outline-none focus:border-[#0284C7]"
                 />
               </div>
 
               <select
                 value={selectedType}
                 onChange={(e) => setSelectedType(e.target.value)}
-                className="bg-[#1A1A1A] border border-[#2A2A2A] rounded-full px-3 py-2 text-xs text-[#FFFFFF] focus:outline-none focus:border-[#E5FF8F]"
+                className="bg-white border border-[#E2E8F0] rounded-full px-3 py-2 text-xs text-[#0F172A] focus:outline-none focus:border-[#0284C7]"
               >
                 <option value="ALL">All Categories</option>
                 <option value="Centralized Exchange (CEX)">Centralized Exchange (CEX)</option>
@@ -239,11 +239,11 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
             </div>
 
             {directoryLoading ? (
-              <div className="flex items-center justify-center py-20 text-[#9A9A9A]">
+              <div className="flex items-center justify-center py-20 text-[#64748B]">
                 <span>Loading verified VASP compliance directory...</span>
               </div>
             ) : directoryItems.length === 0 ? (
-              <div className="text-center py-16 text-[#9A9A9A]">
+              <div className="text-center py-16 text-[#64748B]">
                 No VASP entities match your search criteria.
               </div>
             ) : (
@@ -251,37 +251,37 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                 {directoryItems.map((vasp) => (
                   <div
                     key={vasp.id}
-                    className="p-5 rounded-2xl bg-[#161616] border border-[#2A2A2A] hover:border-[#E5FF8F]/40 transition-colors space-y-3 shadow-sm"
+                    className="p-5 rounded-2xl bg-white border border-[#E2E8F0] hover:border-[#0284C7]/40 transition-colors space-y-3 shadow-sm"
                   >
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="flex items-center space-x-2">
-                          <strong className="text-sm font-bold text-[#FFFFFF]">{vasp.name}</strong>
+                          <strong className="text-sm font-bold text-[#0F172A]">{vasp.name}</strong>
                           {vasp.is_fiu_registered ? (
-                            <span className="px-2 py-0.5 rounded-full bg-[#7CFF6B]/10 text-[#7CFF6B] border border-[#7CFF6B]/30 text-[9px] font-bold">
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-bold">
                               FIU-IND REGISTERED
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded-full bg-[#E5FF8F]/10 text-[#E5FF8F] border border-[#E5FF8F]/20 text-[9px] font-bold">
+                            <span className="px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200 text-[9px] font-bold">
                               FOREIGN VASP
                             </span>
                           )}
                         </div>
-                        <span className="text-[10px] text-[#9A9A9A] block mt-0.5 font-mono">
+                        <span className="text-[10px] text-[#64748B] block mt-0.5 font-mono">
                           {vasp.category} • {vasp.country} ({vasp.jurisdiction})
                         </span>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 text-[10px] bg-[#1A1A1A] p-3 rounded-xl border border-[#2A2A2A] font-mono">
+                    <div className="grid grid-cols-2 gap-2 text-[10px] bg-[#F8FAFC] p-3 rounded-xl border border-[#E2E8F0] font-mono">
                       <div>
-                        <span className="text-[#9A9A9A] block text-[9px]">SAHYOG ROUTING CODE</span>
+                        <span className="text-[#64748B] block text-[9px]">SAHYOG ROUTING CODE</span>
                         <div className="flex items-center space-x-1 pt-0.5">
-                          <span className="text-[#E5FF8F] font-bold truncate">{vasp.sahyog_routing_code}</span>
+                          <span className="text-[#0284C7] font-bold truncate">{vasp.sahyog_routing_code}</span>
                           <button
                             onClick={() => handleCopy(vasp.sahyog_routing_code || '')}
                             title="Copy routing code"
-                            className="hover:text-[#FFFFFF] text-[#9A9A9A]"
+                            className="hover:text-[#0F172A] text-[#64748B]"
                           >
                             <Copy className="h-2.5 w-2.5" />
                           </button>
@@ -289,30 +289,30 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                       </div>
 
                       <div>
-                        <span className="text-[#9A9A9A] block text-[9px]">RESPONSE SLA</span>
-                        <span className="text-[#7CFF6B] font-bold block pt-0.5 truncate">{vasp.response_sla || vasp.mock_response_sla}</span>
+                        <span className="text-[#64748B] block text-[9px]">RESPONSE SLA</span>
+                        <span className="text-[#10B981] font-bold block pt-0.5 truncate">{vasp.response_sla || vasp.mock_response_sla}</span>
                       </div>
 
                       <div>
-                        <span className="text-[#9A9A9A] block text-[9px]">FIU REGISTRATION</span>
-                        <span className="text-[#FFFFFF] truncate block pt-0.5">{vasp.fiu_registration_number || 'N/A'}</span>
+                        <span className="text-[#64748B] block text-[9px]">FIU REGISTRATION</span>
+                        <span className="text-[#0F172A] truncate block pt-0.5">{vasp.fiu_registration_number || 'N/A'}</span>
                       </div>
 
                       <div>
-                        <span className="text-[#9A9A9A] block text-[9px]">NODAL OFFICER</span>
-                        <span className="text-[#FFFFFF] truncate block pt-0.5">{vasp.nodal_officer || 'Compliance Desk'}</span>
+                        <span className="text-[#64748B] block text-[9px]">NODAL OFFICER</span>
+                        <span className="text-[#0F172A] truncate block pt-0.5">{vasp.nodal_officer || 'Compliance Desk'}</span>
                       </div>
                     </div>
 
-                    <div className="text-[10px] space-y-1 font-mono text-[#9A9A9A]">
+                    <div className="text-[10px] space-y-1 font-mono text-[#64748B]">
                       <div className="flex items-center justify-between">
                         <span>LEA Contact:</span>
-                        <span className="text-[#E5FF8F] font-medium">{vasp.designated_lea_email || vasp.compliance_email}</span>
+                        <span className="text-[#0284C7] font-medium">{vasp.designated_lea_email || vasp.compliance_email}</span>
                       </div>
                       {vasp.compliance_portal && (
                         <div className="flex items-center justify-between">
                           <span>Compliance Portal:</span>
-                          <a href={vasp.compliance_portal} target="_blank" rel="noreferrer" className="text-[#E5FF8F] hover:underline truncate max-w-[200px]">
+                          <a href={vasp.compliance_portal} target="_blank" rel="noreferrer" className="text-[#0284C7] hover:underline truncate max-w-[200px]">
                             {vasp.compliance_portal.replace(/^https?:\/\//, '')}
                           </a>
                         </div>
@@ -322,7 +322,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                     {vasp.known_deposit_cluster_labels && vasp.known_deposit_cluster_labels.length > 0 && (
                       <div className="pt-1 flex flex-wrap gap-1">
                         {vasp.known_deposit_cluster_labels.map((lbl, idx) => (
-                          <span key={idx} className="px-2 py-0.5 rounded-full bg-[#1A1A1A] border border-[#2A2A2A] text-[#9A9A9A] text-[9px] font-mono">
+                          <span key={idx} className="px-2 py-0.5 rounded-full bg-white border border-[#E2E8F0] text-[#64748B] text-[9px] font-mono">
                             {lbl}
                           </span>
                         ))}
@@ -336,9 +336,9 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
         ) : (
           <div className="space-y-4">
             {/* Filters Toolbar */}
-            <div className="p-3 bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="p-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
               <div className="flex-1 min-w-[220px] relative">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#9A9A9A]" />
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#64748B]" />
                 <input
                   type="text"
                   value={searchQuery}
@@ -347,7 +347,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                     setPage(0);
                   }}
                   placeholder="Search by address (0x... or T...), VASP, or notes..."
-                  className="w-full pl-10 pr-4 py-2 bg-[#161616] border border-[#2A2A2A] focus:border-[#E5FF8F] rounded-full text-[#FFFFFF] placeholder-[#666666] font-mono text-[11px] focus:outline-none transition-colors"
+                  className="w-full pl-10 pr-4 py-2 bg-white border border-[#E2E8F0] focus:border-[#0284C7] rounded-full text-[#0F172A] placeholder-[#94A3B8] font-mono text-[11px] focus:outline-none transition-colors"
                 />
               </div>
 
@@ -358,7 +358,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                     setSelectedChain(e.target.value);
                     setPage(0);
                   }}
-                  className="bg-[#161616] border border-[#2A2A2A] focus:border-[#E5FF8F] text-[#FFFFFF] rounded-full px-3 py-1.5 text-[11px] font-mono focus:outline-none"
+                  className="bg-white border border-[#E2E8F0] focus:border-[#0284C7] text-[#0F172A] rounded-full px-3 py-1.5 text-[11px] font-mono focus:outline-none"
                 >
                   <option value="ALL">All Chains</option>
                   <option value="ethereum">Ethereum</option>
@@ -371,7 +371,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                     setSelectedVasp(e.target.value);
                     setPage(0);
                   }}
-                  className="bg-[#161616] border border-[#2A2A2A] focus:border-[#E5FF8F] text-[#FFFFFF] rounded-full px-3 py-1.5 text-[11px] font-mono focus:outline-none"
+                  className="bg-white border border-[#E2E8F0] focus:border-[#0284C7] text-[#0F172A] rounded-full px-3 py-1.5 text-[11px] font-mono focus:outline-none"
                 >
                   <option value="ALL">All VASPs</option>
                   {stats?.by_vasp &&
@@ -388,7 +388,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                     setSelectedType(e.target.value);
                     setPage(0);
                   }}
-                  className="bg-[#161616] border border-[#2A2A2A] focus:border-[#E5FF8F] text-[#FFFFFF] rounded-full px-3 py-1.5 text-[11px] font-mono focus:outline-none"
+                  className="bg-white border border-[#E2E8F0] focus:border-[#0284C7] text-[#0F172A] rounded-full px-3 py-1.5 text-[11px] font-mono focus:outline-none"
                 >
                   <option value="ALL">All Types</option>
                   <option value="hot_wallet">Hot Wallet</option>
@@ -403,18 +403,18 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
             {/* Address Records Table */}
             <div className={`overflow-y-auto p-1 ${isFullPageView ? 'min-h-[400px]' : 'flex-1'}`}>
               {loading ? (
-                <div className="flex items-center justify-center py-20 text-[#9A9A9A]">
+                <div className="flex items-center justify-center py-20 text-[#64748B]">
                   <span>Querying verified entity registry...</span>
                 </div>
               ) : addresses.length === 0 ? (
-                <div className="text-center py-16 text-[#9A9A9A]">
+                <div className="text-center py-16 text-[#64748B]">
                   No verified VASP addresses match your filters.
                 </div>
               ) : (
-                <div className="overflow-x-auto border border-[#2A2A2A] rounded-2xl">
+                <div className="overflow-x-auto border border-[#E2E8F0] rounded-2xl">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="border-b border-[#2A2A2A] bg-[#1A1A1A] text-[10px] uppercase font-mono tracking-wider text-[#9A9A9A]">
+                      <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-[10px] uppercase font-mono tracking-wider text-[#64748B]">
                         <th className="py-3 px-3.5">Entity Name</th>
                         <th className="py-3 px-3.5">Blockchain Address</th>
                         <th className="py-3 px-3.5">Chain</th>
@@ -424,25 +424,25 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                         <th className="py-3 px-3.5">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#2A2A2A] font-mono text-[11px]">
+                    <tbody className="divide-y divide-[#E2E8F0] font-mono text-[11px]">
                       {addresses.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-[#1A1A1A]/60 transition-colors">
+                        <tr key={idx} className="hover:bg-[#F8FAFC] transition-colors">
                           <td className="py-2.5 px-3.5">
-                            <strong className="text-[#FFFFFF]">{item.vasp_name}</strong>
+                            <strong className="text-[#0F172A]">{item.vasp_name}</strong>
                           </td>
 
                           <td className="py-2.5 px-3.5">
                             <div className="flex items-center space-x-1.5">
-                              <span className="text-[#9A9A9A] truncate max-w-[220px]">
+                              <span className="text-[#64748B] truncate max-w-[220px]">
                                 {item.address}
                               </span>
                               <button
                                 onClick={() => handleCopy(item.address)}
                                 title="Copy address"
-                                className="p-1 hover:text-[#FFFFFF] text-[#9A9A9A]"
+                                className="p-1 hover:text-[#0F172A] text-[#64748B]"
                               >
                                 {copiedAddr === item.address ? (
-                                  <Check className="h-3 w-3 text-[#7CFF6B]" />
+                                  <Check className="h-3 w-3 text-[#10B981]" />
                                 ) : (
                                   <Copy className="h-3 w-3" />
                                 )}
@@ -455,7 +455,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                                 }
                                 target="_blank"
                                 rel="noreferrer"
-                                className="p-1 text-[#E5FF8F] hover:underline"
+                                className="p-1 text-[#0284C7] hover:underline"
                               >
                                 <ExternalLink className="h-3 w-3" />
                               </a>
@@ -463,13 +463,13 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                           </td>
 
                           <td className="py-2.5 px-3.5">
-                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${item.chain === 'ethereum' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${item.chain === 'ethereum' ? 'bg-sky-50 text-sky-700 border border-sky-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
                               }`}>
                               {item.chain?.toUpperCase()}
                             </span>
                           </td>
 
-                          <td className="py-2.5 px-3.5 text-[#9A9A9A] text-[10px]">
+                          <td className="py-2.5 px-3.5 text-[#64748B] text-[10px]">
                             {item.address_type?.replace('_', ' ')}
                           </td>
 
@@ -479,22 +479,22 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                                 href={item.source_url}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="text-[#E5FF8F] hover:underline inline-flex items-center space-x-1 text-[10px]"
+                                className="text-[#0284C7] hover:underline inline-flex items-center space-x-1 text-[10px]"
                               >
                                 <span>{item.source_name || item.source}</span>
                                 <ExternalLink className="h-2.5 w-2.5 ml-0.5" />
                               </a>
                             ) : (
-                              <span className="text-[#9A9A9A] text-[10px]">{item.source_name || item.source}</span>
+                              <span className="text-[#64748B] text-[10px]">{item.source_name || item.source}</span>
                             )}
                           </td>
 
-                          <td className="py-2.5 px-3.5 text-[#7CFF6B] font-bold text-[10px]">
+                          <td className="py-2.5 px-3.5 text-[#10B981] font-bold text-[10px]">
                             {item.confidence_score ? `${item.confidence_score}%` : '95%'}
                           </td>
 
                           <td className="py-2.5 px-3.5">
-                            <span className="px-2 py-0.5 rounded-full bg-[#7CFF6B]/10 text-[#7CFF6B] border border-[#7CFF6B]/30 text-[10px] font-bold">
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
                               VERIFIED
                             </span>
                           </td>
@@ -507,7 +507,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
             </div>
 
             {/* Pagination Bar */}
-            <div className="p-3 bg-[#161616] border border-[#2A2A2A] rounded-2xl flex items-center justify-between text-[11px] text-[#9A9A9A] font-mono">
+            <div className="p-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl flex items-center justify-between text-[11px] text-[#64748B] font-mono">
               <div>
                 Showing {addresses.length} of {totalMatches.toLocaleString()} records
               </div>
@@ -516,7 +516,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                 <button
                   onClick={() => setPage((p) => Math.max(p - 1, 0))}
                   disabled={page === 0}
-                  className="px-3 py-1 rounded-full bg-[#1A1A1A] border border-[#2A2A2A] disabled:opacity-40 hover:bg-[#252525] text-[#FFFFFF] transition-colors"
+                  className="px-3 py-1 rounded-full bg-white border border-[#E2E8F0] disabled:opacity-40 hover:bg-[#F1F5F9] text-[#0F172A] transition-colors"
                 >
                   Prev
                 </button>
@@ -526,7 +526,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
                 <button
                   onClick={() => setPage((p) => Math.min(p + 1, totalPages - 1))}
                   disabled={page >= totalPages - 1}
-                  className="px-3 py-1 rounded-full bg-[#1A1A1A] border border-[#2A2A2A] disabled:opacity-40 hover:bg-[#252525] text-[#FFFFFF] transition-colors"
+                  className="px-3 py-1 rounded-full bg-white border border-[#E2E8F0] disabled:opacity-40 hover:bg-[#F1F5F9] text-[#0F172A] transition-colors"
                 >
                   Next
                 </button>
@@ -543,7 +543,7 @@ export const VASPRegistryModal: React.FC<VASPRegistryModalProps> = ({ onClose, i
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
       {content}
     </div>
   );

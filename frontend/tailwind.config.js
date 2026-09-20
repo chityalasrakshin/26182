@@ -9,27 +9,33 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Security Operations Dashboard Design Tokens (security-dashboard-ui-spec.md)
+        // Institutional Cryptocurrency Forensic Tokens (matching Chainalysis, Elliptic, & Scorechain)
         brand: {
-          DEFAULT: '#E5FF8F',
-          tint1: '#EDFFB1',
-          tint2: '#F2FFC7',
-          tint3: '#F7FFDD',
-          tint4: '#FCFFF4',
+          DEFAULT: '#0284C7', // Chainalysis Reactor & Scorechain Cyan-Blue
+          hover: '#0369A1',
+          tint1: '#38BDF8',
+          tint2: '#7DD3FC',
+          tint3: '#BAE6FD',
+          tint4: '#E0F2FE',
+          coral: '#F43F5E',
+          amber: '#F59E0B',
+          purple: '#6366F1',
+          fuchsia: '#D946EF',
         },
         dark: {
-          bg: '#0A0A0A',
-          surface: '#161616',
-          surfaceCard: '#1A1A1A',
-          border: '#2A2A2A',
+          bg: '#F4F6F8',
+          surface: '#FFFFFF',
+          surfaceCard: '#FFFFFF',
+          border: '#E2E8F0',
         },
         status: {
-          success: '#7CFF6B',
-          warning: '#E5D34F',
-          critical: '#FF5C5C',
+          success: '#10B981',
+          warning: '#F59E0B',
+          critical: '#EF4444',
+          info: '#0284C7',
         },
-        textPrimary: '#FFFFFF',
-        textSecondary: '#9A9A9A',
+        textPrimary: '#0F172A',
+        textSecondary: '#64748B',
 
         // High-Visibility Institutional Theme Tokens (backed by CSS variables)
         forensic: {

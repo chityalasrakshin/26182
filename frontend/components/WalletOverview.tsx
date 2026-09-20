@@ -65,39 +65,39 @@ export const WalletOverview: React.FC<WalletOverviewProps> = ({
 
   return (
     <div
-      className={`bg-[#161616] border border-[#2A2A2A] rounded-2xl p-5 md:p-6 font-mono text-xs transition-colors space-y-4 shadow-[0_4px_24px_rgba(0,0,0,0.3)] ${className}`}
+      className={`bg-white border border-[#E2E8F0] rounded-2xl p-5 md:p-6 font-mono text-xs space-y-4 shadow-sm text-[#0F172A] ${className}`}
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#2A2A2A] pb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
         <div className="flex items-center space-x-3">
-          <div className="h-9 w-9 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] flex items-center justify-center text-[#E5FF8F]">
+          <div className="h-9 w-9 rounded-xl bg-sky-50 border border-sky-200 flex items-center justify-center text-[#0284C7]">
             <Wallet className="h-4.5 w-4.5" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <span className="text-[10px] uppercase font-bold text-[#9A9A9A]">
+              <span className="text-[10px] uppercase font-bold text-[#64748B]">
                 Suspect Target Wallet
               </span>
-              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#E5FF8F]/10 border border-[#E5FF8F]/20 text-[#E5FF8F]">
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-sky-50 border border-sky-200 text-sky-700">
                 {chainUpper}
               </span>
             </div>
             <div className="flex items-center space-x-2 mt-0.5">
-              <span className="text-xs sm:text-sm font-bold text-[#FFFFFF] break-all select-all">
+              <span className="text-xs sm:text-sm font-bold text-[#0F172A] break-all select-all">
                 {walletAddress}
               </span>
               <button
                 onClick={handleCopy}
                 title="Copy Address"
-                className="p-1 hover:text-[#E5FF8F] text-[#9A9A9A] transition-colors"
+                className="p-1 hover:text-[#0284C7] text-[#64748B] transition-colors"
               >
-                {copied ? <Check className="h-3.5 w-3.5 text-[#7CFF6B]" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
               </button>
               <a
                 href={explorerUrl}
                 target="_blank"
                 rel="noreferrer"
                 title="View on Blockchain Explorer"
-                className="p-1 hover:text-[#E5FF8F] text-[#9A9A9A] transition-colors"
+                className="p-1 hover:text-[#0284C7] text-[#64748B] transition-colors"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
               </a>
@@ -107,21 +107,20 @@ export const WalletOverview: React.FC<WalletOverviewProps> = ({
 
         <div className="flex items-center space-x-2.5">
           {primaryVasp ? (
-            <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-[#7CFF6B]/10 border border-[#7CFF6B]/25 text-[#7CFF6B] text-[11px] font-bold">
+            <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-bold">
               <ShieldCheck className="h-3.5 w-3.5" />
               <span>{primaryVasp.vasp_name} ({primaryVasp.score.toFixed(0)}%)</span>
             </div>
           ) : (
-            <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-[#E5D34F]/10 border border-[#E5D34F]/25 text-[#E5D34F] text-[11px] font-bold">
-              <AlertTriangle className="h-3.5 w-3.5 text-[#E5D34F]" />
+            <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-bold">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
               <span>Multi-Hop Unhosted</span>
             </div>
           )}
 
-          <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-[#1A1A1A] border border-[#2A2A2A] text-[11px]">
-            <span className="text-[#9A9A9A]">Flight Risk:</span>
-            <span className={`font-bold ${flightRiskLabel === 'HIGH' ? 'text-[#FF5C5C]' : flightRiskLabel === 'MEDIUM' ? 'text-[#E5D34F]' : 'text-[#7CFF6B]'
-              }`}>
+          <div className="flex items-center space-x-1.5 px-3 py-1 rounded-full bg-[#F8FAFC] border border-[#CBD5E1] text-[11px]">
+            <span className="text-[#64748B]">Flight Risk:</span>
+            <span className={`font-bold ${flightRiskLabel === 'HIGH' ? 'text-rose-600' : flightRiskLabel === 'MEDIUM' ? 'text-amber-600' : 'text-emerald-600'}`}>
               {flightRiskLabel}
             </span>
           </div>
@@ -129,62 +128,62 @@ export const WalletOverview: React.FC<WalletOverviewProps> = ({
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="p-3.5 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[#9A9A9A] text-[10px] uppercase">
+        <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col justify-between shadow-xs">
+          <div className="flex items-center justify-between text-[#64748B] text-[10px] uppercase">
             <span>Observed Outflow (INR)</span>
-            <IndianRupee className="h-3.5 w-3.5 text-[#E5FF8F]" />
+            <IndianRupee className="h-3.5 w-3.5 text-[#0284C7]" />
           </div>
           <div className="mt-2">
-            <div className="text-base sm:text-lg font-bold text-[#FFFFFF]">
-              {totalInr > 0 ? formatINR(totalInr) : '₹21,893.45 Cr'}
+            <div className="text-base sm:text-lg font-bold text-[#0F172A]">
+              {totalInr > 0 ? formatINR(totalInr) : '₹0.00'}
             </div>
-            <span className="text-[10px] text-[#9A9A9A]">
-              {totalUsd > 0 ? formatUSD(totalUsd) : '$2.62B USD Eqv'}
+            <span className="text-[10px] text-[#64748B]">
+              {totalUsd > 0 ? formatUSD(totalUsd) : '$0.00 USD Eqv'}
             </span>
           </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[#9A9A9A] text-[10px] uppercase">
+        <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col justify-between shadow-xs">
+          <div className="flex items-center justify-between text-[#64748B] text-[10px] uppercase">
             <span>Potential Freeze Value</span>
-            <ShieldCheck className="h-3.5 w-3.5 text-[#7CFF6B]" />
+            <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
           </div>
           <div className="mt-2">
-            <div className="text-base sm:text-lg font-bold text-[#7CFF6B]">
-              {totalInr > 0 ? formatINR(totalInr * (taintRatio > 0 ? taintRatio : 1.0)) : '₹18,609.43 Cr'}
+            <div className="text-base sm:text-lg font-bold text-emerald-700">
+              {totalInr > 0 ? formatINR(totalInr * (taintRatio > 0 ? taintRatio : 1.0)) : '₹0.00'}
             </div>
-            <span className="text-[10px] text-[#9A9A9A]">
-              Sec 91 Statutory Seizure Ready
+            <span className="text-[10px] text-[#64748B]">
+              {totalInr > 0 ? 'Sec 91 Statutory Seizure Ready' : 'Standby for Capital Transit'}
             </span>
           </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[#9A9A9A] text-[10px] uppercase">
+        <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col justify-between shadow-xs">
+          <div className="flex items-center justify-between text-[#64748B] text-[10px] uppercase">
             <span>FIFO Dirty Taint</span>
-            <TrendingUp className="h-3.5 w-3.5 text-[#FF5C5C]" />
+            <TrendingUp className="h-3.5 w-3.5 text-rose-600" />
           </div>
           <div className="mt-2">
-            <div className="text-base sm:text-lg font-bold text-[#FF5C5C]">
-              {taintRatio > 0 ? `${(taintRatio * 100).toFixed(1)}% Tainted` : '85.0% Tainted'}
+            <div className={`text-base sm:text-lg font-bold ${taintRatio > 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+              {taintRatio > 0 ? `${(taintRatio * 100).toFixed(1)}% Tainted` : '0.0% Clean'}
             </div>
-            <span className="text-[10px] text-[#9A9A9A]">
-              Proven Stolen Fund Flow
+            <span className="text-[10px] text-[#64748B]">
+              {taintRatio > 0 ? 'Proven Stolen Fund Flow' : 'No Taint Exposure'}
             </span>
           </div>
         </div>
 
-        <div className="p-3.5 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] flex flex-col justify-between">
-          <div className="flex items-center justify-between text-[#9A9A9A] text-[10px] uppercase">
+        <div className="p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col justify-between shadow-xs">
+          <div className="flex items-center justify-between text-[#64748B] text-[10px] uppercase">
             <span>Crawled Topology</span>
-            <Network className="h-3.5 w-3.5 text-[#E5FF8F]" />
+            <Network className="h-3.5 w-3.5 text-[#0284C7]" />
           </div>
           <div className="mt-2">
-            <div className="text-base sm:text-lg font-bold text-[#FFFFFF]">
-              {(graphData?.stats?.total_nodes ?? 150)} Nodes / {(graphData?.stats?.total_edges ?? 330)} Edges
+            <div className="text-base sm:text-lg font-bold text-[#0F172A]">
+              {(graphData?.stats?.total_nodes ?? 1)} Nodes / {(graphData?.stats?.total_edges ?? 0)} Edges
             </div>
-            <span className="text-[10px] text-[#9A9A9A]">
-              Max Depth: {(graphData?.stats?.max_hop_reached ?? 3)} Hops
+            <span className="text-[10px] text-[#64748B]">
+              Max Depth: {(graphData?.stats?.max_hop_reached ?? 0)} Hops
             </span>
           </div>
         </div>

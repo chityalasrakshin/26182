@@ -40,7 +40,15 @@ export interface GraphNodeData {
   chain?: string | null;
   is_bridge?: boolean;
   bridge_protocol?: string | null;
+  is_sanctioned?: boolean;
+  is_exploit?: boolean;
+  entity_name?: string | null;
+  category?: string | null;
+  risk_level?: string | null;
+  is_mixer?: boolean;
+  sanctions_program?: string | null;
 }
+
 
 export interface GraphNode {
   data: GraphNodeData;
@@ -137,12 +145,33 @@ export interface EvidenceItem {
 }
 
 export interface RiskAssessment {
-  risk_level: 'LOW' | 'MEDIUM' | 'HIGH';
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   score: number;
   composite_risk_score?: number;
   indicators: string[];
   explanation: string;
 }
+
+export interface AddressLookupResponse {
+  address: string;
+  chain: string;
+  has_label: boolean;
+  is_sanctioned: boolean;
+  is_exploit?: boolean;
+  is_vasp: boolean;
+  is_mixer: boolean;
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  entity?: string | null;
+  label: string;
+  category: string;
+  confidence?: string | number | null;
+  confidence_score?: number | null;
+  source_name?: string | null;
+  source_url?: string | null;
+  notes?: string | null;
+  cached_analysis_id?: string | null;
+}
+
 
 export interface AnalysisStatus {
   analysis_id: string;
@@ -163,6 +192,11 @@ export interface AnalysisStatus {
   total_volume_usd?: number;
   total_traceable_inr?: number;
   total_traceable_usd?: number;
+  entity_name?: string | null;
+  entity_label?: string | null;
+  category?: string | null;
+  is_sanctioned?: boolean;
+  is_exploit?: boolean;
 }
 
 export interface TraceJob {

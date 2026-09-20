@@ -193,16 +193,6 @@ export const CaseIntakeModal: React.FC<CaseIntakeModalProps> = ({
     setCsvRecords(parsed);
   };
 
-  const loadSampleCSV = () => {
-    const sample = `address,chain,label,loss_inr,priority
-0x3f8702cfb1662195fcc98593789682da91dfaae3,ethereum,Task Scam Primary Off-Ramp,4500000,CRITICAL
-0x0051cc1d8bbf0b3373b02e22ea5a2fe483266cea,ethereum,Gate.io Mule Account,1200000,HIGH
-0xd90e2f925da726b50c4ed8d0fb90ad053324f31b,ethereum,Tornado Cash Router Pool,85000000,CRITICAL
-TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
-0x35465d7b8ec8f28b06c90ab562c85a012337f687,ethereum,Binance Deposit Layering Node,750000,MEDIUM`;
-    setCsvFileName('sample_lea_suspects.csv');
-    parseCSV(sample);
-  };
 
   const handleTraceRecord = async (record: CSVIntakeRecord) => {
     setSuspectAddress(record.address);
@@ -214,41 +204,41 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
-      <div className="bg-[#161616] border border-[#2A2A2A] rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden font-sans text-xs">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+      <div className="bg-[#FFFFFF] border border-[#E2E8F0] rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden font-sans text-xs text-[#0F172A]">
         {/* Modal Header */}
-        <div className="px-5 py-4 border-b border-[#2A2A2A] flex items-center justify-between bg-[#1A1A1A]/90 backdrop-blur-md">
+        <div className="px-5 py-4 border-b border-[#E2E8F0] flex items-center justify-between bg-[#F8FAFC]">
           <div className="flex items-center space-x-3">
-            <div className="p-2.5 rounded-xl bg-[#E5FF8F]/10 border border-[#E5FF8F]/20 text-[#E5FF8F]">
+            <div className="p-2.5 rounded-xl bg-[#0284C7]/10 border border-[#0284C7]/20 text-[#0284C7]">
               <FolderPlus className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-[#FFFFFF] tracking-wide uppercase flex items-center space-x-2 font-mono">
+              <h2 className="text-sm font-bold text-[#0F172A] tracking-wide uppercase flex items-center space-x-2 font-mono">
                 <span>New Investigation Case Intake</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-[#E5FF8F]/10 text-[#E5FF8F] border border-[#E5FF8F]/20">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-[#0284C7]/10 text-[#0284C7] border border-[#0284C7]/20">
                   LEA Direct Intake
                 </span>
               </h2>
-              <p className="text-[11px] text-[#9A9A9A] font-sans">
+              <p className="text-[11px] text-[#64748B] font-sans">
                 Ingest suspect crypto wallets, attach NCRP fraud complaints, and dispatch multi-hop VASP traces.
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-[#9A9A9A] hover:text-[#FFFFFF] rounded-full hover:bg-[#2A2A2A] transition-colors"
+            className="p-1.5 text-[#64748B] hover:text-[#0F172A] rounded-full hover:bg-[#F1F5F9] transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex border-b border-[#2A2A2A] bg-[#161616] px-5 pt-2 text-xs font-mono gap-2">
+        <div className="flex border-b border-[#E2E8F0] bg-[#FFFFFF] px-5 pt-2 text-xs font-mono gap-2">
           <button
             onClick={() => setActiveTab('single')}
             className={`pb-3 px-4 font-semibold border-b-2 transition-colors flex items-center space-x-2 ${activeTab === 'single'
-              ? 'border-[#E5FF8F] text-[#E5FF8F]'
-              : 'border-transparent text-[#9A9A9A] hover:text-[#FFFFFF]'
+              ? 'border-[#0284C7] text-[#0284C7]'
+              : 'border-transparent text-[#64748B] hover:text-[#0F172A]'
               }`}
           >
             <FileText className="h-3.5 w-3.5" />
@@ -257,14 +247,14 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
           <button
             onClick={() => setActiveTab('csv')}
             className={`pb-3 px-4 font-semibold border-b-2 transition-colors flex items-center space-x-2 ${activeTab === 'csv'
-              ? 'border-[#E5FF8F] text-[#E5FF8F]'
-              : 'border-transparent text-[#9A9A9A] hover:text-[#FFFFFF]'
+              ? 'border-[#0284C7] text-[#0284C7]'
+              : 'border-transparent text-[#64748B] hover:text-[#0F172A]'
               }`}
           >
             <FileSpreadsheet className="h-3.5 w-3.5" />
             <span>Batch CSV Ingestion</span>
             {csvRecords.length > 0 && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] bg-[#E5FF8F]/10 text-[#E5FF8F] border border-[#E5FF8F]/20">
+              <span className="px-2 py-0.5 rounded-full text-[10px] bg-[#0284C7]/10 text-[#0284C7] border border-[#0284C7]/20">
                 {csvRecords.length}
               </span>
             )}
@@ -274,7 +264,7 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {error && (
-            <div className="p-3 bg-[#FF5C5C]/10 border border-[#FF5C5C]/30 rounded-2xl flex items-center space-x-2.5 text-[#FF5C5C] font-mono text-xs">
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl flex items-center space-x-2.5 text-rose-700 font-mono text-xs">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{error}</span>
             </div>
@@ -283,17 +273,17 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
           {activeTab === 'single' ? (
             <form onSubmit={handleSubmitSingle} className="space-y-4 font-mono">
               {/* Presets Bar */}
-              <div className="p-3.5 bg-[#1A1A1A] border border-[#2A2A2A] rounded-2xl space-y-2">
-                <div className="flex items-center justify-between text-[11px] text-[#9A9A9A]">
-                  <span className="flex items-center space-x-1.5 font-bold uppercase tracking-wider text-[#FFFFFF]">
-                    <Sparkles className="h-3.5 w-3.5 text-[#E5FF8F]" />
+              <div className="p-3.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-2xl space-y-2">
+                <div className="flex items-center justify-between text-[11px] text-[#64748B]">
+                  <span className="flex items-center space-x-1.5 font-bold uppercase tracking-wider text-[#0F172A]">
+                    <Sparkles className="h-3.5 w-3.5 text-[#0284C7]" />
                     <span>Discovered Target Leads (Active Database Counterparties):</span>
                   </span>
-                  <span className="text-[10px] text-[#666666]">Click to autofill</span>
+                  <span className="text-[10px] text-[#94A3B8]">Click to autofill</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                   {discoveredPresets.length === 0 ? (
-                    <div className="col-span-4 text-[10px] text-[#9A9A9A] py-1 italic">
+                    <div className="col-span-4 text-[10px] text-[#64748B] py-1 italic">
                       No automated candidate leads in database yet. Enter suspect details manually below.
                     </div>
                   ) : discoveredPresets.map((p, idx) => (
@@ -301,17 +291,17 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
                       key={idx}
                       type="button"
                       onClick={() => handleApplyPreset(p)}
-                      className="p-2.5 bg-[#161616] hover:bg-[#202020] border border-[#2A2A2A] hover:border-[#E5FF8F]/40 rounded-xl text-left transition-colors group space-y-1 shadow-sm"
+                      className="p-2.5 bg-[#FFFFFF] hover:bg-[#F1F5F9] border border-[#E2E8F0] hover:border-[#0284C7]/40 rounded-xl text-left transition-colors group space-y-1 shadow-sm"
                     >
                       <div className="flex items-center justify-between text-[11px]">
-                        <span className="font-bold text-[#FFFFFF] group-hover:text-[#E5FF8F] truncate">
+                        <span className="font-bold text-[#0F172A] group-hover:text-[#0284C7] truncate">
                           {p.name}
                         </span>
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#E5FF8F]/10 text-[#E5FF8F] border border-[#E5FF8F]/20 uppercase font-semibold">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#0284C7]/10 text-[#0284C7] border border-[#0284C7]/20 uppercase font-semibold">
                           {p.chain}
                         </span>
                       </div>
-                      <div className="text-[10px] text-[#9A9A9A] truncate font-mono">
+                      <div className="text-[10px] text-[#64748B] truncate font-mono">
                         {p.address.slice(0, 6)}...{p.address.slice(-4)}
                       </div>
                     </button>
@@ -322,7 +312,7 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
               {/* Target Address & Blockchain Rail */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
                 <div className="md:col-span-8 space-y-1">
-                  <label className="block text-[11px] font-bold text-[#FFFFFF] uppercase tracking-wider">
+                  <label className="block text-[11px] font-bold text-[#0F172A] uppercase tracking-wider">
                     Suspect Target Wallet Address *
                   </label>
                   <input
@@ -331,18 +321,18 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
                     value={suspectAddress}
                     onChange={(e) => setSuspectAddress(e.target.value)}
                     placeholder="0x... (Ethereum/Polygon/BSC) or T... (Tron TRC-20) or 1.../bc1... (Bitcoin)"
-                    className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-[#E5FF8F] rounded-full text-[#FFFFFF] placeholder-[#666666] font-mono text-xs focus:outline-none transition-colors"
+                    className="w-full px-3.5 py-2.5 bg-[#FFFFFF] border border-[#E2E8F0] focus:border-[#0284C7] rounded-full text-[#0F172A] placeholder-[#94A3B8] font-mono text-xs focus:outline-none transition-colors"
                   />
                 </div>
 
                 <div className="md:col-span-4 space-y-1">
-                  <label className="block text-[11px] font-bold text-[#FFFFFF] uppercase tracking-wider">
+                  <label className="block text-[11px] font-bold text-[#0F172A] uppercase tracking-wider">
                     Blockchain Rail
                   </label>
                   <select
                     value={chain}
                     onChange={(e) => setChain(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-[#E5FF8F] rounded-full text-[#FFFFFF] font-mono text-xs focus:outline-none transition-colors"
+                    className="w-full px-3.5 py-2.5 bg-[#FFFFFF] border border-[#E2E8F0] focus:border-[#0284C7] rounded-full text-[#0F172A] font-mono text-xs focus:outline-none transition-colors"
                   >
                     <option value="auto">Auto-Detect Blockchain</option>
                     <option value="ethereum">Ethereum Mainnet (0x...)</option>
@@ -355,7 +345,7 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
               {/* Case Title & NCRP Acknowledgment */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
                 <div className="md:col-span-8 space-y-1">
-                  <label className="block text-[11px] font-bold text-[#FFFFFF] uppercase tracking-wider">
+                  <label className="block text-[11px] font-bold text-[#0F172A] uppercase tracking-wider">
                     Investigation Title
                   </label>
                   <input
@@ -363,12 +353,12 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="e.g. NCRP Complaint 948102 - Telegram Investment Scam"
-                    className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-[#E5FF8F] rounded-full text-[#FFFFFF] placeholder-[#666666] text-xs focus:outline-none transition-colors"
+                    className="w-full px-3.5 py-2.5 bg-[#FFFFFF] border border-[#E2E8F0] focus:border-[#0284C7] rounded-full text-[#0F172A] placeholder-[#94A3B8] text-xs focus:outline-none transition-colors"
                   />
                 </div>
 
                 <div className="md:col-span-4 space-y-1">
-                  <label className="block text-[11px] font-bold text-[#FFFFFF] uppercase tracking-wider">
+                  <label className="block text-[11px] font-bold text-[#0F172A] uppercase tracking-wider">
                     NCRP Complaint ID
                   </label>
                   <input
@@ -376,7 +366,7 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
                     value={ncrpComplaintId}
                     onChange={(e) => setNcrpComplaintId(e.target.value)}
                     placeholder="e.g. NCRP-2026-994821"
-                    className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-[#E5FF8F] rounded-full text-[#FFFFFF] placeholder-[#666666] font-mono text-xs focus:outline-none transition-colors"
+                    className="w-full px-3.5 py-2.5 bg-[#FFFFFF] border border-[#E2E8F0] focus:border-[#0284C7] rounded-full text-[#0F172A] placeholder-[#94A3B8] font-mono text-xs focus:outline-none transition-colors"
                   />
                 </div>
               </div>
@@ -384,13 +374,13 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
               {/* Priority, Victim Loss & Traversal Depth */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1">
-                  <label className="block text-[11px] font-bold text-[#FFFFFF] uppercase tracking-wider">
+                  <label className="block text-[11px] font-bold text-[#0F172A] uppercase tracking-wider">
                     Case Priority
                   </label>
                   <select
                     value={priority}
                     onChange={(e) => setPriority(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-[#E5FF8F] rounded-full text-[#FFFFFF] text-xs focus:outline-none"
+                    className="w-full px-3.5 py-2.5 bg-[#FFFFFF] border border-[#E2E8F0] focus:border-[#0284C7] rounded-full text-[#0F172A] text-xs focus:outline-none"
                   >
                     <option value="CRITICAL">CRITICAL (Active Off-Ramp)</option>
                     <option value="HIGH">HIGH (Major Loss)</option>
@@ -400,25 +390,25 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[11px] font-bold text-[#FFFFFF] uppercase tracking-wider">
+                  <label className="block text-[11px] font-bold text-[#0F172A] uppercase tracking-wider">
                     Reported Victim Loss (INR ₹)
                   </label>
                   <input
                     type="number"
                     value={victimLossInr}
                     onChange={(e) => setVictimLossInr(Number(e.target.value))}
-                    className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-[#E5FF8F] rounded-full text-[#FFFFFF] font-mono text-xs focus:outline-none"
+                    className="w-full px-3.5 py-2.5 bg-[#FFFFFF] border border-[#E2E8F0] focus:border-[#0284C7] rounded-full text-[#0F172A] font-mono text-xs focus:outline-none"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[11px] font-bold text-[#FFFFFF] uppercase tracking-wider">
+                  <label className="block text-[11px] font-bold text-[#0F172A] uppercase tracking-wider">
                     Traversal Depth (Max Hops)
                   </label>
                   <select
                     value={maxDepth}
                     onChange={(e) => setMaxDepth(Number(e.target.value))}
-                    className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-[#E5FF8F] rounded-full text-[#FFFFFF] text-xs focus:outline-none"
+                    className="w-full px-3.5 py-2.5 bg-[#FFFFFF] border border-[#E2E8F0] focus:border-[#0284C7] rounded-full text-[#0F172A] text-xs focus:outline-none"
                   >
                     <option value={1}>1 Hop (Direct Interactions)</option>
                     <option value={2}>2 Hops (Layering Intermediaries)</option>
@@ -431,7 +421,7 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
 
               {/* Case Brief Notes */}
               <div className="space-y-1">
-                <label className="block text-[11px] font-bold text-[#FFFFFF] uppercase tracking-wider">
+                <label className="block text-[11px] font-bold text-[#0F172A] uppercase tracking-wider">
                   Investigative Narrative &amp; Case Notes
                 </label>
                 <textarea
@@ -439,7 +429,7 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Provide incident context, complainant details, or specific exchange off-ramp hypotheses..."
-                  className="w-full px-3.5 py-2.5 bg-[#1A1A1A] border border-[#2A2A2A] focus:border-[#E5FF8F] rounded-xl text-[#FFFFFF] placeholder-[#666666] text-xs focus:outline-none"
+                  className="w-full px-3.5 py-2.5 bg-[#FFFFFF] border border-[#E2E8F0] focus:border-[#0284C7] rounded-xl text-[#0F172A] placeholder-[#94A3B8] text-xs focus:outline-none"
                 />
               </div>
 
@@ -448,18 +438,18 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2 bg-[#1A1A1A] hover:bg-[#252525] text-[#FFFFFF] font-medium rounded-full border border-[#2A2A2A] transition-colors text-xs"
+                  className="px-4 py-2 bg-[#FFFFFF] hover:bg-[#F1F5F9] text-[#0F172A] font-medium rounded-full border border-[#E2E8F0] transition-colors text-xs"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-5 py-2 bg-[#E5FF8F] hover:bg-[#EDFFB1] disabled:opacity-50 text-[#0A0A0A] font-bold rounded-full shadow transition-all flex items-center space-x-2 text-xs"
+                  className="px-5 py-2 bg-[#0284C7] hover:bg-[#0369A1] disabled:opacity-50 text-white font-bold rounded-full shadow transition-all flex items-center space-x-2 text-xs"
                 >
                   {isSubmitting ? (
                     <>
-                      <div className="w-3.5 h-3.5 border-2 border-[#0A0A0A] border-t-transparent rounded-full animate-spin" />
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                       <span>Creating &amp; Dispatching Trace...</span>
                     </>
                   ) : (
@@ -474,20 +464,20 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
           ) : (
             <div className="space-y-4 font-mono">
               {/* File Upload Zone */}
-              <div className="p-6 border-2 border-dashed border-[#2A2A2A] rounded-2xl text-center space-y-3 bg-[#1A1A1A] hover:border-[#E5FF8F]/50 transition-colors">
-                <div className="mx-auto w-10 h-10 rounded-full bg-[#E5FF8F]/10 border border-[#E5FF8F]/20 flex items-center justify-center text-[#E5FF8F]">
+              <div className="p-6 border-2 border-dashed border-[#CBD5E1] rounded-2xl text-center space-y-3 bg-[#F8FAFC] hover:border-[#0284C7]/50 transition-colors">
+                <div className="mx-auto w-10 h-10 rounded-full bg-[#0284C7]/10 border border-[#0284C7]/20 flex items-center justify-center text-[#0284C7]">
                   <Upload className="h-5 w-5" />
                 </div>
                 <div className="space-y-1">
-                  <p className="text-xs font-bold text-[#FFFFFF]">
+                  <p className="text-xs font-bold text-[#0F172A]">
                     Drop suspect wallets CSV file here, or browse local disk
                   </p>
-                  <p className="text-[11px] text-[#9A9A9A]">
-                    Format: <code className="text-[#E5FF8F]">address, chain, label, loss_inr, priority</code>
+                  <p className="text-[11px] text-[#64748B]">
+                    Format: <code className="text-[#0284C7]">address, chain, label, loss_inr, priority</code>
                   </p>
                 </div>
                 <div className="flex items-center justify-center gap-3 pt-1">
-                  <label className="px-4 py-2 bg-[#E5FF8F] hover:bg-[#EDFFB1] text-[#0A0A0A] rounded-full font-bold cursor-pointer transition-all text-xs shadow-sm">
+                  <label className="px-4 py-2 bg-[#0284C7] hover:bg-[#0369A1] text-white rounded-full font-bold cursor-pointer transition-all text-xs shadow-sm">
                     Select CSV File
                     <input
                       type="file"
@@ -499,31 +489,24 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
                       }}
                     />
                   </label>
-                  <button
-                    type="button"
-                    onClick={loadSampleCSV}
-                    className="px-4 py-2 bg-[#161616] hover:bg-[#252525] text-[#FFFFFF] border border-[#2A2A2A] rounded-full transition-colors text-xs"
-                  >
-                    Load Sample LEA Batch CSV
-                  </button>
                 </div>
               </div>
 
               {/* Parsed CSV Preview Table */}
               {csvRecords.length > 0 && (
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between text-[11px] text-[#9A9A9A]">
-                    <span className="font-bold uppercase tracking-wider text-[#FFFFFF]">
+                  <div className="flex items-center justify-between text-[11px] text-[#64748B]">
+                    <span className="font-bold uppercase tracking-wider text-[#0F172A]">
                       Parsed Suspect Wallets ({csvRecords.length} records in {csvFileName})
                     </span>
-                    <span className="text-[#7CFF6B] font-semibold">
+                    <span className="text-[#10B981] font-semibold">
                       {csvRecords.filter((r) => r.status === 'valid').length} valid format
                     </span>
                   </div>
 
-                  <div className="border border-[#2A2A2A] rounded-xl overflow-hidden max-h-64 overflow-y-auto">
+                  <div className="border border-[#E2E8F0] rounded-xl overflow-hidden max-h-64 overflow-y-auto">
                     <table className="w-full text-left text-[11px]">
-                      <thead className="bg-[#1A1A1A] text-[#9A9A9A] uppercase text-[10px] border-b border-[#2A2A2A] sticky top-0">
+                      <thead className="bg-[#F8FAFC] text-[#64748B] uppercase text-[10px] border-b border-[#E2E8F0] sticky top-0">
                         <tr>
                           <th className="px-3.5 py-2.5">Status</th>
                           <th className="px-3.5 py-2.5">Wallet Address</th>
@@ -534,36 +517,36 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
                           <th className="px-3.5 py-2.5 text-right">Action</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-[#2A2A2A]">
+                      <tbody className="divide-y divide-[#E2E8F0]">
                         {csvRecords.map((rec) => (
-                          <tr key={rec.id} className="hover:bg-[#1A1A1A]/60 transition-colors">
+                          <tr key={rec.id} className="hover:bg-[#F8FAFC] transition-colors">
                             <td className="px-3.5 py-2.5">
                               {rec.status === 'valid' ? (
-                                <span className="inline-flex items-center space-x-1 text-[#7CFF6B] text-[10px] font-bold">
+                                <span className="inline-flex items-center space-x-1 text-[#10B981] text-[10px] font-bold">
                                   <CheckCircle2 className="h-3 w-3" />
                                   <span>VALID</span>
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center space-x-1 text-[#FF5C5C] text-[10px] font-bold">
+                                <span className="inline-flex items-center space-x-1 text-[#EF4444] text-[10px] font-bold">
                                   <AlertCircle className="h-3 w-3" />
                                   <span>ERROR</span>
                                 </span>
                               )}
                             </td>
-                            <td className="px-3.5 py-2.5 font-mono text-[#FFFFFF] font-bold">
+                            <td className="px-3.5 py-2.5 font-mono text-[#0F172A] font-bold">
                               {rec.address.slice(0, 8)}...{rec.address.slice(-6)}
                             </td>
-                            <td className="px-3.5 py-2.5 uppercase text-[10px] text-[#E5FF8F] font-semibold">
+                            <td className="px-3.5 py-2.5 uppercase text-[10px] text-[#0284C7] font-semibold">
                               {rec.chain}
                             </td>
-                            <td className="px-3.5 py-2.5 text-[#9A9A9A] max-w-[150px] truncate">
+                            <td className="px-3.5 py-2.5 text-[#64748B] max-w-[150px] truncate">
                               {rec.label}
                             </td>
-                            <td className="px-3.5 py-2.5 text-[#FFFFFF] font-mono">
+                            <td className="px-3.5 py-2.5 text-[#0F172A] font-mono">
                               ₹{(rec.victim_loss_inr || 0).toLocaleString('en-IN')}
                             </td>
                             <td className="px-3.5 py-2.5">
-                              <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${rec.priority === 'CRITICAL' || rec.priority === 'HIGH' ? 'bg-[#FF5C5C]/10 text-[#FF5C5C] border border-[#FF5C5C]/30' : 'bg-[#E5FF8F]/10 text-[#E5FF8F] border border-[#E5FF8F]/20'
+                              <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${rec.priority === 'CRITICAL' || rec.priority === 'HIGH' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-sky-50 text-sky-700 border border-sky-200'
                                 }`}>
                                 {rec.priority}
                               </span>
@@ -571,7 +554,7 @@ TR7NHqjeKQxGTCi8q882bX1PNkWgk9379k,tron,Ponzi Tether Mule TRC20,3200000,HIGH
                             <td className="px-3.5 py-2.5 text-right">
                               <button
                                 onClick={() => handleTraceRecord(rec)}
-                                className="px-3 py-1 rounded-full bg-[#E5FF8F] text-[#0A0A0A] hover:bg-[#EDFFB1] transition-colors text-[10px] font-bold"
+                                className="px-3 py-1 rounded-full bg-[#0284C7] text-white hover:bg-[#0369A1] transition-colors text-[10px] font-bold"
                               >
                                 Select &amp; Trace →
                               </button>

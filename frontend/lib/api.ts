@@ -15,6 +15,7 @@ import {
   AuditLogEntry,
   AuditLogListResponse,
   TraceStreamEvent,
+  AddressLookupResponse,
 } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
@@ -35,6 +36,12 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 export const api = {
+  async lookupAddress(address: string, chain?: string): Promise<AddressLookupResponse> {
+    const qs = chain ? `?chain=${encodeURIComponent(chain)}` : '';
+    const res = await fetch(`${API_BASE_URL}/address/${encodeURIComponent(address)}/lookup${qs}`, { cache: 'no-store' });
+    return handleResponse<AddressLookupResponse>(res);
+  },
+
   async startAnalysis(walletAddress: string, maxHops: number = 3): Promise<AnalysisStatus> {
     const res = await fetch(`${API_BASE_URL}/analyze`, {
       method: 'POST',
@@ -43,6 +50,7 @@ export const api = {
     });
     return handleResponse<AnalysisStatus>(res);
   },
+
 
   async getAnalysisStatus(analysisId: string): Promise<AnalysisStatus> {
     const res = await fetch(`${API_BASE_URL}/analysis/${analysisId}`, { cache: 'no-store' });

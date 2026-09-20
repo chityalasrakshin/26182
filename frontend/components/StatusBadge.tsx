@@ -23,22 +23,22 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   > = {
     CRITICAL: {
       icon: '▲',
-      classes: 'bg-[#FF5C5C]/15 text-[#FF5C5C] border-[#FF5C5C]/30',
+      classes: 'bg-rose-50 text-rose-700 border-rose-200',
       defaultLabel: 'CRITICAL',
     },
     HIGH: {
       icon: '●',
-      classes: 'bg-[#FF5C5C]/15 text-[#FF5C5C] border-[#FF5C5C]/30',
+      classes: 'bg-orange-50 text-orange-700 border-orange-200',
       defaultLabel: 'HIGH',
     },
     MEDIUM: {
       icon: '◐',
-      classes: 'bg-[#E5D34F]/15 text-[#E5D34F] border-[#E5D34F]/30',
+      classes: 'bg-amber-50 text-amber-700 border-amber-200',
       defaultLabel: 'MEDIUM',
     },
     LOW: {
       icon: '○',
-      classes: 'bg-[#7CFF6B]/15 text-[#7CFF6B] border-[#7CFF6B]/30',
+      classes: 'bg-emerald-50 text-emerald-700 border-emerald-200',
       defaultLabel: 'LOW',
     },
   };

@@ -2,40 +2,40 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Security Operations Dashboard Design System (security-dashboard-ui-spec.md) */
+/* Institutional Cryptocurrency Forensic Design System (matching Chainalysis Reactor, Elliptic, & Scorechain) */
 :root {
-  /* Default App Theme: Near-black #0A0A0A with #E5FF8F accent */
-  --forensic-bg: #0A0A0A;
-  --forensic-canvas: #0A0A0A;
-  --forensic-surface: #161616;
-  --forensic-surface-raised: #1A1A1A;
-  --forensic-border: #2A2A2A;
-  --forensic-border-muted: #383838;
-  --forensic-text: #FFFFFF;
-  --forensic-text-muted: #9A9A9A;
-  --forensic-text-dim: #666666;
-  --forensic-accent: #E5FF8F;
-  --forensic-accent-hover: #EDFFB1;
-  --forensic-teal: #7CFF6B;
-  --forensic-amber: #E5D34F;
-  --forensic-rose: #FF5C5C;
+  /* Default Institutional Theme: Clinical Clean Light #F4F6F8 with #0284C7 Reactor Blue */
+  --forensic-bg: #F4F6F8;
+  --forensic-canvas: #FFFFFF;
+  --forensic-surface: #FFFFFF;
+  --forensic-surface-raised: #F8FAFC;
+  --forensic-border: #E2E8F0;
+  --forensic-border-muted: #CBD5E1;
+  --forensic-text: #0F172A;
+  --forensic-text-muted: #64748B;
+  --forensic-text-dim: #94A3B8;
+  --forensic-accent: #0284C7;
+  --forensic-accent-hover: #0369A1;
+  --forensic-teal: #10B981;
+  --forensic-amber: #F59E0B;
+  --forensic-rose: #EF4444;
 }
 
 .dark {
-  --forensic-bg: #0A0A0A;
-  --forensic-canvas: #0A0A0A;
-  --forensic-surface: #161616;
-  --forensic-surface-raised: #1A1A1A;
-  --forensic-border: #2A2A2A;
-  --forensic-border-muted: #383838;
-  --forensic-text: #FFFFFF;
-  --forensic-text-muted: #9A9A9A;
-  --forensic-text-dim: #666666;
-  --forensic-accent: #E5FF8F;
-  --forensic-accent-hover: #EDFFB1;
-  --forensic-teal: #7CFF6B;
-  --forensic-amber: #E5D34F;
-  --forensic-rose: #FF5C5C;
+  --forensic-bg: #F4F6F8;
+  --forensic-canvas: #FFFFFF;
+  --forensic-surface: #FFFFFF;
+  --forensic-surface-raised: #F8FAFC;
+  --forensic-border: #E2E8F0;
+  --forensic-border-muted: #CBD5E1;
+  --forensic-text: #0F172A;
+  --forensic-text-muted: #64748B;
+  --forensic-text-dim: #94A3B8;
+  --forensic-accent: #0284C7;
+  --forensic-accent-hover: #0369A1;
+  --forensic-teal: #10B981;
+  --forensic-amber: #F59E0B;
+  --forensic-rose: #EF4444;
 }
 
 body {
@@ -55,21 +55,21 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0A0A0A;
+  background: #F1F5F9;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2A2A2A;
+  background: #CBD5E1;
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #E5FF8F;
+  background: #94A3B8;
 }
 
 ::selection {
-  background: rgba(229, 255, 143, 0.3);
-  color: #E5FF8F;
+  background: rgba(2, 132, 199, 0.15);
+  color: #0284C7;
 }
 
 /* Law Enforcement Print & Statutory Order Formatting */
@@ -140,17 +140,17 @@ body {
   }
 }
 
-/* Graph Canvas — Dot-Grid Background */
+/* Graph Canvas — Dot-Grid Background (Chainalysis Reactor Style) */
 .graph-canvas-grid {
-  background-color: #0A0A0A;
-  background-image: radial-gradient(circle, #2A2A2A 1.2px, transparent 1.2px);
+  background-color: #FFFFFF;
+  background-image: radial-gradient(circle, #E2E8F0 1.2px, transparent 1.2px);
   background-size: 24px 24px;
   background-position: center center;
 }
 
 .dark .graph-canvas-grid {
-  background-color: #0A0A0A;
-  background-image: radial-gradient(circle, #2A2A2A 1.2px, transparent 1.2px);
+  background-color: #FFFFFF;
+  background-image: radial-gradient(circle, #E2E8F0 1.2px, transparent 1.2px);
   background-size: 24px 24px;
   background-position: center center;
 }
@@ -192,11 +192,11 @@ body {
 
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(229, 255, 143, 0.4);
+    box-shadow: 0 0 0 0 rgba(2, 132, 199, 0.4);
   }
 
   50% {
-    box-shadow: 0 0 0 8px rgba(229, 255, 143, 0);
+    box-shadow: 0 0 0 8px rgba(2, 132, 199, 0);
   }
 }
 

@@ -113,62 +113,62 @@ export const SankeyFlowView: React.FC<SankeyFlowViewProps> = ({
     });
 
     const cols = [
-      { title: 'ROOT SUSPECT', nodes: hop0Nodes, color: 'border-[#FF5C5C]/40 text-[#FF5C5C]' },
-      { title: 'HOP 1 DIRECT', nodes: hop1Nodes.slice(0, 6), color: 'border-[#E5FF8F]/40 text-[#E5FF8F]' },
-      { title: 'HOP 2 LAYERING', nodes: hop2Nodes.slice(0, 6), color: 'border-purple-500/40 text-purple-400' },
-      { title: 'DESTINATION VASPS', nodes: vaspNodes, color: 'border-[#7CFF6B]/40 text-[#7CFF6B]' }
+      { title: 'ROOT SUSPECT', nodes: hop0Nodes, color: 'border-rose-400 text-rose-600' },
+      { title: 'HOP 1 DIRECT', nodes: hop1Nodes.slice(0, 6), color: 'border-sky-400 text-sky-600' },
+      { title: 'HOP 2 LAYERING', nodes: hop2Nodes.slice(0, 6), color: 'border-purple-400 text-purple-600' },
+      { title: 'DESTINATION VASPS', nodes: vaspNodes, color: 'border-emerald-400 text-emerald-600' }
     ].filter(c => c.nodes.length > 0);
 
     return { columns: cols, flows: flowList, totalRootVolume: rootOutflow };
   }, [graphData, rootAddress]);
 
   return (
-    <div className="flex flex-col h-full bg-[#0A0A0A] p-5 overflow-y-auto space-y-6 text-[#FFFFFF]">
+    <div className="flex flex-col h-full bg-[#F4F6F8] p-5 overflow-y-auto space-y-6 text-[#0F172A]">
       {/* Top Intelligence Metrics Banner */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-4 rounded-2xl bg-[#161616] border border-[#2A2A2A] flex items-center space-x-3">
-          <div className="p-2 rounded-xl bg-[#FF5C5C]/10 text-[#FF5C5C] border border-[#FF5C5C]/20">
+        <div className="p-4 rounded-2xl bg-white border border-[#E2E8F0] flex items-center space-x-3 shadow-sm">
+          <div className="p-2 rounded-xl bg-rose-50 text-rose-600 border border-rose-200">
             <Wallet className="h-4 w-4" />
           </div>
           <div>
-            <span className="text-[10px] text-[#9A9A9A] uppercase font-mono block">Root Origin</span>
-            <span className="text-xs font-bold font-mono text-[#FFFFFF] truncate block max-w-[140px]">
+            <span className="text-[10px] text-[#64748B] uppercase font-mono block">Root Origin</span>
+            <span className="text-xs font-bold font-mono text-[#0F172A] truncate block max-w-[140px]">
               {rootAddress.slice(0, 10)}...
             </span>
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-[#161616] border border-[#2A2A2A] flex items-center space-x-3">
-          <div className="p-2 rounded-xl bg-[#E5FF8F]/10 text-[#E5FF8F] border border-[#E5FF8F]/20">
+        <div className="p-4 rounded-2xl bg-white border border-[#E2E8F0] flex items-center space-x-3 shadow-sm">
+          <div className="p-2 rounded-xl bg-sky-50 text-sky-600 border border-sky-200">
             <TrendingUp className="h-4 w-4" />
           </div>
           <div>
-            <span className="text-[10px] text-[#9A9A9A] uppercase font-mono block">Observed Flow</span>
-            <span className="text-xs font-bold font-mono text-[#E5FF8F]">
+            <span className="text-[10px] text-[#64748B] uppercase font-mono block">Observed Flow</span>
+            <span className="text-xs font-bold font-mono text-[#0284C7]">
               ${totalRootVolume > 1000 ? totalRootVolume.toLocaleString('en-US', { maximumFractionDigits: 0 }) : totalRootVolume.toFixed(2)}
             </span>
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-[#161616] border border-[#2A2A2A] flex items-center space-x-3">
-          <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+        <div className="p-4 rounded-2xl bg-white border border-[#E2E8F0] flex items-center space-x-3 shadow-sm">
+          <div className="p-2 rounded-xl bg-purple-50 text-purple-600 border border-purple-200">
             <Layers className="h-4 w-4" />
           </div>
           <div>
-            <span className="text-[10px] text-[#9A9A9A] uppercase font-mono block">Layering Depth</span>
-            <span className="text-xs font-bold font-mono text-purple-400">
+            <span className="text-[10px] text-[#64748B] uppercase font-mono block">Layering Depth</span>
+            <span className="text-xs font-bold font-mono text-purple-600">
               {columns.length} Topological Stages
             </span>
           </div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-[#161616] border border-[#2A2A2A] flex items-center space-x-3">
-          <div className="p-2 rounded-xl bg-[#7CFF6B]/10 text-[#7CFF6B] border border-[#7CFF6B]/20">
+        <div className="p-4 rounded-2xl bg-white border border-[#E2E8F0] flex items-center space-x-3 shadow-sm">
+          <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200">
             <Building2 className="h-4 w-4" />
           </div>
           <div>
-            <span className="text-[10px] text-[#9A9A9A] uppercase font-mono block">Top Attributed VASP</span>
-            <span className="text-xs font-bold font-mono text-[#7CFF6B]">
+            <span className="text-[10px] text-[#64748B] uppercase font-mono block">Top Attributed VASP</span>
+            <span className="text-xs font-bold font-mono text-emerald-600">
               {attributions && attributions[0] ? `${attributions[0].vasp_name} (${attributions[0].score.toFixed(0)}%)` : 'Scanning...'}
             </span>
           </div>
@@ -176,15 +176,15 @@ export const SankeyFlowView: React.FC<SankeyFlowViewProps> = ({
       </div>
 
       {/* Multi-Column Sankey Flow Canvas */}
-      <div className="p-5 rounded-2xl bg-[#161616] border border-[#2A2A2A] flex-1 flex flex-col justify-between">
-        <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-3 mb-6">
+      <div className="p-5 rounded-2xl bg-white border border-[#E2E8F0] flex-1 flex flex-col justify-between shadow-sm">
+        <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-3 mb-6">
           <div className="flex items-center space-x-2">
-            <ShieldCheck className="h-4 w-4 text-[#E5FF8F]" />
-            <h3 className="text-xs font-bold text-[#FFFFFF] uppercase tracking-wider">
+            <ShieldCheck className="h-4 w-4 text-[#0284C7]" />
+            <h3 className="text-xs font-bold text-[#0F172A] uppercase tracking-wider">
               Volumetric Fund Flow &amp; Entity Distribution Waterfall
             </h3>
           </div>
-          <span className="text-[10px] font-mono text-[#9A9A9A]">
+          <span className="text-[10px] font-mono text-[#64748B]">
             Left-to-Right Topological Fund Transit
           </span>
         </div>
@@ -210,26 +210,26 @@ export const SankeyFlowView: React.FC<SankeyFlowViewProps> = ({
                       onMouseLeave={() => setHoveredNode(null)}
                       onClick={() => onSelectAddress?.(node.id)}
                       className={`p-3.5 rounded-xl border transition-all cursor-pointer relative overflow-hidden ${isHovered
-                          ? 'border-[#E5FF8F] bg-[#E5FF8F]/10 shadow-lg scale-[1.02]'
+                          ? 'border-[#0284C7] bg-[#0284C7]/10 shadow-lg scale-[1.02]'
                           : isVasp
-                            ? 'border-[#7CFF6B]/30 bg-[#7CFF6B]/5 hover:border-[#7CFF6B]/60'
+                            ? 'border-emerald-200 bg-emerald-50/50 hover:border-emerald-400'
                             : isRoot
-                              ? 'border-[#FF5C5C]/40 bg-[#FF5C5C]/5 hover:border-[#FF5C5C]/70'
-                              : 'border-[#2A2A2A] bg-[#1A1A1A] hover:border-[#383838]'
+                              ? 'border-rose-200 bg-rose-50/50 hover:border-rose-400'
+                              : 'border-[#E2E8F0] bg-white hover:border-[#CBD5E1]'
                         }`}
                     >
                       {/* Flow percentage bar background */}
                       <div
-                        className={`absolute left-0 bottom-0 top-0 opacity-15 transition-all ${isVasp ? 'bg-[#7CFF6B]' : isRoot ? 'bg-[#FF5C5C]' : 'bg-[#E5FF8F]'
+                        className={`absolute left-0 bottom-0 top-0 opacity-15 transition-all ${isVasp ? 'bg-emerald-500' : isRoot ? 'bg-rose-500' : 'bg-sky-500'
                           }`}
                         style={{ width: `${Math.max(8, node.percentage)}%` }}
                       />
 
                       <div className="relative z-10 flex flex-col space-y-1.5">
                         <div className="flex items-center justify-between">
-                          <span className="font-bold text-[11px] font-mono text-[#FFFFFF] truncate max-w-[150px]">
+                          <span className="font-bold text-[11px] font-mono text-[#0F172A] truncate max-w-[150px]">
                             {node.vaspName ? (
-                              <span className="text-[#7CFF6B] font-bold flex items-center space-x-1">
+                              <span className="text-emerald-700 font-bold flex items-center space-x-1">
                                 <Building2 className="h-3 w-3 inline" />
                                 <span>{node.vaspName}</span>
                               </span>
@@ -238,14 +238,14 @@ export const SankeyFlowView: React.FC<SankeyFlowViewProps> = ({
                             )}
                           </span>
 
-                          <span className="text-[10px] font-mono font-bold text-[#9A9A9A]">
+                          <span className="text-[10px] font-mono font-bold text-[#64748B]">
                             {node.percentage > 0 ? `${node.percentage.toFixed(0)}%` : ''}
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-between text-[10px] font-mono text-[#9A9A9A]">
+                        <div className="flex items-center justify-between text-[10px] font-mono text-[#64748B]">
                           <span>Vol: ${node.totalVolume > 1000 ? node.totalVolume.toLocaleString('en-US', { maximumFractionDigits: 0 }) : node.totalVolume.toFixed(2)}</span>
-                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#161616] border border-[#2A2A2A]">
+                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#F8FAFC] border border-[#E2E8F0] text-[#64748B]">
                             Hop {node.hop}
                           </span>
                         </div>
@@ -259,22 +259,22 @@ export const SankeyFlowView: React.FC<SankeyFlowViewProps> = ({
         </div>
 
         {/* Bottom Flow Insights */}
-        <div className="mt-8 pt-4 border-t border-[#2A2A2A] flex flex-wrap items-center justify-between text-[11px] font-mono text-[#9A9A9A] gap-3">
+        <div className="mt-8 pt-4 border-t border-[#E2E8F0] flex flex-wrap items-center justify-between text-[11px] font-mono text-[#64748B] gap-3">
           <div className="flex items-center space-x-4">
             <span className="flex items-center space-x-1.5">
-              <span className="h-2 w-2 rounded-full bg-[#FF5C5C]" />
+              <span className="h-2 w-2 rounded-full bg-rose-500" />
               <span>Input Suspect</span>
             </span>
             <span className="flex items-center space-x-1.5">
-              <span className="h-2 w-2 rounded-full bg-[#E5FF8F]" />
+              <span className="h-2 w-2 rounded-full bg-sky-500" />
               <span>Direct Hop 1</span>
             </span>
             <span className="flex items-center space-x-1.5">
-              <span className="h-2 w-2 rounded-full bg-purple-400" />
+              <span className="h-2 w-2 rounded-full bg-purple-500" />
               <span>Layering Hop 2</span>
             </span>
             <span className="flex items-center space-x-1.5">
-              <span className="h-2 w-2 rounded-full bg-[#7CFF6B]" />
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
               <span>VASP Endpoint</span>
             </span>
           </div>

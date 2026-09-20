@@ -225,6 +225,7 @@ class LabelStore:
             ("0xDD4c48C0B24039969fC16D1cdF626eaB821d3384", "ethereum", "Tornado Cash", "Tornado Cash 10 ETH", "mixer", "CRITICAL", "CYBER2"),
             ("0xd90e2f925DA726b50C4Ed8D0Fb90Ad053324F31b", "ethereum", "Tornado Cash", "Tornado Cash Router", "mixer", "CRITICAL", "CYBER2"),
             ("0x098B716B8Aaf21512996dC57EB0615e2383E2f96", "ethereum", "Lazarus Group (DPRK)", "Ronin Bridge Exploiter", "sanctioned", "CRITICAL", "DPRK"),
+            ("0xc66dfa84bc1b93df194bd964a41282da65d73c9a", "ethereum", "Euler Finance Exploiter", "Euler Finance Exploiter 4", "exploit", "CRITICAL", "EXPLOIT"),
             ("0x2649B2830fC3aa003a276b6C035C834375bFE5a4", "ethereum", "Garantex", "Garantex Hot Wallet", "sanctioned", "CRITICAL", "RUSSIA-EO14024"),
             ("149vaAYqWbZsQjMsGGCtVafjnhXWgk3vGu", "bitcoin", "Hydra Market", "Hydra Marketplace Deposit", "sanctioned", "CRITICAL", "CYBER2"),
         ]

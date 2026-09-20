@@ -70,6 +70,13 @@ class GraphNodeData(BaseModel):
     total_outflow: float = 0.0
     is_contract: bool = False
     chain: Optional[str] = None
+    is_sanctioned: bool = False
+    is_exploit: bool = False
+    entity_name: Optional[str] = None
+    category: Optional[str] = None
+    risk_level: Optional[str] = None
+    is_mixer: bool = False
+    sanctions_program: Optional[str] = None
 
 
 class GraphNode(BaseModel):
@@ -203,6 +210,11 @@ class AnalysisStatusResponse(BaseModel):
     demo_mode: bool = False
     top_attribution: Optional[AttributionSchema] = None
     risk_assessment: Optional[RiskAssessmentSchema] = None
+    entity_name: Optional[str] = None
+    entity_label: Optional[str] = None
+    category: Optional[str] = None
+    is_sanctioned: bool = False
+    is_exploit: bool = False
 
 
 class AnalysisDetailResponse(BaseModel):
@@ -219,6 +231,11 @@ class AnalysisDetailResponse(BaseModel):
     risk_assessment: Optional[RiskAssessmentSchema]
     graph: Optional[GraphData] = None
     taint_summary: Optional[TaintSummarySchema] = None
+    entity_name: Optional[str] = None
+    entity_label: Optional[str] = None
+    category: Optional[str] = None
+    is_sanctioned: bool = False
+    is_exploit: bool = False
 
 
 # ==============================================================================

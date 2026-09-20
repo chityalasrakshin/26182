@@ -34,7 +34,7 @@ export const TemporalHistogramBar: React.FC<TemporalHistogramBarProps> = ({
   const playIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Compute 24-hour distribution from transactions or edges
-  const { hourData, maxCount, maxVolume, totalTxCount, totalVolume } = useMemo(() => {
+  const { hourData, maxCount, maxVolume, totalTxCount, totalVolume, peakHour, peakLabel } = useMemo(() => {
     // 24 hours: 0 = 12:00 AM, ..., 17 = 5:00 PM, ..., 23 = 11:00 PM
     const hours = Array.from({ length: 24 }, (_, i) => ({
       hour: i,
@@ -83,29 +83,20 @@ export const TemporalHistogramBar: React.FC<TemporalHistogramBarProps> = ({
       }
     });
 
-    // If zero transactions found, generate realistic synthetic burst profile with a 5:00 PM surge
-    if (grandTotalCount === 0) {
-      const syntheticPattern = [
-        2, 1, 1, 0, 1, 3, 5, 8, 12, 16, 22, 28, 35, 42, 38, 45, 62, 94, 78, 52,
-        34, 21, 11, 4,
-      ];
-      syntheticPattern.forEach((cnt, idx) => {
-        hours[idx].count = cnt;
-        hours[idx].volume = cnt * 0.45;
-        grandTotalCount += cnt;
-        grandTotalVol += cnt * 0.45;
-      });
-    }
+    const mCount = Math.max(...hours.map((h) => h.count), 0);
+    const mVol = Math.max(...hours.map((h) => h.volume), 0);
 
-    const mCount = Math.max(...hours.map((h) => h.count), 1);
-    const mVol = Math.max(...hours.map((h) => h.volume), 1);
+    const peakBucket = hours.reduce((best, cur) => (cur.count > best.count ? cur : best), hours[0]);
+    const peakHour = peakBucket.count > 0 ? peakBucket.hour : -1;
 
     return {
       hourData: hours,
-      maxCount: mCount,
-      maxVolume: mVol,
+      maxCount: mCount > 0 ? mCount : 1,
+      maxVolume: mVol > 0 ? mVol : 1,
       totalTxCount: grandTotalCount,
       totalVolume: grandTotalVol,
+      peakHour,
+      peakLabel: peakBucket.count > 0 ? `${peakBucket.label} (PEAK)` : null,
     };
   }, [transactions, edges]);
 
@@ -155,12 +146,12 @@ export const TemporalHistogramBar: React.FC<TemporalHistogramBarProps> = ({
   };
 
   return (
-    <div className="bg-[#161616] rounded-2xl p-4 space-y-3 border border-[#2A2A2A] font-mono text-xs select-none transition-all shadow-sm">
+    <div className="bg-white rounded-2xl p-4 space-y-3 border border-[#E2E8F0] font-mono text-xs select-none transition-all shadow-sm">
       {/* 1. TITLE & CONTROLS BAR */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-[#2A2A2A]">
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-[#E2E8F0]">
         <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-[#E5FF8F]" />
-          <span className="font-semibold text-xs text-[#FFFFFF] tracking-wide">
+          <Clock className="h-4 w-4 text-[#0284C7]" />
+          <span className="font-semibold text-xs text-[#0F172A] tracking-wide">
             TRANSACTION TEMPORAL DISTRIBUTION: HOUR OF DAY (UTC)
           </span>
         </div>
@@ -170,11 +161,11 @@ export const TemporalHistogramBar: React.FC<TemporalHistogramBarProps> = ({
             onClick={togglePlay}
             className={`py-1 px-3 rounded-full font-bold flex items-center gap-1.5 transition-colors ${
               isPlaying
-                ? 'bg-[#E5FF8F] text-[#0A0A0A] shadow-sm'
-                : 'bg-[#1A1A1A] hover:bg-[#252525] text-[#FFFFFF] border border-[#2A2A2A]'
+                ? 'bg-[#0284C7] text-white shadow-sm'
+                : 'bg-[#F8FAFC] hover:bg-[#F1F5F9] text-[#0F172A] border border-[#E2E8F0]'
             }`}
           >
-            {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 text-[#E5FF8F]" />}
+            {isPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5 text-[#0284C7]" />}
             <span>{isPlaying ? 'Pause' : 'Play Timeline'}</span>
           </button>
 
@@ -184,21 +175,21 @@ export const TemporalHistogramBar: React.FC<TemporalHistogramBarProps> = ({
                 setIsPlaying(false);
                 onClearFilter();
               }}
-              className="py-1 px-2.5 rounded-full bg-[#1A1A1A] hover:bg-[#252525] border border-[#2A2A2A] text-[#FF5C5C] hover:text-[#FFFFFF] flex items-center gap-1 transition-colors"
+              className="py-1 px-2.5 rounded-full bg-white hover:bg-rose-50 border border-rose-200 text-rose-600 flex items-center gap-1 transition-colors"
             >
               <X className="h-3 w-3" />
               <span>Reset</span>
             </button>
           )}
 
-          <span className="text-[11px] text-[#9A9A9A]">
-            Selected: <strong className="text-[#FFFFFF]">{selectedStats.selectedCount}/{totalTxCount || 350} Tx</strong>
+          <span className="text-[11px] text-[#64748B]">
+            Selected: <strong className="text-[#0F172A]">{selectedStats.selectedCount}/{totalTxCount} Tx</strong>
           </span>
 
           {/* Collapse Toggle */}
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-1.5 rounded-full hover:bg-[#1A1A1A] text-[#9A9A9A] hover:text-[#FFFFFF] transition-colors ml-1"
+            className="p-1.5 rounded-full hover:bg-[#F1F5F9] text-[#64748B] hover:text-[#0F172A] transition-colors ml-1"
             title={isCollapsed ? 'Expand Histogram' : 'Collapse Histogram'}
           >
             {isCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
@@ -209,16 +200,15 @@ export const TemporalHistogramBar: React.FC<TemporalHistogramBarProps> = ({
       {!isCollapsed && (
         <div className="space-y-2">
           {/* 2. 24-HOUR INTERACTIVE BAR CHART */}
-          <div className="h-24 flex items-end gap-1 pt-5 pb-1 px-2 bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] relative">
+          <div className="h-24 flex items-end gap-1 pt-5 pb-1 px-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] relative">
             {hourData.map((bucket) => {
               const isSelected = selectedHour === bucket.hour;
               const hasSelection = selectedHour !== null;
               const val = mode === 'COUNT' ? bucket.count : bucket.volume;
               const maxVal = mode === 'COUNT' ? maxCount : maxVolume;
-              const heightPercent = maxVal > 0 ? Math.max((val / maxVal) * 100, 8) : 8;
+              const heightPercent = maxVal > 0 ? Math.max((val / maxVal) * 100, val > 0 ? 12 : 4) : 4;
 
-              // Spotlighting the 5:00 PM (17:00) peak surge spike
-              const isSpikeHour = bucket.hour === 17;
+              const isSpikeHour = peakHour !== -1 && bucket.hour === peakHour;
 
               return (
                 <div
@@ -227,17 +217,17 @@ export const TemporalHistogramBar: React.FC<TemporalHistogramBarProps> = ({
                   className="flex-1 flex flex-col items-center justify-end h-full group cursor-pointer relative z-10"
                 >
                   {/* Tooltip on hover */}
-                  <div className="absolute bottom-full mb-1 hidden group-hover:flex flex-col items-center bg-[#161616] border border-[#2A2A2A] text-[#FFFFFF] px-2.5 py-1 rounded-xl shadow-xl z-30 pointer-events-none text-[9px] whitespace-nowrap">
-                    <span className="font-bold text-[#E5FF8F]">{bucket.label} Window</span>
+                  <div className="absolute bottom-full mb-1 hidden group-hover:flex flex-col items-center bg-white border border-[#E2E8F0] text-[#0F172A] px-2.5 py-1 rounded-xl shadow-xl z-30 pointer-events-none text-[9px] whitespace-nowrap">
+                    <span className="font-bold text-[#0284C7]">{bucket.label} Window</span>
                     <span>{bucket.count} Transfers</span>
-                    <span className="text-[#9A9A9A]">
+                    <span className="text-[#64748B]">
                       {bucket.volume.toFixed(2)} {primaryToken}
                     </span>
                   </div>
 
-                  {/* Top value indicator for spike 5 PM */}
+                  {/* Top value indicator for dynamic peak hour */}
                   {isSpikeHour && !hasSelection && (
-                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-1.5 py-0.2 rounded-full bg-[#E5FF8F] text-[#0A0A0A] font-mono text-[8px] font-bold uppercase whitespace-nowrap shadow-sm">
+                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-1.5 py-0.2 rounded-full bg-[#0284C7] text-white font-mono text-[8px] font-bold uppercase whitespace-nowrap shadow-sm">
                       PEAK
                     </div>
                   )}
@@ -246,10 +236,12 @@ export const TemporalHistogramBar: React.FC<TemporalHistogramBarProps> = ({
                   <div
                     className={`w-full rounded-t transition-all duration-200 ${
                       isSelected
-                        ? 'bg-[#E5FF8F] shadow-[0_0_12px_rgba(229,255,143,0.6)]'
+                        ? 'bg-[#0284C7] shadow-[0_0_12px_rgba(2,132,199,0.5)]'
                         : isSpikeHour
-                        ? 'bg-[#E5FF8F]/70 hover:bg-[#E5FF8F]'
-                        : 'bg-[#2A2A2A] hover:bg-[#383838]'
+                        ? 'bg-[#0284C7]/70 hover:bg-[#0284C7]'
+                        : val > 0
+                        ? 'bg-[#CBD5E1] hover:bg-[#94A3B8]'
+                        : 'bg-[#E2E8F0]'
                     }`}
                     style={{ height: `${heightPercent}%` }}
                   />
@@ -258,15 +250,17 @@ export const TemporalHistogramBar: React.FC<TemporalHistogramBarProps> = ({
             })}
           </div>
 
-          {/* Time axis footer matching reference */}
-          <div className="flex justify-between font-mono text-[10px] text-[#9A9A9A] pt-1 border-t border-[#2A2A2A]">
+          {/* Time axis footer */}
+          <div className="flex justify-between font-mono text-[10px] text-[#64748B] pt-1 border-t border-[#E2E8F0]">
             <span>12A</span>
             <span>3A</span>
             <span>6A</span>
             <span>9A</span>
             <span>12P</span>
             <span>3P</span>
-            <span className="text-[#E5FF8F] font-bold">5P (PEAK SURGE)</span>
+            <span className={peakHour !== -1 ? 'text-[#0284C7] font-bold' : ''}>
+              {peakLabel || '6P'}
+            </span>
             <span>9P</span>
             <span>11P</span>
           </div>
