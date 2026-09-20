@@ -1,23 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import dynamic from 'next/dynamic';
 import * as THREE from 'three';
 import { GraphData } from '../lib/types';
 import { RotateCcw, Sparkles, Lock, Unlock, Play, Pause } from 'lucide-react';
-
-// Dynamically import react-force-graph-3d to disable SSR
-const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-full flex items-center justify-center font-mono text-xs text-slate-500 dark:text-slate-400">
-      <div className="flex items-center space-x-2">
-        <div className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
-        <span>Initializing 3D Forensic Engine...</span>
-      </div>
-    </div>
-  ),
-});
 
 export interface FocusedPath3D {
   targetNodeId: string;
@@ -32,7 +18,7 @@ interface GraphCanvas3DProps {
   graphData: GraphData | null | undefined;
   rootAddress: string;
   isDarkMode: boolean;
-  layoutMode: 'flow' | 'force' | 'hierarchical' | 'radial' | 'i2-peeling';
+  layoutMode: 'flow' | 'force' | 'hierarchical' | 'radial' | 'timeline' | 'i2-peeling';
   selectedElement: { type: 'NODE' | 'EDGE'; data: any } | null;
   onSelectElement: (el: { type: 'NODE' | 'EDGE'; data: any } | null) => void;
   focusedPath: FocusedPath3D | null;
@@ -42,7 +28,7 @@ interface GraphCanvas3DProps {
   selectedToken: string;
   selectedChain: string;
   minAmount: number;
-  riskFilter: 'ALL' | 'LOW' | 'MEDIUM' | 'HIGH';
+  riskFilter: 'ALL' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   viewMode: 'NETWORK' | 'FUND_FLOW' | 'TIMELINE' | 'EVIDENCE';
   onFitRef?: React.MutableRefObject<(() => void) | null>;
   onResetRef?: React.MutableRefObject<(() => void) | null>;
@@ -259,6 +245,7 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<any>(null);
+  const [ForceGraph3D, setForceGraph3D] = useState<React.ComponentType<any> | null>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [SpriteTextClass, setSpriteTextClass] = useState<any>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
@@ -266,6 +253,9 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
 
   // Dynamically load SpriteText on client
   useEffect(() => {
+    import('react-force-graph-3d').then((mod) => {
+      setForceGraph3D(() => mod.default);
+    });
     import('three-spritetext').then((mod) => {
       setSpriteTextClass(() => mod.default || mod);
     });
@@ -870,9 +860,9 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
   );
 
   return (
-    <div ref={containerRef} className="w-full h-full relative overflow-hidden bg-white dark:bg-[#05080E]">
+    <div ref={containerRef} className="w-full h-full relative overflow-hidden bg-[#0A0A0A]">
       {/* Floating Action Strip (Mind Map Controls) */}
-      <div className="absolute top-3 right-3 z-10 flex items-center space-x-1.5 p-1 rounded-lg bg-white/95 dark:bg-[#0D131F]/90 border border-slate-200 dark:border-[#1E293B] backdrop-blur-md shadow-lg text-[11px] font-mono text-slate-600 dark:text-[#94A3B8]">
+      <div className="absolute top-3 right-3 z-10 flex items-center space-x-1.5 p-1 rounded-lg bg-[#0A0A0A]/95 border border-[#2A2A2A] backdrop-blur-md shadow-lg text-[11px] font-mono text-[#9A9A9A]">
         <button
           onClick={() => {
             onUpdateFocusedPath(null);
@@ -903,8 +893,9 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
         </div>
       </div>
 
-      <ForceGraph3D
-        ref={fgRef}
+      {ForceGraph3D ? (
+        <ForceGraph3D
+          ref={fgRef}
         width={dimensions.width}
         height={dimensions.height}
         graphData={{ nodes: nodes3D, links: links3D }}
@@ -945,8 +936,16 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
         }
         cooldownTicks={0} // Zero ongoing physics drift: nodes are locked solid!
         enableNodeDrag={true}
-        showNavInfo={false}
-      />
+          showNavInfo={false}
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center font-mono text-xs text-slate-500 dark:text-slate-400">
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-2 rounded-full bg-[#E5FF8F] animate-ping" />
+            <span>Initializing 3D Forensic Engine...</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

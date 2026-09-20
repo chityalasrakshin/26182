@@ -43,7 +43,7 @@ class TraceJobManager:
             "job_id": job_id,
             "address": address,
             "chain": chain or "auto",
-            "status": "QUEUED",
+            "status": "pending",
             "max_depth": max_depth,
             "current_depth": 0,
             "started_at": now,
@@ -57,7 +57,9 @@ class TraceJobManager:
             "leaf_nodes": [],
             "is_cached": False,
             "error_message": None,
-            "summary": "Trace job queued for asynchronous execution."
+            "summary": "Trace job queued for asynchronous execution.",
+            "progress": 0,
+            "error": None
         }
         self.subscribers[job_id] = set()
         self.event_history[job_id] = []
@@ -74,7 +76,8 @@ class TraceJobManager:
         if job_id in self.jobs:
             self.jobs[job_id]["current_depth"] = event.hop
             if event.event == "JOB_STARTED":
-                self.jobs[job_id]["status"] = "RUNNING"
+                self.jobs[job_id]["status"] = "running"
+                self.jobs[job_id]["progress"] = max(self.jobs[job_id].get("progress", 0), 1)
             elif event.event == "NODE_DISCOVERED":
                 self.jobs[job_id]["num_nodes"] = self.jobs[job_id].get("num_nodes", 0) + 1
             elif event.event == "EDGE_ADDED":
@@ -107,7 +110,7 @@ class TraceJobManager:
             yield ev
 
         # If job already completed, stop
-        if self.jobs.get(job_id, {}).get("status") in ("COMPLETED", "FAILED"):
+        if self.jobs.get(job_id, {}).get("status") in ("completed", "failed"):
             async with self._lock:
                 self.subscribers.get(job_id, set()).discard(q)
             return
@@ -145,18 +148,23 @@ class TraceJobManager:
         try:
             result = await orchestrator.run_trace()
             self.jobs[job_id].update(result)
-            self.jobs[job_id]["status"] = "COMPLETED"
+            self.jobs[job_id]["status"] = "completed"
+            self.jobs[job_id]["progress"] = 100
+            self.jobs[job_id]["completed_at"] = datetime.now(timezone.utc)
+            self.jobs[job_id]["summary"] = "Trace completed successfully."
         except Exception as e:
             logger.error(f"Trace execution failed for job {job_id}: {e}", exc_info=True)
-            self.jobs[job_id]["status"] = "FAILED"
-            self.jobs[job_id]["error_message"] = str(e)
+            self.jobs[job_id]["status"] = "failed"
+            self.jobs[job_id]["error_message"] = "Trace execution failed."
+            self.jobs[job_id]["error"] = {"code": "TRACE_EXECUTION_FAILED", "message": "Trace execution failed."}
+            self.jobs[job_id]["completed_at"] = datetime.now(timezone.utc)
             await self.publish_event(
                 TraceEvent(
                     event="TRACE_FAILED",
                     job_id=job_id,
                     hop=self.jobs[job_id].get("current_depth", 0),
                     timestamp=datetime.now(timezone.utc),
-                    data={"error": str(e)}
+                    data={"error": "Trace execution failed."}
                 )
             )
 

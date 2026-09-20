@@ -18,7 +18,7 @@ class TraceRequest(BaseModel):
 
 class TraceJobResponse(BaseModel):
     job_id: str = Field(..., description="Unique asynchronous trace execution identifier")
-    status: str = Field(..., description="Current job status: QUEUED, RUNNING, COMPLETED, FAILED")
+    status: str = Field(..., description="Current job status: pending, running, completed, failed")
     address: str = Field(..., description="Normalized root suspect address")
     chain: str = Field(..., description="Identified blockchain rail")
     max_depth: int = Field(..., description="Configured maximum hop depth")
@@ -38,7 +38,7 @@ class TraceStatusResponse(BaseModel):
     job_id: str
     address: str
     chain: str
-    status: str  # QUEUED, RUNNING, COMPLETED, FAILED
+    status: str  # pending, running, completed, failed
     max_depth: int
     current_depth: int = 0
     started_at: datetime.datetime
@@ -54,3 +54,5 @@ class TraceStatusResponse(BaseModel):
     is_cached: bool = False
     error_message: Optional[str] = None
     summary: Optional[str] = None
+    progress: int = 0
+    error: Optional[Dict[str, Any]] = None

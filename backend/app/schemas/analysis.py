@@ -70,6 +70,12 @@ class GraphNodeData(BaseModel):
     total_outflow: float = 0.0
     is_contract: bool = False
     chain: Optional[str] = None
+    # Presentation-layer semantics (kept additive for existing consumers)
+    entity_type: str = "unknown"
+    risk_level: str = "low"
+    risk_score: float = 0.0
+    attribution: Optional[Dict[str, Any]] = None
+    balance: Optional[Dict[str, Any]] = None
 
 
 class GraphNode(BaseModel):
@@ -99,6 +105,9 @@ class GraphEdgeData(BaseModel):
     traceable_amount: Optional[float] = None
     unclassified_amount: Optional[float] = None
     taint_ratio: Optional[float] = None
+    direction: str = "outgoing"
+    block_number: Optional[int] = None
+    transaction_count: int = 1
 
 
 class GraphEdge(BaseModel):
@@ -109,6 +118,8 @@ class GraphData(BaseModel):
     nodes: List[GraphNode]
     edges: List[GraphEdge]
     stats: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Optional[Dict[str, Any]] = None
+    paths: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 # ==============================================================================

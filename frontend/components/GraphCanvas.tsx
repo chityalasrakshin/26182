@@ -6,6 +6,7 @@ import dagre from 'cytoscape-dagre';
 import {
   Maximize2,
   Minimize2,
+  PanelTop,
   ZoomIn,
   ZoomOut,
   RotateCcw,
@@ -38,6 +39,8 @@ import { SankeyFlowView } from './SankeyFlowView';
 import { TimelineReplayBar } from './TimelineReplayBar';
 import { EntityCentralityPanel } from './EntityCentralityPanel';
 import { TemporalHistogramBar } from './TemporalHistogramBar';
+import { getNodeIconGlyph, getNodeIconifyUrl } from '../src/components/graph/nodeIcons';
+import { GraphLegend } from './GraphLegend';
 
 const GraphCanvas3D = dynamic(() => import('./GraphCanvas3D'), { ssr: false });
 
@@ -50,9 +53,9 @@ if (typeof window !== 'undefined') {
   }
 }
 
-type LayoutType = 'flow' | 'force' | 'hierarchical' | 'radial' | 'i2-peeling';
+type LayoutType = 'flow' | 'force' | 'hierarchical' | 'radial' | 'timeline' | 'i2-peeling';
 type ViewMode = 'NETWORK' | 'FUND_FLOW' | 'TIMELINE' | 'EVIDENCE';
-type RiskFilterType = 'ALL' | 'LOW' | 'MEDIUM' | 'HIGH';
+type RiskFilterType = 'ALL' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 interface GraphCanvasProps {
   graphData: GraphData | null | undefined;
@@ -88,13 +91,16 @@ function buildNodeElement(n: any): cytoscape.ElementDefinition {
   const isBridge = d.role === 'BRIDGE_PROTOCOL' || Boolean(d.bridge_protocol);
   const hop = d.hop ?? 1;
   const nodeChain = (d.chain || 'ethereum').toLowerCase();
+  const normalizedRisk = d.risk_level ? String(d.risk_level).toLowerCase() : 'unknown';
 
-  const rawCat = (d.category || d.entity || d.label || d.role || d.vasp_name || '').toLowerCase();
+  const rawCat = (d.category || d.entity || d.entity_type || d.entityType || d.label || d.role || d.vasp_name || '').toLowerCase();
   let nodeTag: 'target' | 'exchange' | 'mixer' | 'sanctioned' | 'bridge' | 'unknown' = 'unknown';
   if (isRoot) {
     nodeTag = 'target';
   } else if (isBridge) {
     nodeTag = 'bridge';
+  } else if (d.is_contract || d.entity_type === 'contract' || d.entityType === 'contract') {
+    nodeTag = 'unknown';
   } else if (
     isVasp ||
     rawCat.includes('exchange') ||
@@ -126,6 +132,27 @@ function buildNodeElement(n: any): cytoscape.ElementDefinition {
     nodeTag = 'sanctioned';
   }
 
+  // Select the asset from the final graph classification. The API often
+  // omits entity_type, so using only that field made every node become wallet.
+  const explicitEntityType = String(d.entity_type || d.entityType || '').toLowerCase();
+  const semanticEntityType = isRoot
+    ? 'target'
+    : isBridge
+      ? 'bridge'
+      : nodeTag === 'exchange'
+        ? (explicitEntityType === 'vasp' ? 'vasp' : 'exchange')
+        : nodeTag === 'mixer'
+          ? 'mixer'
+          : nodeTag === 'sanctioned'
+            ? 'sanctioned'
+            : explicitEntityType === 'contract' || d.is_contract
+              ? 'contract'
+              : explicitEntityType === 'wallet'
+                ? 'wallet'
+                : explicitEntityType === 'unknown'
+                  ? 'unknown'
+                : 'wallet';
+
   const shortAddr = `${nodeId.slice(0, 6)}...${nodeId.slice(-4)}`;
   const chainBadge = nodeChain === 'solana' ? '[SOL] ' : nodeChain === 'tron' ? '[TRX] ' : nodeChain === 'bitcoin' ? '[BTC] ' : nodeChain === 'bsc' ? '[BSC] ' : '';
 
@@ -138,13 +165,14 @@ function buildNodeElement(n: any): cytoscape.ElementDefinition {
       ? parseFloat(d.vasp_confidence)
       : null;
   const confDisplay = confNum !== null
-    ? `${confNum.toFixed(1)}%`
+    ? String(d.vasp_confidence)
     : d.vasp_confidence
       ? String(d.vasp_confidence)
-      : '73.0%';
+      : null;
 
+  const iconGlyph = getNodeIconGlyph(semanticEntityType);
   const label = isRoot
-    ? `TARGET SUSPECT\n${shortAddr}`
+    ? `${iconGlyph}  TARGET\n${shortAddr}  ${chainBadge.trim() || '[ETH]'}`
     : isBridge
       ? `[Bridge: ${d.bridge_protocol || 'Bridge'}]\n${shortAddr}`
       : isTreasury
@@ -152,21 +180,20 @@ function buildNodeElement(n: any): cytoscape.ElementDefinition {
         : isLiquidity
           ? `Exchange Liquidity\n${shortAddr}`
           : nodeTag === 'exchange' || isVasp
-            ? `${d.vasp_name?.toUpperCase() || 'TETHER VASP'}\nCONF: ${confDisplay}`
+            ? `${iconGlyph}  ${d.vasp_name || 'VASP'}${confDisplay ? `\nCONF: ${confDisplay}` : ''}`
             : nodeTag === 'mixer'
-              ? `Mixer Gateway\n${shortAddr}`
+              ? `${iconGlyph}  MIXER\n${shortAddr}`
               : nodeTag === 'sanctioned'
-                ? `Peeling Cluster\n${shortAddr}`
-                : hop === 1
-                  ? `Hop-1 Layer (${shortAddr})`
-                  : `${shortAddr}\nHop ${hop}`;
+                ? `${iconGlyph}  SANCTIONED\n${shortAddr}`
+                : `${iconGlyph}  H${hop} · ${shortAddr}`;
 
   return {
     group: 'nodes',
-    classes: `tag-${nodeTag} chain-${nodeChain} ${isRoot ? 'is-root tag-target' : ''} ${isVasp || nodeTag === 'exchange' ? 'is-vasp tag-exchange' : ''} ${isBridge ? 'is-bridge tag-bridge' : ''} ${isTreasury ? 'node-treasury' : ''} ${isLiquidity ? 'node-liquidity' : ''} ${hop === 1 ? 'hop-1' : ''}`.trim(),
+    classes: `tag-${nodeTag} chain-${nodeChain} risk-${normalizedRisk} ${isRoot ? 'is-root tag-target' : ''} ${isVasp || nodeTag === 'exchange' ? 'is-vasp tag-exchange' : ''} ${isBridge ? 'is-bridge tag-bridge' : ''} ${isTreasury ? 'node-treasury' : ''} ${isLiquidity ? 'node-liquidity' : ''} ${hop === 1 ? 'hop-1' : ''}`.trim(),
     data: {
       id: nodeId,
       label: label,
+      iconUrl: getNodeIconifyUrl(semanticEntityType, isRoot ? 'ef4444' : 'ffffff'),
       isRoot: isRoot,
       isVasp: isVasp || nodeTag === 'exchange',
       isBridge: isBridge,
@@ -175,7 +202,8 @@ function buildNodeElement(n: any): cytoscape.ElementDefinition {
       tag: nodeTag,
       category: nodeTag,
       vaspName: d.vasp_name,
-      vaspConfidence: d.vasp_confidence || 95,
+      vaspConfidence: d.vasp_confidence ?? null,
+      provenance: d.provenance || d.source_name || d.source || null,
       hop: hop,
       addressType: d.address_type || 'hot_wallet',
       fullAddress: nodeId,
@@ -184,6 +212,9 @@ function buildNodeElement(n: any): cytoscape.ElementDefinition {
       txCount: d.tx_count || 0,
       role: d.role || (isRoot ? 'TARGET' : isVasp ? 'VASP' : isBridge ? 'BRIDGE' : hop <= 3 ? 'INTERMEDIARY' : 'EXTERNAL'),
       nodeOpacity: hopOpacity(hop),
+      entityType: semanticEntityType,
+      riskLevel: d.risk_level ?? null,
+      riskScore: d.risk_score ?? null,
     },
   };
 }
@@ -207,6 +238,8 @@ function buildEdgeElement(e: any, edgeId: string): cytoscape.ElementDefinition {
   const label = isCrossChain
     ? `[Bridge: ${bridgeProto || 'Cross-Chain'}] ${amtStr}`
     : inrStr ? `${amtStr}\n${inrStr}` : amtStr;
+  const transactionCount = Number(d.transaction_count || 1);
+  const displayLabel = transactionCount > 1 ? `${label}\n${transactionCount} TX` : label;
 
   let taintClass = '';
   if (taintRatio !== null) {
@@ -222,10 +255,12 @@ function buildEdgeElement(e: any, edgeId: string): cytoscape.ElementDefinition {
       id: edgeId,
       source: src,
       target: tgt,
-      label: label,
+      label: displayLabel,
       amount: amt,
       edgeWidth: isCrossChain ? 3.5 : edgeWidthFromAmount(amt),
       tokenSymbol: sym,
+      transactionCount,
+      direction: d.direction || 'outgoing',
       txHash: d.tx_hash || '',
       timestamp: d.timestamp || '',
       hop: d.hop || 1,
@@ -248,7 +283,8 @@ function getLayoutConfig(
   layoutMode: LayoutType,
   nodeCount: number,
   spacingScale: number,
-  rootId?: string
+  rootId?: string,
+  fundFlow = false
 ) {
   switch (layoutMode) {
     case 'i2-peeling':
@@ -266,13 +302,16 @@ function getLayoutConfig(
         padding: 60,
       };
     case 'flow':
+      if (fundFlow) {
+        return { name: 'preset', fit: false, animate: false };
+      }
       return {
         name: 'dagre',
         rankDir: 'LR',
-        nodeSep: nodeCount > 80 ? 80 : Math.round(120 * spacingScale),
-        rankSep: nodeCount > 80 ? 140 : Math.round(200 * spacingScale),
-        edgeSep: nodeCount > 80 ? 25 : 40,
-        ranker: 'network-simplex',
+        nodeSep: nodeCount > 80 ? 64 : Math.round((fundFlow ? 92 : 120) * spacingScale),
+        rankSep: nodeCount > 80 ? 140 : Math.round((fundFlow ? 180 : 200) * spacingScale),
+        edgeSep: nodeCount > 80 ? 25 : fundFlow ? 28 : 40,
+        ranker: fundFlow ? 'tight-tree' : 'network-simplex',
         animate: true,
         animationDuration: 400,
         animationEasing: 'ease-out-cubic' as any,
@@ -280,25 +319,31 @@ function getLayoutConfig(
         padding: 50,
       };
     case 'force': {
-      const densityGravity = nodeCount > 100 ? 0.8 : nodeCount > 50 ? 0.5 : 0.25;
-      const densityRepulsion = nodeCount > 100 ? 600000 : nodeCount > 50 ? 1000000 : 2000000;
-      const densityEdgeLen = nodeCount > 100 ? 100 : nodeCount > 50 ? 140 : 180;
+      // Network view is relationship-first: let Cytoscape expose natural
+      // neighborhoods instead of imposing the left-to-right flow hierarchy.
+      // The small-graph values are intentionally generous so the validated
+      // 2-node / 12-edge graph remains readable rather than collapsing.
+      const densityGravity = nodeCount > 100 ? 0.65 : nodeCount > 50 ? 0.42 : 0.18;
+      const densityRepulsion = nodeCount > 100 ? 85000 : nodeCount > 50 ? 150000 : 260000;
+      const densityEdgeLen = nodeCount > 100 ? 120 : nodeCount > 50 ? 165 : 220;
       return {
         name: 'cose',
         animate: 'end',
         animationDuration: 500,
         animationEasing: 'ease-out-cubic' as any,
-        randomize: false,
-        componentSpacing: nodeCount > 100 ? 80 : 160,
-        nodeOverlap: 50,
+        randomize: true,
+        componentSpacing: nodeCount > 100 ? 120 : 220,
+        nodeOverlap: 24,
         idealEdgeLength: () => densityEdgeLen,
         nodeRepulsion: () => densityRepulsion,
-        edgeElasticity: () => 80,
+        edgeElasticity: () => 55,
         gravity: densityGravity,
-        numIter: nodeCount > 100 ? 200 : 350,
+        gravityRange: 3.8,
+        numIter: nodeCount > 100 ? 250 : 500,
+        initialEnergyOnIncremental: 0.35,
+        nestingFactor: 1.15,
         fit: true,
         padding: 50,
-        nestingFactor: 1.2,
       };
     }
     case 'hierarchical':
@@ -315,6 +360,8 @@ function getLayoutConfig(
         maximal: false,
       };
     case 'radial':
+      return { name: 'preset', fit: false, animate: false };
+    /*
       return {
         name: 'concentric',
         concentric: (node: any) => 4 - (node.data('hop') || 1),
@@ -328,7 +375,138 @@ function getLayoutConfig(
         sweep: 2 * Math.PI,
         equidistant: false,
       };
+    */
+    case 'timeline':
+      return {
+        name: 'preset',
+        fit: false,
+        animate: false,
+      };
   }
+}
+
+/** Deterministic, canvas-aware Fund Flow positioning. */
+function applyFundFlowPositions(cy: cytoscape.Core) {
+  const width = Math.max(cy.width(), 720);
+  const height = Math.max(cy.height(), 520);
+  const center = { x: width / 2, y: height / 2 };
+  const nodes = cy.nodes();
+  const root = nodes.filter((n) => Boolean(n.data('isRoot')) || Number(n.data('hop')) === 0).first() as cytoscape.NodeSingular;
+
+  if (root.length) root.position(center);
+
+  const groups = new Map<number, cytoscape.NodeCollection>();
+  nodes.not(root).forEach((node) => {
+    const hop = Math.max(1, Math.min(3, Number(node.data('hop')) || 1));
+    if (!groups.has(hop)) groups.set(hop, cy.collection());
+    groups.get(hop)!.merge(node);
+  });
+
+  groups.forEach((group, hop) => {
+    const ordered = group.sort((a, b) => a.id().localeCompare(b.id()));
+    const baseRadius = Math.min(width, height) * (0.19 + hop * 0.14);
+    const maxPerRing = Math.max(6, Math.floor((2 * Math.PI * baseRadius) / 125));
+    ordered.forEach((node, index) => {
+      const ring = Math.floor(index / maxPerRing);
+      const slot = index % maxPerRing;
+      const count = Math.min(maxPerRing, ordered.length - ring * maxPerRing);
+      const radius = baseRadius + ring * 82;
+      const angle = -Math.PI / 2 + ((slot + 0.5) / Math.max(count, 1)) * Math.PI * 2 + hop * 0.23;
+      node.position({
+        x: center.x + Math.cos(angle) * radius,
+        y: center.y + Math.sin(angle) * radius,
+      });
+    });
+  });
+
+  cy.fit(undefined, 55);
+}
+
+/** Deterministic concentric rings for the Radial investigation view. */
+function applyRadialPositions(cy: cytoscape.Core) {
+  const width = Math.max(cy.width(), 720);
+  const height = Math.max(cy.height(), 520);
+  const center = { x: width / 2, y: height / 2 };
+  const nodes = cy.nodes(':visible');
+  const root = nodes.filter((n) => Boolean(n.data('isRoot')) || Number(n.data('hop')) === 0).first() as cytoscape.NodeSingular;
+  if (root.length) root.position(center);
+
+  const groups = new Map<number, cytoscape.NodeCollection>();
+  nodes.not(root).forEach((node) => {
+    const hop = Math.max(1, Math.min(3, Number(node.data('hop')) || 1));
+    if (!groups.has(hop)) groups.set(hop, cy.collection());
+    groups.get(hop)!.merge(node);
+  });
+
+  const maxRadius = Math.max(150, Math.min(width, height) * 0.42);
+  const hopLevels = Math.max(1, groups.size);
+  const ringGap = Math.max(125, Math.min(220, maxRadius / hopLevels));
+
+  groups.forEach((group, hop) => {
+    const ordered = group.sort((a, b) => a.id().localeCompare(b.id()));
+    const baseRadius = Math.min(maxRadius, Math.max(145, ringGap * hop));
+    const maxPerRing = Math.max(8, Math.floor((2 * Math.PI * baseRadius) / 105));
+    ordered.forEach((node, index) => {
+      const ring = Math.floor(index / maxPerRing);
+      const slot = index % maxPerRing;
+      const count = Math.min(maxPerRing, ordered.length - ring * maxPerRing);
+      const radius = Math.min(maxRadius, baseRadius + ring * 76);
+      const angle = -Math.PI / 2 + ((slot + 0.5) / Math.max(count, 1)) * Math.PI * 2 + hop * 0.17;
+      node.position({ x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius });
+    });
+  });
+
+  cy.fit(undefined, 55);
+}
+
+/** Deterministic traversal-depth bands for Hop Order (not chronological). */
+function applyHopOrderPositions(cy: cytoscape.Core) {
+  const width = Math.max(cy.width(), 720);
+  const height = Math.max(cy.height(), 520);
+  const center = { x: width / 2, y: height / 2 };
+  const visible = cy.nodes(':visible');
+  const root = visible.filter((node) => Boolean(node.data('isRoot')) || Number(node.data('hop')) === 0).first() as cytoscape.NodeSingular;
+
+  if (root.length) root.position(center);
+
+  const groups = new Map<number, cytoscape.NodeSingular[]>();
+  visible.not(root).forEach((node) => {
+    const rawHop = Number(node.data('hop'));
+    const band = Number.isFinite(rawHop) && rawHop >= 1 ? Math.min(rawHop, 3) : 3;
+    if (!groups.has(band)) groups.set(band, []);
+    groups.get(band)!.push(node);
+  });
+
+  const leftPadding = Math.max(56, width * 0.055);
+  const rightPadding = leftPadding;
+  const usableWidth = Math.max(240, width - leftPadding - rightPadding);
+  const maxHop = Math.max(1, ...Array.from(groups.keys()));
+  // Keep dense hops to a bounded number of rows so fit() cannot turn the
+  // graph into a narrow strip. Smaller groups still use the full width.
+  const maxRowsPerBand = 6;
+  const bandGap = Math.max(110, (height * 0.70) / Math.max(maxHop, 1));
+  const rowGap = Math.min(58, Math.max(30, bandGap / maxRowsPerBand));
+
+  groups.forEach((nodes, band) => {
+    nodes.sort((a, b) => a.id().localeCompare(b.id()));
+    const columns = Math.max(1, Math.ceil(nodes.length / maxRowsPerBand));
+    const rows = Math.ceil(nodes.length / columns);
+    // H0 remains central; increasing hop distance moves toward the top.
+    const y = center.y + (maxHop / 2 - band) * bandGap;
+    nodes.forEach((node, index) => {
+      const row = Math.floor(index / columns);
+      const rowStart = row * columns;
+      const count = Math.min(columns, nodes.length - rowStart);
+      // Every row spans the available width, including one-node rows.
+      const x = count === 1
+        ? center.x
+        : leftPadding + ((index - rowStart) / (count - 1)) * usableWidth;
+      node.position({ x, y: y + (row - (rows - 1) / 2) * rowGap });
+    });
+  });
+
+  // One fit after explicit positions; fit never participates in positioning.
+  cy.fit(undefined, 55);
 }
 
 function applyFilters(
@@ -338,7 +516,8 @@ function applyFilters(
   selectedToken: string,
   selectedChain: string,
   minAmount: number,
-  viewMode: ViewMode
+  viewMode: ViewMode,
+  riskFilter: RiskFilterType = 'ALL'
 ) {
   cy.batch(() => {
     const validNodeIds = new Set<string>();
@@ -350,6 +529,9 @@ function applyFilters(
       const nodeChain = (d.chain || 'ethereum').toLowerCase();
       const isBridge = d.isBridge || d.role === 'BRIDGE_PROTOCOL';
       const isVasp = d.isVasp;
+      const riskLevel = d.riskLevel || d.risk_level
+        ? String(d.riskLevel || d.risk_level).toUpperCase()
+        : 'UNKNOWN';
 
       // Chain filter (root stays visible)
       if (selectedChain !== 'ALL' && nodeChain !== selectedChain.toLowerCase() && !isRoot) {
@@ -371,6 +553,11 @@ function applyFilters(
       else if (hop >= 1 && hop <= 3) entityType = 'INTERMEDIARY';
 
       if (!selectedEntityTypes.has(entityType) && !isBridge) {
+        n.addClass('filter-hidden');
+        return;
+      }
+
+      if (riskFilter !== 'ALL' && riskLevel !== riskFilter) {
         n.addClass('filter-hidden');
         return;
       }
@@ -439,7 +626,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const [viewMode, setViewMode] = useState<ViewMode>('NETWORK');
   const [dimensionMode, setDimensionMode] = useState<'2D' | '3D'>('2D');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
-  const [isFullScreen, setIsFullScreen] = useState<boolean>(isFullScreenView);
+  const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
+  const [isTheaterMode, setIsTheaterMode] = useState<boolean>(false);
 
   // 3D Camera Micro-Tool Refs
   const fit3DRef = useRef<(() => void) | null>(null);
@@ -475,6 +663,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   } | null>(null);
 
   const [copied, setCopied] = useState<boolean>(false);
+  const [runtimeCounts, setRuntimeCounts] = useState({ nodes: 0, edges: 0 });
 
   // Sync ref with state for use in closure-captured event handlers
   const updateFocusedPath = useCallback((val: typeof focusedPath) => {
@@ -491,7 +680,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFullScreen]);
+  }, [isFullScreen, isTheaterMode]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -501,7 +690,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
     }, 150);
     return () => clearTimeout(timer);
-  }, [isFullScreen]);
+  }, [isFullScreen, isTheaterMode]);
 
   // Compute Root Target Wallet from data
   const rootNode = useMemo(() => {
@@ -529,9 +718,15 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     }
 
     const totalNodes = graphData.nodes.length;
-    const totalTransfers = graphData.edges?.length || 0;
+    const totalTransfers = graphData.stats?.taint_summary?.total_transactions
+      ?? graphData.edges?.reduce((sum: number, edge: any) => {
+        const count = Number(edge.data?.transaction_count ?? edge.data?.transactionCount ?? 1);
+        return sum + (Number.isFinite(count) && count > 0 ? count : 1);
+      }, 0)
+      ?? 0;
     const vaspEndpoints = graphData.nodes.filter((n: any) => n.data?.is_vasp || n.data?.role === 'KNOWN_VASP').length;
-    const maxHops = Math.max(...graphData.nodes.map((n: any) => n.data?.hop || 0), 3);
+    const maxHops = graphData.stats?.max_hop_reached
+      ?? Math.max(...graphData.nodes.map((n: any) => n.data?.hop || 0), 0);
 
     let totalVolume = 0;
     const tokens = new Set<string>(['ALL']);
@@ -603,8 +798,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       if (newElements.length > 0) {
         cy.batch(() => {
           cy.add(newElements);
-          applyFilters(cy, selectedHops, selectedEntityTypes, selectedToken, selectedChain, minAmount, viewMode);
+          applyFilters(cy, selectedHops, selectedEntityTypes, selectedToken, selectedChain, minAmount, viewMode, riskFilter);
         });
+        setRuntimeCounts({ nodes: cy.nodes().length, edges: cy.edges().length });
 
         // Throttle layout during live streaming: 300ms debounce prevents UI freezing
         if (streamingLayoutTimerRef.current) clearTimeout(streamingLayoutTimerRef.current);
@@ -612,8 +808,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           if (!cyRef.current) return;
           const visibleCount = cyRef.current.nodes(':visible').length;
           const spacingScale = visibleCount > 40 ? 1.3 : visibleCount > 20 ? 1.1 : 1.0;
-          const cfg = getLayoutConfig(layoutMode, visibleCount, spacingScale, currentRoot);
-          cyRef.current.layout(cfg).run();
+          if (viewMode === 'FUND_FLOW') applyFundFlowPositions(cyRef.current);
+          else if (layoutMode === 'radial') applyRadialPositions(cyRef.current);
+          else if (layoutMode === 'timeline') applyHopOrderPositions(cyRef.current);
+          else cyRef.current.layout(getLayoutConfig(layoutMode, visibleCount, spacingScale, currentRoot, false)).run();
         }, 300);
       }
       return;
@@ -653,7 +851,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
     const nodeCount = elements.filter(el => el.group === 'nodes').length;
     const spacingScale = nodeCount > 40 ? 1.3 : nodeCount > 20 ? 1.1 : 1.0;
-    const layoutConfig = getLayoutConfig(layoutMode, nodeCount, spacingScale, currentRoot);
+    const layoutConfig = getLayoutConfig(layoutMode, nodeCount, spacingScale, currentRoot, viewMode === 'FUND_FLOW');
 
     const isDarkMode = typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : true;
     const baseTextColor = isDarkMode ? '#FFFFFF' : '#0F172A';
@@ -713,6 +911,36 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'transition-duration': 200,
           },
         },
+        {
+          selector: 'node.risk-low',
+          style: { 'border-color': '#475569', 'border-width': 2 },
+        },
+        {
+          selector: 'node.risk-medium',
+          style: { 'border-color': '#f59e0b', 'border-width': 2 },
+        },
+        {
+          selector: 'node.risk-high',
+          style: { 'border-color': '#f97316', 'border-width': 3 },
+        },
+        {
+          selector: 'node.risk-critical',
+          style: {
+            'border-color': '#ef4444',
+            'border-width': 3.5,
+            'overlay-color': '#ef4444',
+            'overlay-opacity': 0.16,
+            'overlay-padding': 8,
+          },
+        },
+        {
+          selector: 'node.risk-unknown',
+          style: { 'border-color': '#475569', 'border-width': 2 },
+        },
+        // Risk is expressed as a ring so the node interior remains semantic.
+        { selector: 'node.risk-medium', style: { 'border-color': '#f59e0b', 'border-width': 3 } },
+        { selector: 'node.risk-high', style: { 'border-color': '#f97316', 'border-width': 3.5 } },
+        { selector: 'node.risk-critical', style: { 'border-color': '#ef4444', 'border-width': 4, 'overlay-color': '#ef4444', 'overlay-opacity': 0.18, 'overlay-padding': 8 } },
         // ────────────────── TARGET / ROOT (Star) ──────────────────
         {
           selector: 'node[tag = "target"], node.tag-target, node.is-root',
@@ -729,7 +957,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'text-valign': 'bottom',
             'text-margin-y': sz(10),
             'opacity': 1,
-            'overlay-color': isDarkMode ? '#ef4444' : '#2563EB',
+            'overlay-color': isDarkMode ? '#ef4444' : '#E5FF8F',
             'overlay-opacity': 0.15,
             'overlay-padding': sz(12),
           },
@@ -922,14 +1150,15 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: 'edge',
           style: {
-            'width': 2.5,
+            'width': 1.25,
             'line-color': isDarkMode ? '#334155' : '#94A3B8',
-            'target-arrow-color': isDarkMode ? '#3B82F6' : '#2563EB',
+            'target-arrow-color': isDarkMode ? '#64748B' : '#94A3B8',
             'target-arrow-shape': 'triangle',
-            'arrow-scale': 0.95,
+            'arrow-scale': 0.65,
+            'opacity': nodeCount > 100 ? 0.42 : 0.62,
             'curve-style': 'unbundled-bezier',
             'control-point-step-size': nodeCount > 80 ? 30 : 45,
-            'label': nodeCount > 100 ? '' : 'data(label)',
+            'label': '',
             'font-size': `${fs(8)}px`,
             'font-family': 'JetBrains Mono, ui-monospace, SFMono-Regular, monospace',
             'color': isDarkMode ? '#cbd5e1' : '#475569',
@@ -944,7 +1173,33 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'transition-duration': 200,
           },
         },
-        // ── Hop-1 dashed cyan curved edge (Target to Hop-1) ──
+        {
+          selector: 'node.dense-label',
+          style: { 'label': '' },
+        },
+        {
+          selector: 'node',
+          style: {
+            // Semantic icons are the node mark; do not place them inside a
+            // Cytoscape circle/shape. Risk remains a separate halo layer.
+            'shape': 'rectangle',
+            'background-color': 'transparent',
+            'border-width': 0,
+            'background-image': 'data(iconUrl)',
+            'background-fit': 'contain',
+            'background-clip': 'none',
+            'background-opacity': 0.9,
+          },
+        },
+        {
+          selector: 'node.dense-label.is-root, node.dense-label.is-vasp, node.dense-label.node-hover, node.dense-label:selected',
+          style: { 'label': 'data(label)' },
+        },
+        {
+          selector: 'node.is-root',
+          style: { 'z-index': 2000, 'overlay-opacity': 0.28, 'overlay-padding': 14, 'label': 'data(label)' },
+        },
+        // ── Hop-1 dashed lime curved edge (Target to Hop-1) ──
         {
           selector: 'edge[hop = 1], edge.hop-1',
           style: {
@@ -1022,7 +1277,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           style: {
             'line-color': '#6effc3',
             'target-arrow-color': '#6effc3',
-            'width': 3.5,
+            'width': 4,
+            'opacity': 1,
             'z-index': 999,
             'label': 'data(label)',
             'font-size': '9px',
@@ -1081,6 +1337,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'overlay-opacity': 0.15,
           },
         },
+        {
+          selector: 'edge:selected',
+          style: { 'label': 'data(label)', 'width': 3.5, 'opacity': 1, 'z-index': 1000 },
+        },
         // Hover highlight class (applied via JS)
         {
           selector: '.node-hover',
@@ -1106,7 +1366,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {
           selector: '.neighbor-dim',
           style: {
-            'opacity': 0.25,
+            'opacity': 0.12,
           },
         },
         // ── IBM i2 Centrality Highlighting Rules ──
@@ -1187,6 +1447,17 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       ],
       layout: layoutConfig,
     });
+
+    if (nodeCount > 100) {
+      cy.nodes().addClass('dense-label');
+    }
+
+    if (viewMode === 'FUND_FLOW') applyFundFlowPositions(cy);
+    else if (layoutMode === 'radial') applyRadialPositions(cy);
+    else if (layoutMode === 'timeline') applyHopOrderPositions(cy);
+
+    // QA-only runtime integrity counters: read directly from Cytoscape.
+    setRuntimeCounts({ nodes: cy.nodes().length, edges: cy.edges().length });
 
     // ─────────────────────────────────────────────────────────────────────
     // 5. AUTO-FIT on layout completion
@@ -1310,13 +1581,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       }
     }
 
-    applyFilters(cy, selectedHops, selectedEntityTypes, selectedToken, selectedChain, minAmount, viewMode);
+    applyFilters(cy, selectedHops, selectedEntityTypes, selectedToken, selectedChain, minAmount, viewMode, riskFilter);
     cyRef.current = cy;
 
     return () => {
       if (streamingLayoutTimerRef.current) clearTimeout(streamingLayoutTimerRef.current);
     };
-  }, [graphData]);
+  }, [graphData, viewMode]);
 
   // 0ms Filter updates via batch class toggling — Zero canvas recreation, zero lag
   useEffect(() => {
@@ -1338,6 +1609,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     selectedChain,
     minAmount,
     viewMode,
+    riskFilter,
   ]);
 
   // Smooth layout animation on mode toggle
@@ -1346,10 +1618,12 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       const cy = cyRef.current;
       const visibleCount = cy.nodes(':visible').length;
       const spacingScale = visibleCount > 40 ? 1.3 : visibleCount > 20 ? 1.1 : 1.0;
-      const cfg = getLayoutConfig(layoutMode, visibleCount, spacingScale, rootAddress);
-      cy.layout(cfg).run();
+      if (viewMode === 'FUND_FLOW') applyFundFlowPositions(cy);
+      else if (layoutMode === 'radial') applyRadialPositions(cy);
+      else if (layoutMode === 'timeline') applyHopOrderPositions(cy);
+      else cy.layout(getLayoutConfig(layoutMode, visibleCount, spacingScale, rootAddress, false)).run();
     }
-  }, [layoutMode, rootAddress]);
+  }, [layoutMode, rootAddress, viewMode]);
 
   // Final fit and layout when streaming finishes
   useEffect(() => {
@@ -1358,15 +1632,18 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       const visibleCount = cy.nodes(':visible').length;
       if (visibleCount > 0) {
         const spacingScale = visibleCount > 40 ? 1.3 : visibleCount > 20 ? 1.1 : 1.0;
-        const cfg = getLayoutConfig(layoutMode, visibleCount, spacingScale, rootAddress);
-        cy.layout(cfg).run();
+        if (viewMode === 'FUND_FLOW') applyFundFlowPositions(cy);
+        else if (layoutMode === 'radial') applyRadialPositions(cy);
+        else if (layoutMode === 'timeline') applyHopOrderPositions(cy);
+        else cy.layout(getLayoutConfig(layoutMode, visibleCount, spacingScale, rootAddress, false)).run();
       }
     }
-  }, [isStreaming, rootAddress, layoutMode]);
+  }, [isStreaming, rootAddress, layoutMode, viewMode]);
 
   // Cleanup on component unmount
   useEffect(() => {
     return () => {
+      setRuntimeCounts({ nodes: 0, edges: 0 });
       if (cyRef.current) {
         cyRef.current.destroy();
         cyRef.current = null;
@@ -1446,9 +1723,11 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div
-      className={`bg-white dark:bg-[#0D131F] ${
+      className={`bg-[#0A0A0A] ${
         isFullScreen
           ? 'fixed inset-0 z-[9999] w-screen h-screen rounded-none border-none m-0 p-0 overflow-hidden flex flex-col'
+          : isTheaterMode
+          ? 'fixed left-[68px] top-16 right-0 bottom-0 z-[35] w-auto h-auto rounded-none border border-[#2A2A2A] m-0 p-0 overflow-hidden flex flex-col'
           : `border border-slate-200 dark:border-[#1E293B] rounded-xl shadow-sm dark:shadow-2xl flex flex-col relative text-xs overflow-hidden transition-all duration-300 ${
               isFullScreenView ? 'h-[85vh]' : 'h-auto min-h-[740px]'
             }`
@@ -1457,16 +1736,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       {/* ========================================================================= */}
       {/* 1. INVESTIGATION SUMMARY HEADER BAR */}
       {/* ========================================================================= */}
-      <div className="p-3.5 border-b border-slate-200 dark:border-[#1E293B] bg-white/95 dark:bg-[#0D131F]/90 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
+      <div className="p-3.5 border-b border-[#2A2A2A] bg-[#0A0A0A]/95 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
         {/* Left: Graph Studio + PRO ENGINE badge + Target address */}
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-900/40 flex items-center justify-center text-[#2563EB] dark:text-[#3B82F6]">
+          <div className="w-10 h-10 rounded-lg bg-[#161616] border border-[#2A2A2A] flex items-center justify-center text-[#E5FF8F]">
             <Network className="h-5 w-5" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <span className="font-bold text-slate-900 dark:text-[#F8FAFC] text-base tracking-wide font-sans">Graph Studio</span>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-blue-50 dark:bg-[#1E293B] text-[#2563EB] dark:text-[#3B82F6] border border-blue-200 dark:border-[#1E293B] font-mono font-bold tracking-wider uppercase">
+              <span className="font-bold text-[#FFFFFF] text-base tracking-wide font-sans">Graph Studio</span>
+              <span className="text-[10px] px-2 py-0.5 rounded bg-[#E5FF8F]/10 text-[#E5FF8F] border border-[#E5FF8F]/20 font-mono font-bold tracking-wider uppercase">
                 PRO ENGINE
               </span>
             </div>
@@ -1487,12 +1766,12 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {/* Center/Right: 2D / 3D Dimension Switcher & View Mode Tabs */}
         <div className="flex items-center space-x-2.5">
           {/* Dimension Selector: 2D vs 3D */}
-          <div className="flex items-center bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded-lg p-1 font-mono text-xs">
+          <div className="flex items-center bg-[#161616] border border-[#2A2A2A] rounded-lg p-1 font-mono text-xs">
             <button
               onClick={() => setDimensionMode('2D')}
               className={`px-2.5 py-1 rounded-md font-semibold transition-all flex items-center space-x-1 ${
                 dimensionMode === '2D'
-                  ? 'bg-[#2563EB] text-white shadow-sm font-bold'
+                  ? 'bg-[#E5FF8F] text-[#0A0A0A] shadow-sm font-bold'
                   : 'text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
               }`}
             >
@@ -1502,7 +1781,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               onClick={() => setDimensionMode('3D')}
               className={`px-2.5 py-1 rounded-md font-semibold transition-all flex items-center space-x-1.5 ${
                 dimensionMode === '3D'
-                  ? 'bg-[#2563EB] text-white shadow-sm font-bold'
+                  ? 'bg-[#E5FF8F] text-[#0A0A0A] shadow-sm font-bold'
                   : 'text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
               }`}
             >
@@ -1512,14 +1791,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           </div>
 
           {/* Right: View Mode Tabs */}
-          <div className="flex items-center bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded-lg p-1 font-mono text-xs">
+          <div className="flex items-center bg-[#161616] border border-[#2A2A2A] rounded-lg p-1 font-mono text-xs">
             {(['NETWORK', 'FUND_FLOW', 'TIMELINE', 'EVIDENCE'] as ViewMode[]).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
                 className={`px-3 py-1.5 rounded-md font-semibold transition-all ${
                   viewMode === mode
-                    ? 'bg-[#2563EB] text-white shadow-sm font-bold'
+                    ? 'bg-[#E5FF8F] text-[#0A0A0A] shadow-sm font-bold'
                     : 'text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] hover:bg-slate-200 dark:hover:bg-[#1E293B]'
                 }`}
               >
@@ -1533,24 +1812,24 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       {/* ========================================================================= */}
       {/* 2. SUB-STRIP: LAYOUT & CHAIN CONTROLS */}
       {/* ========================================================================= */}
-      <div className="px-4 py-2.5 border-b border-slate-200 dark:border-[#1E293B] bg-slate-50/80 dark:bg-[#111827]/80 backdrop-blur-md flex flex-wrap items-center justify-between gap-y-2 text-xs font-mono shrink-0">
+      <div className="px-4 py-2.5 border-b border-[#2A2A2A] bg-[#101010]/95 backdrop-blur-md flex flex-wrap items-center justify-between gap-y-2 text-xs font-mono shrink-0">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           {/* LAYOUT Engine Selector */}
           <div className="flex items-center space-x-2">
             <span className="text-slate-500 dark:text-[#94A3B8] font-bold text-[11px] tracking-wider">LAYOUT:</span>
             <div className="flex items-center space-x-1.5">
               {[
-                { id: 'flow', label: 'Flow (DAG)' },
-                { id: 'i2-peeling', label: 'i2 Peeling' },
-                { id: 'force', label: 'Force (CoSE)' },
+                { id: 'flow', label: 'Fund Flow' },
+                { id: 'force', label: 'Network' },
                 { id: 'radial', label: 'Radial' },
+                { id: 'timeline', label: 'Hop Order' },
               ].map((l) => (
                 <button
                   key={l.id}
                   onClick={() => setLayoutMode(l.id as LayoutType)}
                   className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all ${
                     layoutMode === l.id
-                      ? 'bg-[#2563EB] text-white shadow-sm font-bold'
+                      ? 'bg-[#E5FF8F] text-[#0A0A0A] shadow-sm font-bold'
                       : 'bg-white dark:bg-[#191c22] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] border border-slate-200 dark:border-[#1E293B]'
                   }`}
                 >
@@ -1575,7 +1854,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     onClick={() => setSelectedChain(c === 'ALL' ? 'ALL' : c.toLowerCase())}
                     className={`px-2.5 py-1 rounded text-[11px] font-semibold transition-all uppercase ${
                       isSelected
-                        ? 'bg-[#2563EB] text-white shadow-sm font-bold'
+                        ? 'bg-[#E5FF8F] text-[#0A0A0A] shadow-sm font-bold'
                         : 'bg-white dark:bg-[#191c22] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] border border-slate-200 dark:border-[#1E293B]'
                     }`}
                   >
@@ -1593,7 +1872,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             className={`px-2.5 py-1 rounded text-[11px] font-bold flex items-center space-x-1.5 transition-colors border ${
               isSidebarOpen
-                ? 'bg-[#2563EB] text-white border-[#2563EB]'
+                        ? 'bg-[#E5FF8F] text-[#0A0A0A] border-[#E5FF8F]'
                 : 'bg-white dark:bg-[#191c22] hover:bg-slate-100 dark:hover:bg-[#1E293B] text-slate-600 dark:text-[#94A3B8] border border-slate-200 dark:border-[#1E293B]'
             }`}
             title="Toggle Investigation Filters"
@@ -1605,7 +1884,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             onClick={() => setShowCentralityPanel(!showCentralityPanel)}
             className={`px-2.5 py-1 rounded text-[11px] font-bold flex items-center space-x-1.5 transition-colors border ${
               showCentralityPanel
-                ? 'bg-[#2563EB] text-white border-[#2563EB]'
+                ? 'bg-[#E5FF8F] text-[#0A0A0A] border-[#E5FF8F]'
                 : 'bg-white dark:bg-[#191c22] hover:bg-slate-100 dark:hover:bg-[#1E293B] text-slate-600 dark:text-[#94A3B8] border border-slate-200 dark:border-[#1E293B]'
             }`}
             title="Toggle Centrality List"
@@ -1617,14 +1896,36 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             onClick={() => setIsFullScreen(!isFullScreen)}
             className={`p-1.5 rounded transition-colors border ${
               isFullScreen
-                ? 'bg-blue-50 dark:bg-blue-900/30 text-[#2563EB] dark:text-[#3B82F6] border-[#2563EB]/40 shadow-sm'
+                ? 'bg-[#E5FF8F]/10 text-[#E5FF8F] border-[#E5FF8F]/40 shadow-sm'
                 : 'hover:bg-slate-100 dark:hover:bg-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] border-slate-200 dark:border-[#1E293B]'
             }`}
             title={isFullScreen ? 'Exit Fullscreen (Esc)' : 'Enter Fullscreen'}
           >
-            {isFullScreen ? <Minimize2 className="h-3.5 w-3.5 text-[#2563EB] dark:text-[#3B82F6]" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            {isFullScreen ? <Minimize2 className="h-3.5 w-3.5 text-[#E5FF8F]" /> : <Maximize2 className="h-3.5 w-3.5" />}
+          </button>
+          <button
+            onClick={() => { setIsTheaterMode(!isTheaterMode); setIsFullScreen(false); }}
+            className={`px-2 py-1.5 rounded text-[11px] font-bold flex items-center gap-1.5 transition-colors border ${
+              isTheaterMode
+                ? 'bg-[#E5FF8F] text-[#0A0A0A] border-[#E5FF8F]'
+                : 'hover:bg-[#1A1A1A] text-[#9A9A9A] hover:text-[#FFFFFF] border-[#2A2A2A]'
+            }`}
+            title={isTheaterMode ? 'Exit Theater Mode' : 'Open Theater Mode'}
+          >
+            <PanelTop className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Theater</span>
           </button>
         </div>
+      </div>
+
+      {/* Compact graph summary */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b border-[#2A2A2A] bg-[#0A0A0A] px-4 py-2 font-mono text-[10px] uppercase tracking-wider text-[#9A9A9A]">
+        <span>Target <strong className="ml-1 text-[#FFFFFF] normal-case">{rootAddress.slice(0, 8)}...{rootAddress.slice(-4)}</strong></span>
+        <span>Entities <strong className="ml-1 text-[#FFFFFF]">{graphMetrics.totalNodes}</strong></span>
+        <span>Transactions <strong className="ml-1 text-[#FFFFFF]">{graphMetrics.totalTransfers}</strong></span>
+        <span>VASPs <strong className="ml-1 text-[#E5FF8F]">{graphMetrics.vaspEndpoints}</strong></span>
+        <span>Max Hop <strong className="ml-1 text-[#FFFFFF]">{graphMetrics.maxHops}</strong></span>
+        {process.env.NODE_ENV !== 'production' && <span data-testid="cy-runtime-counts" title="Cytoscape runtime element counts">CY <strong className="ml-1 text-[#E5FF8F]">{runtimeCounts.nodes}N / {runtimeCounts.edges}E</strong></span>}
       </div>
 
       {/* ========================================================================= */}
@@ -1636,7 +1937,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         {/* ======================================================================= */}
         {isSidebarOpen && (
           <div
-            className={`border-r border-slate-200 dark:border-[#1E293B] bg-white/95 dark:bg-[#0D131F]/95 backdrop-blur-md transition-all duration-300 flex flex-col z-20 overflow-y-auto ${
+            className={`border-r border-[#2A2A2A] bg-[#0A0A0A]/95 backdrop-blur-md transition-all duration-300 flex flex-col z-20 overflow-y-auto ${
               isSidebarOpen ? 'w-64 min-w-[16rem]' : 'hidden'
             }`}
           >
@@ -1644,7 +1945,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           <div className="p-2.5 border-b border-slate-200 dark:border-[#1E293B] flex items-center justify-between">
             {isSidebarOpen ? (
               <div className="flex items-center space-x-2 font-mono text-xs font-bold text-slate-800 dark:text-[#F8FAFC] uppercase">
-                <SlidersHorizontal className="h-3.5 w-3.5 text-[#2563EB]" />
+                <SlidersHorizontal className="h-3.5 w-3.5 text-[#E5FF8F]" />
                 <span>Investigation Filters</span>
               </div>
             ) : (
@@ -1668,17 +1969,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 </div>
                 <div className="grid grid-cols-2 gap-1.5 font-mono text-[11px]">
                   {[
-                    { id: 'i2-peeling', label: 'i2 Peeling' },
-                    { id: 'flow', label: 'Flow (DAG)' },
-                    { id: 'force', label: 'Force (CoSE)' },
-                    { id: 'hierarchical', label: 'Hierarchical' },
+                    { id: 'flow', label: 'Fund Flow' },
+                    { id: 'force', label: 'Network' },
                     { id: 'radial', label: 'Radial' },
+                    { id: 'timeline', label: 'Hop Order' },
                   ].map((l) => (
                     <button
                       key={l.id}
                       onClick={() => setLayoutMode(l.id as LayoutType)}
                       className={`px-2 py-1.5 rounded text-left flex items-center space-x-1.5 border transition-colors ${layoutMode === l.id
-                          ? 'bg-[#2563EB] text-white border-[#2563EB] font-bold shadow-sm'
+                          ? 'bg-[#E5FF8F] text-[#0A0A0A] border-[#E5FF8F] font-bold shadow-sm'
                           : 'bg-slate-50 dark:bg-[#111827] border-slate-200 dark:border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
                         }`}
                     >
@@ -1701,7 +2001,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                         type="checkbox"
                         checked={selectedHops.has(hop)}
                         onChange={() => toggleHopFilter(hop)}
-                        className="rounded border-slate-300 dark:border-[#1E293B] bg-white dark:bg-[#111827] text-[#2563EB] focus:ring-0 focus:ring-offset-0 h-3.5 w-3.5"
+                        className="rounded border-slate-300 dark:border-[#1E293B] bg-white dark:bg-[#111827] text-[#E5FF8F] focus:ring-0 focus:ring-offset-0 h-3.5 w-3.5"
                       />
                       <span>Hop {hop} Counterparties</span>
                     </label>
@@ -1719,7 +2019,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     { id: 'TARGET', label: 'Target Suspect Wallet', color: 'text-rose-600 dark:text-rose-400 font-semibold' },
                     { id: 'VASP', label: 'VASP Custodial Clusters', color: 'text-teal-600 dark:text-teal-400 font-semibold' },
                     { id: 'BRIDGE', label: 'Cross-Chain Bridges', color: 'text-purple-600 dark:text-purple-400 font-semibold' },
-                    { id: 'INTERMEDIARY', label: 'Intermediary Wallets', color: 'text-indigo-600 dark:text-indigo-400 font-semibold' },
+                    { id: 'INTERMEDIARY', label: 'Intermediary Wallets', color: 'text-[#9A9A9A] font-semibold' },
                     { id: 'EXTERNAL', label: 'External Contracts / Unknown', color: 'text-slate-500 dark:text-[#94A3B8]' },
                   ].map((e) => (
                     <label key={e.id} className="flex items-center space-x-2 cursor-pointer">
@@ -1727,7 +2027,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                         type="checkbox"
                         checked={selectedEntityTypes.has(e.id)}
                         onChange={() => toggleEntityType(e.id)}
-                        className="rounded border-slate-300 dark:border-[#1E293B] bg-white dark:bg-[#111827] text-[#2563EB] focus:ring-0 focus:ring-offset-0 h-3.5 w-3.5"
+                        className="rounded border-slate-300 dark:border-[#1E293B] bg-white dark:bg-[#111827] text-[#E5FF8F] focus:ring-0 focus:ring-offset-0 h-3.5 w-3.5"
                       />
                       <span className={e.color}>{e.label}</span>
                     </label>
@@ -1743,7 +2043,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 <select
                   value={selectedChain}
                   onChange={(e) => setSelectedChain(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#2563EB]"
+                  className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#E5FF8F]"
                 >
                   {graphMetrics.chainsAvailable.map((c) => (
                     <option key={c} value={c}>
@@ -1763,7 +2063,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                   <select
                     value={selectedToken}
                     onChange={(e) => setSelectedToken(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#2563EB]"
+                  className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#E5FF8F]"
                   >
                     {graphMetrics.tokensAvailable.map((t) => (
                       <option key={t} value={t}>
@@ -1776,7 +2076,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 <div>
                   <div className="flex justify-between items-center mb-1">
                     <label className="text-[11px] text-slate-500 dark:text-[#94A3B8]">Minimum Transfer</label>
-                    <span className="font-mono text-[10px] text-blue-600 dark:text-blue-400 font-bold">
+                    <span className="font-mono text-[10px] text-[#E5FF8F] font-bold">
                       {minAmount > 0 ? `≥ ${minAmount}` : 'No Minimum'}
                     </span>
                   </div>
@@ -1787,7 +2087,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     placeholder="0.00"
                     value={minAmount || ''}
                     onChange={(e) => setMinAmount(Number(e.target.value) || 0)}
-                    className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#2563EB]"
+                    className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#E5FF8F]"
                   />
                   <div className="flex gap-1 mt-1.5">
                     {[0, 100, 1000, 5000].map((preset) => (
@@ -1795,7 +2095,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                         key={preset}
                         onClick={() => setMinAmount(preset)}
                         className={`flex-1 py-0.5 rounded text-[10px] font-mono border transition-colors ${minAmount === preset
-                            ? 'bg-[#2563EB] text-white border-[#2563EB] font-bold'
+                            ? 'bg-[#E5FF8F] text-[#0A0A0A] border-[#E5FF8F] font-bold'
                             : 'bg-slate-50 dark:bg-[#111827] border-slate-200 dark:border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
                           }`}
                       >
@@ -1810,7 +2110,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                   <select
                     value={timeRange}
                     onChange={(e) => setTimeRange(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#2563EB]"
+                    className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#E5FF8F]"
                   >
                     <option value="ALL">All Time</option>
                     <option value="24H">Last 24 Hours</option>
@@ -1826,7 +2126,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                   Risk Assessment Scope
                 </div>
                 <div className="grid grid-cols-4 gap-1 font-mono text-[10px]">
-                  {(['ALL', 'LOW', 'MEDIUM', 'HIGH'] as RiskFilterType[]).map((r) => (
+                  {(['ALL', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as RiskFilterType[]).map((r) => (
                     <button
                       key={r}
                       onClick={() => setRiskFilter(r)}
@@ -1837,7 +2137,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                               ? 'bg-amber-600 text-white border-amber-500'
                               : r === 'LOW'
                                 ? 'bg-emerald-600 text-white border-emerald-500'
-                                : 'bg-[#2563EB] text-white border-[#2563EB]'
+                                : 'bg-[#E5FF8F] text-[#0A0A0A] border-[#E5FF8F]'
                           : 'bg-slate-50 dark:bg-[#111827] border-slate-200 dark:border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
                         }`}
                     >
@@ -1857,29 +2157,26 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                   <span>Reset All Filters</span>
                 </button>
               </div>
+              <div className="max-w-[250px] rounded-lg bg-white/95 dark:bg-[#0D131F]/95 backdrop-blur-md border border-slate-200 dark:border-[#1E293B] px-3 py-2 text-[9px] font-mono shadow-md pointer-events-auto text-slate-600 dark:text-[#CBD5E1]">
+                <div className="font-bold uppercase tracking-wider text-slate-400 dark:text-[#64748B]">{layoutMode === 'timeline' ? 'Hop Order' : layoutMode === 'radial' ? 'Radial' : layoutMode === 'force' ? 'Network' : 'Fund Flow'}</div>
+                <div className="mt-1">{layoutMode === 'timeline' ? 'Explore entities by traversal depth.' : layoutMode === 'radial' ? 'Explore entities by distance from the target.' : layoutMode === 'force' ? 'Explore relationships and connected entities.' : 'Trace movement of funds through connected entities.'}</div>
+                <div className="mt-1 text-slate-500 dark:text-[#94A3B8]">Entity: target · wallet · VASP · bridge · contract · mixer · sanctioned</div>
+                <div className="text-slate-500 dark:text-[#94A3B8]">Risk: unknown · low · medium · high · critical</div>
+                <div className="text-slate-500 dark:text-[#94A3B8]">Hop: H0 target · H1 direct · H2 secondary · H3+ extended</div>
+              </div>
+              <GraphLegend />
             </div>
           )}
         </div>
       )}
 
         {/* ======================================================================= */}
-        {/* 3. CYTOSCAPE GRAPH CANVAS / SANKEY DUAL VIEW */}
+        {/* 3. CYTOSCAPE GRAPH CANVAS */}
         {/* ======================================================================= */}
-        {viewMode === 'FUND_FLOW' ? (
-          <div className="flex-1 bg-forensic-bg h-full overflow-hidden">
-            <SankeyFlowView
-              graphData={graphData}
-              rootAddress={rootAddress}
-              onSelectAddress={(addr) => {
-                const node = cyRef.current?.getElementById(addr);
-                if (node && node.length > 0) {
-                  node.select();
-                  setSelectedElement({ type: 'NODE', data: node.data() });
-                }
-              }}
-            />
-          </div>
-        ) : (
+        {/* Fund Flow intentionally uses the same Cytoscape host as Network. */}
+        {/* This keeps hop positioning, inspection, filtering, and 2D/3D       */}
+        {/* switching in one graph lifecycle instead of hiding the canvas.      */}
+        {
           <div className="flex-1 relative bg-forensic-bg h-full flex flex-col">
             {/* Live Streaming Indicator & Tag Color Legend Overlay */}
             <div className="absolute top-3 left-3 z-10 flex flex-col gap-2 pointer-events-none">
@@ -1938,7 +2235,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               })()}
 
               {isStreaming && (
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-blue-600/90 text-white font-mono text-[10px] font-bold shadow-lg animate-pulse pointer-events-auto border border-blue-400 w-fit">
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-[#E5FF8F]/90 text-[#0A0A0A] font-mono text-[10px] font-bold shadow-lg animate-pulse pointer-events-auto border border-[#E5FF8F] w-fit">
                   <span className="w-2 h-2 rounded-full bg-white" />
                   <span>STREAMING HOP {streamingHop} VIA WEBSOCKET...</span>
                 </div>
@@ -2146,9 +2443,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
             {/* Active Path Focus Banner (Bottom Left of Canvas) */}
             {focusedPath && (
-              <div className="absolute bottom-20 left-4 z-10 p-3 rounded-lg bg-white/95 dark:bg-[#0D131F]/95 border border-[#2563EB]/40 shadow-xl backdrop-blur-md font-mono text-xs max-w-md animate-fade-in">
+              <div className="absolute bottom-20 left-4 z-10 p-3 rounded-lg bg-white/95 dark:bg-[#0D131F]/95 border border-[#E5FF8F]/40 shadow-xl backdrop-blur-md font-mono text-xs max-w-md animate-fade-in">
                 <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center space-x-1.5 text-[#2563EB] font-bold">
+                  <div className="flex items-center space-x-1.5 text-[#E5FF8F] font-bold">
                     <Sparkles className="h-3.5 w-3.5 animate-pulse" />
                     <span>PRIMARY FUND FLOW FOCUS</span>
                   </div>
@@ -2171,13 +2468,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                   </div>
                   <div className="flex justify-between">
                     <span>Hop Distance: <strong>{focusedPath.hopDistance} Hop(s)</strong></span>
-                    <span>Observable Flow: <strong className="text-[#2563EB]">{focusedPath.totalVolume.toFixed(2)} {graphMetrics.primaryToken}</strong></span>
+                    <span>Observable Flow: <strong className="text-[#E5FF8F]">{focusedPath.totalVolume.toFixed(2)} {graphMetrics.primaryToken}</strong></span>
                   </div>
                 </div>
               </div>
             )}
           </div>
-        )}
+        }
 
         {/* ======================================================================= */}
         {/* 4. RIGHT FORENSIC INSPECTOR / CENTRALITY DRAWER */}
@@ -2231,7 +2528,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               {/* Header */}
               <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-[#1E293B]">
                 <div className="flex items-center space-x-2 font-mono font-bold text-slate-800 dark:text-[#F8FAFC] uppercase text-[11px]">
-                  <ShieldCheck className="h-4 w-4 text-[#2563EB]" />
+                  <ShieldCheck className="h-4 w-4 text-[#E5FF8F]" />
                   <span>{selectedElement.type === 'NODE' ? 'Node Forensics' : 'Transfer Details'}</span>
                 </div>
                 <button
@@ -2268,12 +2565,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                       <div className="text-emerald-700 dark:text-emerald-400 font-bold">
                         {selectedElement.data.vaspName} ({selectedElement.data.addressType})
                       </div>
-                      <div className="text-slate-500 dark:text-[#94A3B8] text-[10px]">
-                        Provenance: Verified Proof of Reserves / Public Label
-                      </div>
-                      <div className="text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
-                        Confidence: {typeof selectedElement.data.vaspConfidence === 'number' || (!isNaN(Number(selectedElement.data.vaspConfidence)) && selectedElement.data.vaspConfidence !== '') ? `${selectedElement.data.vaspConfidence}%` : (selectedElement.data.vaspConfidence || '98%')} (HIGH)
-                      </div>
+                      {selectedElement.data.provenance && (
+                        <div className="text-slate-500 dark:text-[#94A3B8] text-[10px]">
+                          Provenance: {selectedElement.data.provenance}
+                        </div>
+                      )}
+                      {selectedElement.data.vaspConfidence != null && (
+                        <div className="text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
+                          Confidence: {typeof selectedElement.data.vaspConfidence === 'number' || (!isNaN(Number(selectedElement.data.vaspConfidence)) && selectedElement.data.vaspConfidence !== '') ? `${selectedElement.data.vaspConfidence}%` : selectedElement.data.vaspConfidence}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -2315,7 +2616,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     {onPivotTarget && (
                       <button
                         onClick={() => onPivotTarget(selectedElement.data.fullAddress || selectedElement.data.id)}
-                        className="w-full py-2 rounded bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold font-mono text-xs flex items-center justify-center space-x-1.5 shadow-sm transition-all cursor-pointer"
+                        className="w-full py-2 rounded bg-[#E5FF8F] hover:bg-[#EDFFB1] text-[#0A0A0A] font-bold font-mono text-xs flex items-center justify-center space-x-1.5 shadow-sm transition-all cursor-pointer"
                       >
                         <Share2 className="h-3.5 w-3.5" />
                         <span>Pivot & Trace This Target</span>
@@ -2346,7 +2647,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     {selectedElement.data.amountUsd && (
                       <div className="flex justify-between">
                         <span className="text-slate-500 dark:text-[#94A3B8]">USD Value:</span>
-                        <span className="text-blue-600 dark:text-blue-400 font-bold">
+                        <span className="text-[#E5FF8F] font-bold">
                           ${Number(selectedElement.data.amountUsd).toLocaleString('en-US', { maximumFractionDigits: 2 })}
                         </span>
                       </div>
@@ -2398,7 +2699,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                       href={`https://etherscan.io/tx/${selectedElement.data.txHash}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center justify-center space-x-1.5 w-full py-2 rounded bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold text-xs transition-colors"
+                      className="flex items-center justify-center space-x-1.5 w-full py-2 rounded bg-[#E5FF8F] hover:bg-[#EDFFB1] text-[#0A0A0A] font-bold text-xs transition-colors"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
                       <span>Verify on Explorer</span>
@@ -2409,7 +2710,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             </div>
 
             <div className="pt-3 border-t border-slate-200 dark:border-[#1E293B] text-[10px] text-slate-400 dark:text-[#64748B] font-mono text-center">
-              CRYPTOTRACE Financial Intelligence Core
+              NETRA Financial Intelligence Core
             </div>
           </div>
         ) : null}

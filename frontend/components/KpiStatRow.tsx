@@ -18,11 +18,11 @@ export const KpiStatRow: React.FC<KpiStatRowProps> = ({
   totalVolumeInr = 0,
 }) => {
   const primaryVasp = attributions.length > 0 ? attributions[0] : null;
-  const riskLevel = riskAssessment?.risk_level || 'HIGH';
-  const riskScore = riskAssessment?.composite_risk_score || riskAssessment?.score || 85;
+  const riskLevel = riskAssessment?.risk_level || 'PENDING';
+  const riskScore = riskAssessment?.composite_risk_score ?? riskAssessment?.score ?? null;
 
-  const taintRatio = graphData?.stats?.taint_summary?.overall_taint_ratio ?? 0.85;
-  const inrVal = totalVolumeInr > 0 ? totalVolumeInr : (graphData?.stats?.total_amount_inr ?? 218934500000);
+  const taintRatio = graphData?.stats?.taint_summary?.overall_taint_ratio ?? null;
+  const inrVal = totalVolumeInr > 0 ? totalVolumeInr : (graphData?.stats?.total_amount_inr ?? null);
 
   const formatINR = (val: number) => {
     if (val >= 10000000) return '₹' + (val / 10000000).toFixed(2) + ' Cr';
@@ -50,18 +50,18 @@ export const KpiStatRow: React.FC<KpiStatRowProps> = ({
             </span>
             <div className="flex items-baseline justify-between gap-2 mt-1">
               <h3 className="text-2xl lg:text-3xl font-extrabold text-[#0A0A0A] tracking-tight truncate">
-                {primaryVasp?.vasp_name || 'Binance Custody'}
+                {primaryVasp?.vasp_name || 'No VASP attributed'}
               </h3>
               <span className="shrink-0 bg-[#0A0A0A] text-[#E5FF8F] text-xs font-mono font-bold px-2.5 py-1 rounded-full">
-                {primaryVasp ? `${primaryVasp.score.toFixed(0)}%` : '85%'} MATCH
+                {primaryVasp ? `${primaryVasp.score.toFixed(0)}%` : '—'} MATCH
               </span>
             </div>
           </div>
         </div>
 
         <div className="mt-4 pt-3 border-t border-[#0A0A0A]/10 text-xs font-medium text-[#0A0A0A]/80 flex items-center justify-between">
-          <span>{primaryVasp?.evidence_strength || 'HIGH'} Confidence Cluster</span>
-          <span className="font-mono text-[11px] font-bold">1-HOP TRANSIT</span>
+          <span>{primaryVasp ? `${primaryVasp.evidence_strength} Confidence Cluster` : 'Awaiting attribution'}</span>
+          <span className="font-mono text-[11px] font-bold">{primaryVasp?.metrics?.shortest_hop != null ? `${primaryVasp.metrics.shortest_hop}-HOP TRANSIT` : '—'}</span>
         </div>
       </div>
 
@@ -83,7 +83,7 @@ export const KpiStatRow: React.FC<KpiStatRowProps> = ({
             </span>
             <div className="flex items-baseline justify-between gap-2 mt-1">
               <h3 className="text-2xl lg:text-3xl font-extrabold text-[#0A0A0A] tracking-tight">
-                {riskScore.toFixed(0)}{' '}
+                {riskScore != null ? riskScore.toFixed(0) : '—'}{' '}
                 <span className="text-base font-semibold text-[#0A0A0A]/60">/ 100</span>
               </h3>
               <span className="shrink-0 bg-[#0A0A0A] text-[#E5FF8F] text-xs font-mono font-bold px-2.5 py-1 rounded-full">
@@ -94,8 +94,8 @@ export const KpiStatRow: React.FC<KpiStatRowProps> = ({
         </div>
 
         <div className="mt-4 pt-3 border-t border-[#0A0A0A]/10 text-xs font-medium text-[#0A0A0A]/80 flex items-center justify-between">
-          <span>Rapid Layering &amp; Structuring</span>
-          <span className="font-mono text-[11px] font-bold">6 VERIFIED SIGNALS</span>
+          <span>{riskAssessment?.indicators?.[0] || 'Awaiting risk assessment'}</span>
+          <span className="font-mono text-[11px] font-bold">{riskAssessment?.indicators?.length || 0} VERIFIED SIGNALS</span>
         </div>
       </div>
 
@@ -117,7 +117,7 @@ export const KpiStatRow: React.FC<KpiStatRowProps> = ({
             </span>
             <div className="flex items-baseline justify-between gap-2 mt-1">
               <h3 className="text-2xl lg:text-3xl font-extrabold text-[#0A0A0A] tracking-tight truncate">
-                {formatINR(inrVal * (taintRatio > 0 ? taintRatio : 1.0))}
+                {inrVal != null ? formatINR(inrVal * (taintRatio != null ? taintRatio : 1)) : '—'}
               </h3>
               <span className="shrink-0 bg-[#0A0A0A] text-[#E5FF8F] text-xs font-mono font-bold px-2.5 py-1 rounded-full">
                 SEC 91 READY
@@ -127,8 +127,8 @@ export const KpiStatRow: React.FC<KpiStatRowProps> = ({
         </div>
 
         <div className="mt-4 pt-3 border-t border-[#0A0A0A]/10 text-xs font-medium text-[#0A0A0A]/80 flex items-center justify-between">
-          <span>{(taintRatio * 100).toFixed(1)}% Proven FIFO Taint</span>
-          <span className="font-mono text-[11px] font-bold">14 DISCLOSURE HOPS</span>
+          <span>{taintRatio != null ? `${(taintRatio * 100).toFixed(1)}% Proven FIFO Taint` : 'Taint analysis pending'}</span>
+          <span className="font-mono text-[11px] font-bold">{graphData?.paths?.[0]?.nodeIds?.length ? `${Math.max(0, graphData.paths[0].nodeIds.length - 1)} DISCLOSURE HOPS` : '— DISCLOSURE HOPS'}</span>
         </div>
       </div>
     </section>

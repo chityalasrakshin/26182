@@ -180,7 +180,9 @@ async def get_trace_status(job_id: str):
         demo_mode=job.get("demo_mode", False),
         is_cached=job.get("is_cached", False),
         error_message=job.get("error_message"),
-        summary=job.get("summary")
+        summary=job.get("summary"),
+        progress=job.get("progress", 0),
+        error=job.get("error")
     )
 
 
@@ -240,6 +242,11 @@ async def get_trace_graph(job_id: str):
     job = trace_job_manager.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Trace job {job_id} not found.")
+
+    if job.get("status") in ("pending", "running"):
+        raise HTTPException(status_code=409, detail="Graph data is not available until the trace completes.")
+    if job.get("status") == "failed":
+        raise HTTPException(status_code=422, detail=job.get("error_message") or "Trace failed.")
 
     graph = trace_job_manager.get_job_graph(job_id)
     if not graph:
