@@ -56,7 +56,7 @@ def setup_database():
             if not sup:
                 sup = User(
                     username="supervisor",
-                    email="supervisor@cryptotrace.gov",
+                    email="supervisor@setu.gov",
                     hashed_password=get_password_hash("supervisor123"),
                     full_name="Senior Supervisor",
                     role="supervisor",

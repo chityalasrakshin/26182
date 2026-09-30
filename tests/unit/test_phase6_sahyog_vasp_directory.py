@@ -72,7 +72,7 @@ def setup_database():
             if not sup_res.first():
                 sup = User(
                     username="supervisor_p6",
-                    email="supervisor_p6@cryptotrace.gov",
+                    email="supervisor_p6@setu.gov",
                     hashed_password=get_password_hash("sup123"),
                     full_name="Supervisor P6",
                     role="supervisor",
@@ -87,7 +87,7 @@ def setup_database():
             if not inv1_res.first():
                 inv1 = User(
                     username="investigator_p6_a",
-                    email="inv1_p6@cryptotrace.gov",
+                    email="inv1_p6@setu.gov",
                     hashed_password=get_password_hash("inv123"),
                     full_name="Inspector P6 Alpha",
                     role="investigator",
@@ -102,7 +102,7 @@ def setup_database():
             if not inv2_res.first():
                 inv2 = User(
                     username="investigator_p6_b",
-                    email="inv2_p6@cryptotrace.gov",
+                    email="inv2_p6@setu.gov",
                     hashed_password=get_password_hash("inv123"),
                     full_name="Inspector P6 Bravo",
                     role="investigator",

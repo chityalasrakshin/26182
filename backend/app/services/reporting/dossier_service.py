@@ -341,7 +341,7 @@ class DossierService:
             topMargin=12 * mm,
             bottomMargin=14 * mm,
             title=f"Section 91 CrPC Notice - {case_id[:8].upper()}",
-            author="CryptoTrace Intelligence Platform",
+            author="SETU Intelligence Platform",
         )
 
         styles = getSampleStyleSheet()
@@ -587,7 +587,7 @@ class DossierService:
             topMargin=12 * mm,
             bottomMargin=14 * mm,
             title=f"Section 65B Evidence Certificate - {case_id[:8].upper()}",
-            author="CryptoTrace Forensic Intelligence Platform",
+            author="SETU Forensic Intelligence Platform",
         )
 
         styles = getSampleStyleSheet()
@@ -656,7 +656,7 @@ class DossierService:
         elements.append(Paragraph("<b>PART A: IDENTIFICATION OF COMPUTER SYSTEM &amp; FORENSIC FACILITY</b>", legal_subhead))
         elements.append(Paragraph(
             "1. This electronic certificate accompanies computer-generated digital outputs produced by the "
-            "<b>CryptoTrace Autonomous Blockchain Intelligence Platform (v2.4)</b>, hosted on dedicated law enforcement forensic infrastructure.<br/>"
+            "<b>SETU Autonomous Blockchain Intelligence Platform (v2.4)</b>, hosted on dedicated law enforcement forensic infrastructure.<br/>"
             "2. The computer systems and cryptographic nodes were in regular, lawful use to produce and analyze blockchain transaction ledgers, "
             "smart contract interactions, and VASP deposit attributions in the ordinary course of investigative operations.<br/>"
             "3. Throughout the material period, the computer platform operated properly without malfunction, disruption, or unauthorized alteration.",
@@ -670,7 +670,7 @@ class DossierService:
         meta_rows = [
             ["Target Suspect Address:", wallet_address, "Blockchain Network:", chain],
             ["Total On-Chain Txs:", str(len(transactions)), "Destination Custody:", str(top_v)],
-            ["Hash Algorithm:", "FIPS 180-4 SHA-256 (256-bit)", "Platform Engine:", "CryptoTrace v2.4 (BFS Graph Engine)"],
+            ["Hash Algorithm:", "FIPS 180-4 SHA-256 (256-bit)", "Platform Engine:", "SETU v2.4 (BFS Graph Engine)"],
         ]
         meta_t = Table(meta_rows, colWidths=[42 * mm, 50 * mm, 42 * mm, 48 * mm])
         meta_t.setStyle(TableStyle([
@@ -814,7 +814,7 @@ class DossierService:
   <!-- Header Banner -->
   <rect x="0" y="0" width="1000" height="52" fill="url(#headerGrad)"/>
   <line x1="0" y1="52" x2="1000" y2="52" stroke="#334155" stroke-width="2"/>
-  <text x="24" y="32" fill="#f8fafc" font-size="14" font-weight="bold" letter-spacing="1">CRYPTOTRACE // MULTI-HOP FORENSIC FLOW TOPOGRAPHY</text>
+  <text x="24" y="32" fill="#f8fafc" font-size="14" font-weight="bold" letter-spacing="1">SETU // MULTI-HOP FORENSIC FLOW TOPOGRAPHY</text>
   <text x="680" y="32" fill="#94a3b8" font-size="11" font-weight="bold">CASE: {case_id[:8].upper()} | {chain.upper()} | RISK: {risk_level.upper()}</text>
 
   <!-- Grid Background Points -->
@@ -907,7 +907,7 @@ class DossierService:
             "time_of_issue_utc": now.strftime("%H:%M:%S UTC"),
 
             "section_a_computer_system": {
-                "description": "CryptoTrace Forensic Intelligence Platform v2.4",
+                "description": "SETU Forensic Intelligence Platform v2.4",
                 "system_type": "Automated cryptocurrency wallet-to-VASP attribution engine",
                 "data_sources": [
                     "Public Blockchain RPC Providers (Etherscan, TronGrid, Mempool)",
@@ -977,7 +977,7 @@ class DossierService:
             "INVESTIGATION SUMMARY",
             "-" * 72,
             "",
-            f"The CryptoTrace Forensic Intelligence Platform analyzed wallet",
+            f"The SETU Forensic Intelligence Platform analyzed wallet",
             f"'{wallet_address}' on the {chain} blockchain.",
             f"A total of {len(transactions)} transactions were examined across",
             f"multiple hops from the suspect address.",
@@ -1005,7 +1005,7 @@ class DossierService:
             "EVIDENTIARY NOTE",
             "-" * 72,
             "",
-            "This narrative is generated automatically by the CryptoTrace platform.",
+            "This narrative is generated automatically by the SETU platform.",
             "All transaction data and attributions are verifiable against the",
             "accompanying SHA-256 checksums in the dossier manifest.",
             "",

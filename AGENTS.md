@@ -1,7 +1,7 @@
-# AGENTS.md — VASP Attribution Engine
+# AGENTS.md — SETU VASP Attribution Engine
 
 ## Project Overview
-Given a suspect cryptocurrency wallet, CryptoTrace traces its transaction graph across multiple blockchains (Ethereum, Tron, Bitcoin, Solana) hop-by-hop until it hits an address attributable to a known exchange/Virtual Asset Service Provider (VASP), tags intermediate hops, scores risk, and generates investigation-ready reports and Section 91 CrPC freeze notices for law-enforcement investigators.
+Given a suspect cryptocurrency wallet, SETU traces its transaction graph across multiple blockchains (Ethereum, Tron, Bitcoin, Solana) hop-by-hop until it hits an address attributable to a known exchange/Virtual Asset Service Provider (VASP), tags intermediate hops, scores risk, and generates investigation-ready reports and Section 91 CrPC freeze notices for law-enforcement investigators.
 
 ## Core Architectural Specifications
 - Complete Architecture Specification: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)

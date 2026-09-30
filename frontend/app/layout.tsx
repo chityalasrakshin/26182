@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'CryptoTrace — Forensic Operations Dashboard',
-  description: 'Cybersecurity and blockchain intelligence workstation for tracing cryptocurrency fund flows and attributing suspect wallets to Virtual Asset Service Providers.',
+  title: 'SETU — Forensic Operations Dashboard',
+  description: 'SETU Cybersecurity and blockchain intelligence workstation for tracing cryptocurrency fund flows and attributing suspect wallets to Virtual Asset Service Providers.',
 };
 
 export default function RootLayout({

@@ -3,7 +3,7 @@ Solana blockchain provider using Solana JSON-RPC API.
 
 Fetches native SOL transfers (System Program) and SPL token movements (Token & Token-2022)
 and normalizes them into account-model NormalizedTransaction records compatible with
-the rest of the CryptoTrace graph traversal and attribution pipeline.
+the rest of the SETU graph traversal and attribution pipeline.
 """
 
 import asyncio

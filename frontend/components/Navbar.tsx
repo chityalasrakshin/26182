@@ -97,7 +97,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           type="button"
           onClick={() => onSelectTab('WORKSPACE')}
           className="relative group flex items-center justify-center"
-          title="CryptoTrace Law Enforcement Console"
+          title="SETU Law Enforcement Console"
         >
           <div className="h-11 w-11 rounded-2xl bg-[#1A1A1A] border border-[#2A2A2A] group-hover:border-[#E5FF8F] flex items-center justify-center transition-all shadow-[0_0_20px_rgba(0,0,0,0.5)]">
             <Shield className="h-5 w-5 text-[#E5FF8F]" />
@@ -107,7 +107,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="absolute left-[76px] top-1/2 -translate-y-1/2 hidden group-hover:flex items-center z-50 pointer-events-none">
             <div className="bg-[#1A1A1A] text-[#FFFFFF] text-xs font-mono px-3 py-1.5 rounded-lg border border-[#2A2A2A] shadow-xl whitespace-nowrap">
               <div className="font-sans font-bold text-sm text-[#FFFFFF] flex items-center gap-1.5">
-                <span>CryptoTrace</span>
+                <span>SETU</span>
                 <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#2A2A2A] text-[#E5FF8F] font-mono font-bold">
                   v2.4
                 </span>

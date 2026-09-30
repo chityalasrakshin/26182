@@ -1,6 +1,6 @@
-# SUDARSHAN Production Deployment Guide
+# SETU Production Deployment Guide
 
-This guide outlines the **two best deployment strategies** for SUDARSHAN:
+This guide outlines the **two best deployment strategies** for SETU:
 
 1. [Strategy A (Fastest & Free Tier): Vercel + Render / Railway](#strategy-a-cloud-paas-vercel--render--railway-recommended) (Direct GitHub integration, zero DevOps)
 2. [Strategy B (Self-Hosted / Demo Server): Docker Compose on VPS/AWS/DigitalOcean](#strategy-b-self-hosted-vps-aws-ec2--digitalocean-with-docker-compose) (Full privacy and control)
@@ -28,9 +28,9 @@ Before deploying, make sure you have your API keys ready:
 #### Option 1A: Render (Free Web Service)
 1. Go to [render.com](https://render.com) and log in with GitHub.
 2. Click **New +** → **Web Service**.
-3. Select your repository: `NINJA981/sudarshan`.
+3. Select your repository: `NINJA981/setu`.
 4. Configure service settings:
-   - **Name**: `sudarshan-api`
+   - **Name**: `setu-api`
    - **Language**: `Python`
    - **Root Directory**: (Leave blank / root)
    - **Build Command**: `pip install -r backend/requirements.txt`
@@ -41,21 +41,21 @@ Before deploying, make sure you have your API keys ready:
    - `TRONGRID_API_KEY` = `your_trongrid_key`
    - `PYTHONPATH` = `.`
 6. Click **Create Web Service**.
-7. Copy your backend live URL: `https://sudarshan-api.onrender.com`.
+7. Copy your backend live URL: `https://setu-api.onrender.com`.
 
 ---
 
 ### Step 2: Deploy Frontend on Vercel
 
 1. Go to [vercel.com](https://vercel.com) and log in with GitHub.
-2. Click **Add New Project** and select `NINJA981/sudarshan`.
+2. Click **Add New Project** and select `NINJA981/setu`.
 3. In project configuration:
    - **Framework Preset**: `Next.js`
    - **Root Directory**: Click `Edit` and select `frontend`.
 4. In **Environment Variables**:
-   - `NEXT_PUBLIC_API_URL` = `https://sudarshan-api.onrender.com/api/v1` *(use your Render URL from Step 1)*
+   - `NEXT_PUBLIC_API_URL` = `https://setu-api.onrender.com/api/v1` *(use your Render URL from Step 1)*
 5. Click **Deploy**.
-6. In ~60 seconds, your application will be live at `https://sudarshan.vercel.app`!
+6. In ~60 seconds, your application will be live at `https://setu.vercel.app`!
 
 ---
 
@@ -75,8 +75,8 @@ sudo usermod -aG docker $USER
 
 ### 2. Clone Repository & Setup `.env`
 ```bash
-git clone https://github.com/NINJA981/sudarshan.git
-cd sudarshan
+git clone https://github.com/NINJA981/setu.git
+cd setu
 
 # Create production .env file
 cat <<EOF > .env
@@ -110,12 +110,12 @@ curl http://localhost:8000/api/v1/health
 
 ## 🔒 Production Nginx Reverse Proxy & SSL (Optional for VPS)
 
-To bind your domain (e.g. `sudarshan.yourdomain.com`) with automated Let's Encrypt SSL:
+To bind your domain (e.g. `setu.yourdomain.com`) with automated Let's Encrypt SSL:
 
 ```nginx
-# /etc/nginx/sites-available/sudarshan
+# /etc/nginx/sites-available/setu
 server {
-    server_name sudarshan.yourdomain.com;
+    server_name setu.yourdomain.com;
 
     # Frontend
     location / {
@@ -139,8 +139,8 @@ server {
 
 ```bash
 # Enable site and generate SSL certificate
-sudo ln -s /etc/nginx/sites-available/sudarshan /etc/nginx/sites-enabled/
-sudo certbot --nginx -d sudarshan.yourdomain.com
+sudo ln -s /etc/nginx/sites-available/setu /etc/nginx/sites-enabled/
+sudo certbot --nginx -d setu.yourdomain.com
 ```
 
 ---

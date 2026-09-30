@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: sudarshan-backend
+    name: setu-backend
     env: python
     region: oregon
     plan: free

@@ -1,6 +1,6 @@
 # Evaluator Walkthrough & Live Demo Script
 
-**Project:** CryptoTrace — Real-Time Cross-Chain VASP Attribution & Forensic Engine  
+**Project:** SETU — Real-Time Cross-Chain VASP Attribution & Forensic Engine  
 **Target Audience:** Hackathon Evaluators, Jury Panels, Law Enforcement Cyber Cells  
 **Total Run Time:** 3 – 5 Minutes
 
@@ -52,7 +52,7 @@
 2. Click the **"Binance Cold Storage BTC"** benchmark pill:
    - Address: `34xp4vRoCGJym3xR7yCVPFHoCNxv4Twseo` (Bitcoin UTXO)
    - Demonstrates multi-input UTXO clustering heuristic grouping common co-spenders into a single entity.
-3. **Talking Point:** *"Most forensic tools are single-rail. CryptoTrace seamlessly normalizes account-based Ethereum/Tron transactions and UTXO-based Bitcoin spends into a unified forensic graph."*
+3. **Talking Point:** *"Most forensic tools are single-rail. SETU seamlessly normalizes account-based Ethereum/Tron transactions and UTXO-based Bitcoin spends into a unified forensic graph."*
 
 ---
 
@@ -69,7 +69,7 @@
 1. Click the **"NCRP Triage"** tab in the top navigation bar.
 2. Select a simulated NCRP fraud ticket (e.g., *Part-time Task Fraud* or *Digital Arrest Impersonation*).
 3. Click **"Escalate & Trace Suspect Wallet"** — instantly loads the suspect wallet into the live forensic canvas with case cross-referencing.
-4. **Talking Point:** *"Investigating officers receive thousands of complaints via the National Cyber Crime Reporting Portal (1930). CryptoTrace can ingest NCRP CSV batches and triage highest-risk flight-risk wallets within seconds."*
+4. **Talking Point:** *"Investigating officers receive thousands of complaints via the National Cyber Crime Reporting Portal (1930). SETU can ingest NCRP CSV batches and triage highest-risk flight-risk wallets within seconds."*
 
 ---
 

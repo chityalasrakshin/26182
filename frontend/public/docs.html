@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SUDARSHAN — Judge Documentation</title>
+    <title>SETU — Judge Documentation</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link
         href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
@@ -2333,7 +2333,7 @@
 
     <header id="topbar">
         <button id="burger" aria-label="Navigation"><i data-lucide="menu"></i></button>
-        <div class="brand"><b>SUDARSHAN</b><span>/ JUDGE DOC</span></div>
+        <div class="brand"><b>SETU</b><span>/ JUDGE DOC</span></div>
         <div class="crumb-mid" id="hcrumb">SYSTEM DOCUMENTATION</div>
         <div class="hspace"></div>
         <button class="hbtn" id="searchbtn"><i data-lucide="search"></i> <span class="btn-txt">SEARCH DOCS</span> <kbd>/</kbd></button>
@@ -2367,7 +2367,7 @@
     <div id="shell">
         <nav id="sidebar" aria-label="Documentation">
             <div class="sb-brand">
-                <div class="t1">SUDARSHAN</div>
+                <div class="t1">SETU</div>
                 <div class="t2">JUDGE DOCUMENTATION</div>
             </div>
             <div class="sb-nav" id="sbnav"></div>
@@ -2402,7 +2402,7 @@
 
     <script>
         /* =====================================================================
-           SUDARSHAN — JUDGE DOCUMENTATION CONSOLE
+           SETU — JUDGE DOCUMENTATION CONSOLE
            Single-file build. All content in DATA section below; edit there.
            ===================================================================== */
         'use strict';
@@ -2493,7 +2493,7 @@
         }
 
         const FAQ = [
-            { id: 'what-does-it-do', cat: 'PRODUCT', q: 'What exactly does SUDARSHAN do?', a: `It converts a victim-reported suspect wallet address into an evidence-linked investigation package: on-chain funds are traced within a bounded hop depth, likely VASP exit points are ranked with a decomposable score, risk indicators are derived from graph patterns, and every conclusion is bound to transaction-level evidence records.`, rel: [['Overview', 'overview'], ['Evidence Model', 'evidence/model']] },
+            { id: 'what-does-it-do', cat: 'PRODUCT', q: 'What exactly does SETU do?', a: `It converts a victim-reported suspect wallet address into an evidence-linked investigation package: on-chain funds are traced within a bounded hop depth, likely VASP exit points are ranked with a decomposable score, risk indicators are derived from graph patterns, and every conclusion is bound to transaction-level evidence records.`, rel: [['Overview', 'overview'], ['Evidence Model', 'evidence/model']] },
             { id: 'who-for', cat: 'PRODUCT', q: 'Who is the intended user?', a: `Fraud investigators, exchange compliance teams and law-enforcement analysts who receive a victim report and need a defensible, auditable starting point for asset-tracing and freezing actions — not a trading or consumer tool.`, rel: [['Problem → Solution', 'overview-problem']] },
             { id: 'data-source', cat: 'BLOCKCHAIN', q: 'Where does your blockchain data come from?', a: `From public blockchains via an EVM-compatible REST indexer API (Etherscan-style), queried server-side. Raw responses are normalized into an internal transaction model before any analysis runs. The provider is a pluggable client — swapping indexers requires no change to analytics.`, rel: [['Blockchain Sources', 'data/sources']] },
             { id: 'chains', cat: 'BLOCKCHAIN', q: 'Which chains are supported?', a: `Ethereum mainnet, including ERC-20 token transfers (USDT is the demo asset), is implemented. Additional EVM chains, Tron (USDT-TRC20) and Bitcoin UTXO tracing are <b>PLANNED</b> — the normalizer and graph layers are chain-agnostic by design, but only the Ethereum path is implemented today.`, rel: [['Blockchain Sources', 'data/sources'], ['MVP vs Future', 'validation/mvp']] },
@@ -2510,7 +2510,7 @@
             { id: 'where-ai', cat: 'ML', q: 'Where is the AI?', a: `A gradient-boosted tree classifier (scikit-learn <span class="mono">HistGradientBoosting</span>) predicts whether a traced endpoint behaves like a VASP deposit cluster, from features such as counterparty counts, value distribution, in/out ratio and taint share. Its output feeds the 10% behaviour component of attribution. It is <b>EXPERIMENTAL</b> and never the sole basis for a conclusion — deterministic rules and registry evidence carry the verdicts.`, rel: [['ML / AI Evaluation', 'analytics/ml']] },
             { id: 'why-not-all-ml', cat: 'ML', q: 'Why not use ML for everything?', a: `Three reasons: auditability (a regulator must be able to re-derive a conclusion — a score decomposition does that, a model output alone does not), data scarcity (labeled fraud-tracing data is small; rules are transparent where data is thin), and failure legibility (when a rule is wrong, you can see which threshold failed). ML is used exactly where learned patterns beat hand-written ones: behavioural classification.`, rel: [['ML / AI Evaluation', 'analytics/ml']] },
             { id: 'ml-validation', cat: 'ML', q: 'How did you validate the model?', a: `Stratified 70/15/15 train/validation/test split over a labeled address set (published VASP deposit addresses as positives, sampled regular addresses as negatives). We report accuracy, precision, recall, F1, macro-F1 and top-3 against a logistic-regression baseline. Full numbers and honest scope caveats are on the ML page.`, rel: [['ML / AI Evaluation', 'analytics/ml']] },
-            { id: 'move-funds', cat: 'SECURITY', q: 'Can your platform steal or move funds?', a: `No — and it cannot by construction. SUDARSHAN is strictly read-only analytics: no private keys, no seed phrases, no transaction signing, no wallet custody, no transfer functionality exists anywhere in the codebase. The only thing that ever leaves the system is a read query to a public blockchain API.`, rel: [['Security', 'engineering/security']] },
+            { id: 'move-funds', cat: 'SECURITY', q: 'Can your platform steal or move funds?', a: `No — and it cannot by construction. SETU is strictly read-only analytics: no private keys, no seed phrases, no transaction signing, no wallet custody, no transfer functionality exists anywhere in the codebase. The only thing that ever leaves the system is a read query to a public blockchain API.`, rel: [['Security', 'engineering/security']] },
             { id: 'api-keys', cat: 'SECURITY', q: 'Where are API keys stored?', a: `Server-side only, injected via environment variables into the backend. The frontend never sees provider credentials — all blockchain queries are proxied through our API. The demo build uses a backend-configured key; production adds a secrets manager.`, rel: [['Security', 'engineering/security']] },
             { id: 'auth', cat: 'SECURITY', q: 'Is there authentication?', a: `Not in the demo build — it is a single-operator demonstration deployment and we label it as such rather than implying multi-user security that isn't there. Authentication, RBAC and audit logging are on the production roadmap. Input validation, server-side secrets and basic rate limiting are implemented today.`, rel: [['Security', 'engineering/security'], ['Deployment', 'deployment/architecture']] },
             { id: 'scale-national', cat: 'SCALABILITY', q: 'What happens if this is deployed nationally?', a: `The MVP topology (one API + one DB + external providers) would hit provider rate limits first — that is the honest bottleneck. The documented production architecture moves to a queue with horizontal trace workers, our own chain indexing to remove provider dependence, Redis caching, and PostgreSQL read replicas. Each stage is scoped on the Scalability page.`, rel: [['Scalability', 'engineering/scalability'], ['Production Roadmap', 'deployment/roadmap']] },
@@ -2712,7 +2712,7 @@
 
         /* ---------- 01 OVERVIEW ---------- */
         P['overview'] = {
-            crumb: 'DOCUMENTATION', title: 'SUDARSHAN — REAL-TIME CRYPTOCURRENCY FRAUD ATTRIBUTION', kick: 'From a victim-reported wallet address to an evidence-backed investigation trail.', badges: [['MVP / DEMONSTRATION BUILD', 'exp']], render: () => `
+            crumb: 'DOCUMENTATION', title: 'SETU — REAL-TIME CRYPTOCURRENCY FRAUD ATTRIBUTION', kick: 'From a victim-reported wallet address to an evidence-backed investigation trail.', badges: [['MVP / DEMONSTRATION BUILD', 'exp']], render: () => `
 <div class="hero">
   <svg class="netbg" width="360" height="240" viewBox="0 0 360 240">
     <path d="M20,200 L120,90 L250,140 L330,40 M120,90 L200,20 M250,140 L320,190" stroke="#E0A458" stroke-width="1" fill="none"/>
@@ -2756,12 +2756,12 @@
 
         /* ---------- 02 PROBLEM → SOLUTION ---------- */
         P['overview-problem'] = {
-            crumb: 'DOCUMENTATION / OVERVIEW', title: 'PROBLEM → SOLUTION', kick: 'Manual on-chain fraud tracing is slow, shallow and hard to defend — SUDARSHAN makes the first investigative hour bounded, attributed and evidence-linked.', badges: [['DOCUMENTATION', 'doc']], render: () => `
+            crumb: 'DOCUMENTATION / OVERVIEW', title: 'PROBLEM → SOLUTION', kick: 'Manual on-chain fraud tracing is slow, shallow and hard to defend — SETU makes the first investigative hour bounded, attributed and evidence-linked.', badges: [['DOCUMENTATION', 'doc']], render: () => `
  ${sec('problem', 'THE PROBLEM', `<p>When crypto fraud is reported, three constraints dominate the first hours:</p>
 <ul><li><b>Speed:</b> stolen funds are layered across hops and reach exchange deposit addresses within minutes to hours. Once deposited and traded, recovery probability collapses.</li>
 <li><b>Depth vs. cost:</b> an analyst clicking through a block explorer can follow a few paths manually — but branching fan-out defeats manual tracing almost immediately.</li>
 <li><b>Defensibility:</b> a freezing request or exchange disclosure demand needs attribution that can be re-derived from transactions — not an analyst's hunch.</li></ul>`)}
- ${sec('solution', 'THE SOLUTION MAPPING', tbl(['PROBLEM', 'SUDARSHAN CAPABILITY', 'WHERE IT LIVES'], [
+ ${sec('solution', 'THE SOLUTION MAPPING', tbl(['PROBLEM', 'SETU CAPABILITY', 'WHERE IT LIVES'], [
                 ['Manual hop-following is too slow', 'Bounded BFS traces all paths to a fixed depth in seconds', '<button class="chip" data-nav="analytics/bfs">BFS Tracing</button>'],
                 ['Branching fan-out defeats manual work', 'Graph engine explores the full multigraph, not one path', '<button class="chip" data-nav="analytics/graph">Graph Engine</button>'],
                 ['"Which exchange?" is a guess', 'Registry match + five-factor decomposable scoring', '<button class="chip" data-nav="analytics/attribution">VASP Attribution</button>'],
@@ -3626,7 +3626,7 @@ function render(){
                     <div class="page-meta">${(page.badges || []).map(b => bd(b[0])).join('')}</div></div>
   ${ html } `;
   // breadcrumbs in header
-  $('#hcrumb').textContent='SUDARSHAN / JUDGE DOC / '+page.title.slice(0,44);
+  $('#hcrumb').textContent='SETU / JUDGE DOC / '+page.title.slice(0,44);
   // sidebar active
   $$('.sb-item').forEach(a=>a.classList.toggle('active',a.dataset.nav===key));
   const act=$('.sb-item.active');if(act)act.scrollIntoView({block:'nearest'});

@@ -1018,7 +1018,7 @@ async def export_court_dossier(
 
     # 5. Stream ZIP back
     safe_case_id = case_id.replace("/", "_").replace("\\", "_")[:50]
-    filename = f"CryptoTrace_Dossier_{safe_case_id}.zip"
+    filename = f"SETU_Dossier_{safe_case_id}.zip"
 
     return StreamingResponse(
         io.BytesIO(zip_bytes),

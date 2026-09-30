@@ -1,9 +1,9 @@
-﻿# SUDARSHAN REST API Reference
+﻿# SETU REST API Reference
 
 Base URLs:
-- **Production Backend**: `https://sudarshan-backend.onrender.com/api/v1`
+- **Production Backend**: `https://setu-backend.onrender.com/api/v1`
 - **Local Development**: `http://localhost:8000/api/v1`
-- **Interactive Documentation**: `https://sudarshan-sand.vercel.app/docs.html`
+- **Interactive Documentation**: `https://setu-sand.vercel.app/docs.html`
 
 ---
 

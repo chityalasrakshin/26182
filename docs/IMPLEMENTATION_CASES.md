@@ -1,7 +1,7 @@
-# 📋 CryptoTrace 2.0: Master Implementation Cases & Vibe Coding Playbook
+# 📋 SETU 2.0: Master Implementation Cases & Vibe Coding Playbook
 
 > **Target Project:** Real-Time Cross-Chain VASP Attribution & Forensic Engine for Indian Law Enforcement
-> **Repository Location:** `cryptotrace/`
+> **Repository Location:** `setu/`
 > **Target Problem Statement:** SIH PS 26182 (Automated Attribution of Unknown Wallets to Nearest VASPs)
 > **Development Environment:** Dual Lenovo Laptops (AMD Ryzen 7 / Intel Core i5 HX + Dual RTX 3050 6GB)
 
@@ -160,7 +160,7 @@ pytest tests/unit/test_fifo_taint_integration.py -v
 ### 1. Objective & Forensic Purpose
 
 Break through the biggest barrier in crypto investigation: **DeFi Bridges**.
-When criminals swap funds from Ethereum to Tron or Polygon via **Stargate (LayerZero)**, **Across Protocol**, or **Wormhole**, other tools stop at the smart contract. CryptoTrace automatically identifies the bridge event, extracts the recipient address on the destination chain, and continues tracing across rails seamlessly.
+When criminals swap funds from Ethereum to Tron or Polygon via **Stargate (LayerZero)**, **Across Protocol**, or **Wormhole**, other tools stop at the smart contract. SETU automatically identifies the bridge event, extracts the recipient address on the destination chain, and continues tracing across rails seamlessly.
 
 ### 2. Open-Source APIs & Contract Registries
 

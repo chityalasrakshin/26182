@@ -46,7 +46,7 @@ class TraceGraphVisualizer:
         # 1. Header Banner
         draw.rectangle([(0, 0), (width, 48)], fill=(30, 41, 59))  # Slate 800
         draw.line([(0, 48), (width, 48)], fill=(51, 65, 85), width=2)
-        draw.text((20, 16), "SUDARSHAN // MULTI-HOP TRANSACTION FLOW SUBGRAPH", fill=(248, 250, 252), font=font)
+        draw.text((20, 16), "SETU // MULTI-HOP TRANSACTION FLOW SUBGRAPH", fill=(248, 250, 252), font=font)
         meta_str = f"CASE: {case_id[:8].upper()} | CHAIN: {chain.upper()} | RISK: {risk_level.upper()}"
         draw.text((width - 360, 16), meta_str, fill=(148, 163, 184), font=font)
 

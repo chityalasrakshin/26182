@@ -1,4 +1,4 @@
-# CryptoTrace 🔍⚡
+# SETU 🔍⚡
 ### Real-Time Cross-Chain VASP Attribution & Forensic Engine for Indian Law Enforcement
 
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6.svg?logo=typescript&logoColor=white)](https://typescriptlang.org)
 [![License](https://img.shields.io/badge/Compliance-CrPC%20%C2%A791%20%7C%20BSA%202023-blue.svg)](#statutory-compliance)
 
-CryptoTrace is an operational cryptocurrency intelligence workstation tailored for **Indian Law Enforcement Agencies (LEAs)**, State Cyber Crime Police Stations, and Financial Intelligence Units (**FIU-IND**). It traces illicit financial flows across multiple blockchain rails (Ethereum, Tron TRC-20, Bitcoin UTXO), identifies counterparty Virtual Asset Service Providers (VASPs), calculates composite risk scores, and generates legally compliant seizure notices under **Section 91 CrPC** and the **Bharatiya Nagarik Suraksha Sanhita (BNSS) 2023**.
+SETU is an operational cryptocurrency intelligence workstation tailored for **Indian Law Enforcement Agencies (LEAs)**, State Cyber Crime Police Stations, and Financial Intelligence Units (**FIU-IND**). It traces illicit financial flows across multiple blockchain rails (Ethereum, Tron TRC-20, Bitcoin UTXO), identifies counterparty Virtual Asset Service Providers (VASPs), calculates composite risk scores, and generates legally compliant seizure notices under **Section 91 CrPC** and the **Bharatiya Nagarik Suraksha Sanhita (BNSS) 2023**.
 
 ---
 
@@ -76,7 +76,7 @@ Access the application at [http://localhost:3000](http://localhost:3000).
 
 ## 🔐 Default Access & RBAC Credentials
 
-CryptoTrace enforces strict Role-Based Access Control between investigating officers and authorized statutory supervisors:
+SETU enforces strict Role-Based Access Control between investigating officers and authorized statutory supervisors:
 
 | Username | Password | Role | Permissions |
 | :--- | :--- | :--- | :--- |
@@ -106,7 +106,7 @@ The workstation provides one-click benchmark presets configured with real-world 
 ## 📂 Project Architecture
 
 ```
-cryptotrace/
+setu/
 ├── backend/
 │   ├── app/
 │   │   ├── api/v1/          # REST endpoints (auth, trace, analyze, cases, freeze, ncrp)
@@ -147,7 +147,7 @@ cryptotrace/
 
 ## 🧪 Running Automated Tests
 
-CryptoTrace features extensive test coverage across all forensic layers:
+SETU features extensive test coverage across all forensic layers:
 
 ```bash
 # Run complete Python test suite

@@ -28,7 +28,7 @@ logger = logging.getLogger("app.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Initializing SIH Crypto Attribution Intelligence Service...")
+    logger.info("Initializing SETU Crypto Attribution Intelligence Service...")
     # 1. Initialize DB schema
     await init_db()
     
@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
             if not sup:
                 supervisor_user = User(
                     username="supervisor",
-                    email="supervisor@cryptotrace.gov",
+                    email="supervisor@setu.gov",
                     hashed_password=get_password_hash("supervisor123"),
                     full_name="Senior Cyber Crime Supervisor",
                     role="supervisor",
@@ -118,7 +118,7 @@ async def lifespan(app: FastAPI):
             if not inv:
                 investigator_user = User(
                     username="investigator",
-                    email="investigator@cryptotrace.gov",
+                    email="investigator@setu.gov",
                     hashed_password=get_password_hash("investigator123"),
                     full_name="Cyber Crime Investigating Officer",
                     role="investigator",
@@ -144,7 +144,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Cryptocurrency Wallet-to-VASP Attribution Engine",
+    title="SETU — Cryptocurrency Wallet-to-VASP Attribution Engine",
     description="Automated attribution of unknown cryptocurrency wallets to nearest Virtual Asset Service Providers (VASPs) through real blockchain intelligence APIs.",
     version="1.0.0",
     lifespan=lifespan
@@ -177,7 +177,7 @@ app.include_router(trace_router)
 @app.get("/")
 async def root():
     return {
-        "title": "SIH Cryptocurrency Wallet-to-VASP Attribution Platform",
+        "title": "SETU Cryptocurrency Wallet-to-VASP Attribution Platform",
         "version": "1.0.0",
         "docs_url": "/docs",
         "judge_docs_url": "/judge-docs",

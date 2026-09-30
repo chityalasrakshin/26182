@@ -793,7 +793,7 @@ export default function InvestigationAppPage() {
         <footer className="w-full bg-[#161616] py-4 border-t border-[#2A2A2A] mt-auto">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-mono text-[#9A9A9A]">
             <div className="flex items-center gap-3">
-              <span className="text-[#E5FF8F] font-semibold">CRYPTOTRACE FORENSIC KERNEL</span>
+              <span className="text-[#E5FF8F] font-semibold">SETU FORENSIC KERNEL</span>
               <span>•</span>
               <span>RESTRICTED LAW ENFORCEMENT ACCESS ONLY</span>
               <span>•</span>

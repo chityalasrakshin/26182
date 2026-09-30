@@ -1,7 +1,7 @@
 {
-  "name": "sih-crypto-attribution-platform",
+  "name": "setu-attribution-platform",
   "version": "1.0.0",
-  "description": "Automated Attribution of Unknown Cryptocurrency Wallets to Nearest Virtual Asset Service Providers (VASPs)",
+  "description": "SETU — Automated Attribution of Unknown Cryptocurrency Wallets to Nearest Virtual Asset Service Providers (VASPs)",
   "scripts": {
     "dev": "npm --prefix frontend run dev",
     "build": "npm --prefix frontend run build",

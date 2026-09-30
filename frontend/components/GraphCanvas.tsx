@@ -2409,7 +2409,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             </div>
 
             <div className="pt-3 border-t border-slate-200 dark:border-[#1E293B] text-[10px] text-slate-400 dark:text-[#64748B] font-mono text-center">
-              CRYPTOTRACE Financial Intelligence Core
+              SETU Financial Intelligence Core
             </div>
           </div>
         ) : null}

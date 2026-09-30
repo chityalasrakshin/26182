@@ -1,4 +1,4 @@
-# 🔍 CryptoTrace (Sudarshan) — Master Project Guide & Forensic Blueprint
+# 🔍 SETU (SETU) — Master Project Guide & Forensic Blueprint
 > **A Comprehensive, Beginner-Friendly, Deep-Dive Explainer for Problem Statement 26182**  
 > *Target Problem: Automated Attribution of Unknown Cryptocurrency Wallets to Nearest Virtual Asset Service Providers (VASPs) through Blockchain Intelligence APIs*
 
@@ -9,7 +9,7 @@
 2. [Crypto & Blockchain 101: Zero-Jargon Fundamentals](#2-crypto--blockchain-101-zero-jargon-fundamentals)
 3. [What Was Happening Before? (The Police Nightmare)](#3-what-was-happening-before-the-police-nightmare)
 4. [Deconstructing Problem Statement 26182: What Did They Ask?](#4-deconstructing-problem-statement-26182-what-did-they-ask)
-5. [What We Built: CryptoTrace (The Target & The Core Solution)](#5-what-we-built-cryptotrace-the-target--the-core-solution)
+5. [What We Built: SETU (The Target & The Core Solution)](#5-what-we-built-setu-the-target--the-core-solution)
 6. [How We Solve It: Step-by-Step Under the Hood](#6-how-we-solve-it-step-by-step-under-the-hood)
 7. [The 5-Pillar Attribution Mathematical Formula](#7-the-5-pillar-attribution-mathematical-formula)
 8. [The Legal Weapon: CrPC Section 91 & Section 65B Evidence](#8-the-legal-weapon-crpc-section-91--section-65b-evidence)
@@ -120,9 +120,9 @@ The Ministry of Home Affairs (MHA) / Indian Cyber Crime Coordination Centre (I4C
 
 ---
 
-## 5. What We Built: CryptoTrace (The Target & The Core Solution)
+## 5. What We Built: SETU (The Target & The Core Solution)
 
-We built **CryptoTrace** (codename **Sudarshan**): an automated, real-time blockchain forensic workstation tailored specifically for Indian Law Enforcement.
+We built **SETU** (codename **SETU**): an automated, real-time blockchain forensic workstation tailored specifically for Indian Law Enforcement.
 
 ```
                     ┌─────────────────────────────────────────────────────────┐
@@ -133,7 +133,7 @@ We built **CryptoTrace** (codename **Sudarshan**): an automated, real-time block
                                                  │
                                                  ▼
 ┌───────────────────────────────────────────────────────────────────────────────────────────┐
-│                                   CRYPTOTRACE ENGINE                                      │
+│                                   SETU ENGINE                                      │
 │                                                                                           │
 │  1. Multi-Rail Ingestion        2. Graph Traversal             3. VASP Matching           │
 │     ETH / TRON / BTC               Breadth-First Search (BFS)     1,595+ Exchange Clusters │
@@ -202,7 +202,7 @@ Our system doesn't just look at addresses; it analyzes criminal behaviors:
 
 ## 7. The 5-Pillar Attribution Mathematical Formula
 
-Instead of guessing or using an unreliable "black box" AI, CryptoTrace uses a transparent, explainable **5-Pillar Mathematical Formula** to calculate the Attribution Score ($S_{total}$ from $0$ to $100$):
+Instead of guessing or using an unreliable "black box" AI, SETU uses a transparent, explainable **5-Pillar Mathematical Formula** to calculate the Attribution Score ($S_{total}$ from $0$ to $100$):
 
 $$S_{total} = (S_{prox} \times 0.35) + (S_{flow} \times 0.25) + (S_{freq} \times 0.20) + (S_{behav} \times 0.10) + (S_{rec} \times 0.10)$$
 
@@ -218,7 +218,7 @@ $$S_{total} = (S_{prox} \times 0.35) + (S_{flow} \times 0.25) + (S_{freq} \times
 
 ## 8. The Legal Weapon: CrPC Section 91 & Section 65B Evidence
 
-Most technical tools stop at drawing pretty graph nodes. **CryptoTrace goes all the way to legal enforcement.**
+Most technical tools stop at drawing pretty graph nodes. **SETU goes all the way to legal enforcement.**
 
 In the Indian legal system, evidence must follow strict statutory procedures to be accepted in court:
 
@@ -268,11 +268,11 @@ If an evaluator, teacher, or police officer asks: *"What did you build and why d
 >  
 > *Under the current police workflow, officers on the SAHYOG portal hit a brick wall because they don't know which exchange to send legal notices to. Tracing it manually takes weeks, and by then the money is gone.*  
 >  
-> *We built **CryptoTrace** — an automated forensic intelligence engine. An officer enters an anonymous wallet address. In less than 2 seconds, our engine crawls up to 3 hops across Ethereum, Tron, and Bitcoin, matches transactions against 1,595+ exchange cluster signatures, computes a transparent 5-pillar mathematical confidence score, and instantly generates a court-admissible Section 91 CrPC asset freeze notice addressed directly to the exchange's Nodal Officer via the SAHYOG portal.*  
+> *We built **SETU** — an automated forensic intelligence engine. An officer enters an anonymous wallet address. In less than 2 seconds, our engine crawls up to 3 hops across Ethereum, Tron, and Bitcoin, matches transactions against 1,595+ exchange cluster signatures, computes a transparent 5-pillar mathematical confidence score, and instantly generates a court-admissible Section 91 CrPC asset freeze notice addressed directly to the exchange's Nodal Officer via the SAHYOG portal.*  
 >  
 > *We take what used to take 2 weeks of manual work down to 2 seconds, allowing police to freeze stolen assets before criminals can cash out."*
 
 ---
 
-*Authored for the CryptoTrace / Sudarshan Forensic Project Repository*  
+*Authored for the SETU / SETU Forensic Project Repository*  
 *Compliant with SIH Problem Statement 26182 | CrPC §91 | BNSS 2023 | IEA §65B*

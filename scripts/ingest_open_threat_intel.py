@@ -164,7 +164,7 @@ def build_scamsniffer_dataset() -> Path:
         url = "https://raw.githubusercontent.com/scamsniffer/scam-database/main/blacklist/address.json"
         try:
             logger.info(f"Fetching live ScamSniffer blacklist from {url}...")
-            req = urllib.request.Request(url, headers={"User-Agent": "CryptoTrace-LEA/2.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "SETU-LEA/2.0"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 raw_addresses = json.loads(resp.read().decode("utf-8"))
         except Exception as e:
@@ -238,7 +238,7 @@ def build_etherscan_labels_dataset() -> Path:
     raw_data = {}
     try:
         logger.info(f"Fetching brianleect/etherscan-labels from {url}...")
-        req = urllib.request.Request(url, headers={"User-Agent": "CryptoTrace-LEA/2.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "SETU-LEA/2.0"})
         with urllib.request.urlopen(req, timeout=30) as resp:
             raw_data = json.loads(resp.read().decode("utf-8"))
     except Exception as e:

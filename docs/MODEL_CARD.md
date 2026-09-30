@@ -45,7 +45,7 @@ To prevent models from memorizing specific wallet addresses or clustering artifa
 
 ## 5. Dual-Benchmark Evaluation Methodology
 
-To prevent misleading claims of machine learning efficacy while rigorously validating both deterministic and probabilistic forensic capabilities, CryptoTrace employs a **Dual-Benchmark Evaluation Framework**:
+To prevent misleading claims of machine learning efficacy while rigorously validating both deterministic and probabilistic forensic capabilities, SETU employs a **Dual-Benchmark Evaluation Framework**:
 
 1. **Benchmark Track 1 (Cryptographic Proof-of-Reserves Attribution)**: Evaluates deterministic and ML candidate ranking against verified on-chain exchange clusters where ground truth is mathematically guaranteed by exchange Merkle tree disclosures.
 2. **Benchmark Track 2 (Open-World Graph Topology Benchmark — Elliptic++ Alignment)**: Evaluates topological graph machine learning performance on the peer-reviewed, open-source Elliptic++ AML dataset (`git-disl/EllipticPlusPlus`, Weber et al. / Bellei et al.), benchmarked against wild, unlabelled blockchain transaction flows.
@@ -74,7 +74,7 @@ In Track 1, the model is evaluated against the held-out test partition ($N = 253
 
 ### 5.2 Benchmark Track 2: Open-World Graph Topology Benchmark (Elliptic++ Alignment)
 
-For complex, multi-hop money laundering topologies without known exchange endpoints, CryptoTrace's multi-signal risk classifier aligns directly with the peer-reviewed **Elliptic++** dataset and benchmark taxonomy (`git-disl/EllipticPlusPlus`, `feedzai/research-aml-elliptic`):
+For complex, multi-hop money laundering topologies without known exchange endpoints, SETU's multi-signal risk classifier aligns directly with the peer-reviewed **Elliptic++** dataset and benchmark taxonomy (`git-disl/EllipticPlusPlus`, `feedzai/research-aml-elliptic`):
 
 - **Dataset Scale**:
   - **203,769** Bitcoin transaction nodes across 49 discrete temporal time steps.
@@ -88,9 +88,9 @@ For complex, multi-hop money laundering topologies without known exchange endpoi
   - **Macro F1-Score**: **90.0%**
   - **Illicit Minority Class F1**: **84.2%** (critical benchmark under severe real-world class imbalance where illicit volume $\approx 2\%$)
 
-#### Mapping CryptoTrace 4-Layer Architecture to Elliptic++ Typologies & FATF Red Flags:
+#### Mapping SETU 4-Layer Architecture to Elliptic++ Typologies & FATF Red Flags:
 
-| CryptoTrace Risk Layer | Category Cap | Key Detectable Signals | FATF (2020) Red Flag Alignment | Elliptic++ Graph Feature Mapping |
+| SETU Risk Layer | Category Cap | Key Detectable Signals | FATF (2020) Red Flag Alignment | Elliptic++ Graph Feature Mapping |
 | :--- | :--- | :--- | :--- | :--- |
 | **Velocity Layer** | **25 pts** | `RAPID_FORWARDING`, `SUSPICIOUS_VELOCITY` | **Indicator T.10 & T.11**: Immediate redirection within minutes (<30 min); abnormal burst frequency over short intervals. | Temporal delta between incoming/outgoing edges; transaction arrival burstiness coefficient. |
 | **Dispersion Layer** | **25 pts** | `HIGH_FAN_OUT`, `HIGH_FAN_IN`, `PEEL_CHAIN`, `SWEEP_CONSOLIDATION`, `COMMON_INPUT_CLUSTER` | **Indicator P.1, P.2, P.3, P.4**: Structuring/smurfing into multiple accounts; consolidation before cash-out; asymmetric peeling chains; co-spending wallet clusters. | Out-degree centrality ($\ge 5$); in-degree centrality ($\ge 5$); linear chain motifs; connected component cluster size. |

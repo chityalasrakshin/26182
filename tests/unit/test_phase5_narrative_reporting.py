@@ -69,7 +69,7 @@ def setup_test_users():
             if not sup:
                 session.add(User(
                     username="p5_supervisor",
-                    email="p5_supervisor@cryptotrace.gov",
+                    email="p5_supervisor@setu.gov",
                     hashed_password=get_password_hash("supervisor123"),
                     full_name="Phase 5 Supervisor",
                     role="supervisor",
@@ -80,7 +80,7 @@ def setup_test_users():
             if not inv:
                 session.add(User(
                     username="p5_investigator",
-                    email="p5_investigator@cryptotrace.gov",
+                    email="p5_investigator@setu.gov",
                     hashed_password=get_password_hash("investigator123"),
                     full_name="Phase 5 Investigator",
                     role="investigator",
@@ -91,7 +91,7 @@ def setup_test_users():
             if not other:
                 session.add(User(
                     username="p5_other_inv",
-                    email="p5_other@cryptotrace.gov",
+                    email="p5_other@setu.gov",
                     hashed_password=get_password_hash("other123"),
                     full_name="Other Investigator",
                     role="investigator",
