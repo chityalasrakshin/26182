@@ -249,13 +249,13 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
   };
 
   return (
-    <div className="bg-white/95 dark:bg-[#0D131F]/95 backdrop-blur-md border border-slate-200 dark:border-[#1E293B] rounded-lg shadow-2xl flex flex-col h-full text-xs font-mono select-none overflow-hidden transition-all text-slate-800 dark:text-[#F8FAFC]">
+    <div className="bg-[#0A0A0A]/95 backdrop-blur-md border border-[#2A2A2A] rounded-lg shadow-2xl flex flex-col h-full text-xs font-mono select-none overflow-hidden transition-all text-[#FFFFFF]">
       {/* ─────────────────────────────────────────────────────────────────── */}
       {/* 1. HEADER (Styled like IBM i2 Analyst's Notebook) */}
       {/* ─────────────────────────────────────────────────────────────────── */}
       <div className="p-3 bg-slate-50 dark:bg-[#090D16] border-b border-slate-200 dark:border-[#1E293B] flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <div className="p-1 rounded bg-[#2563EB]/10 border border-[#2563EB]/30 text-[#2563EB]">
+          <div className="p-1 rounded bg-[#E5FF8F]/10 border border-[#E5FF8F]/30 text-[#E5FF8F]">
             <Network className="h-4 w-4" />
           </div>
           <div>
@@ -291,7 +291,7 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
         <button
           onClick={() => setActiveTab('VALUES')}
           className={`py-1.5 px-3 rounded font-bold transition-all flex items-center justify-center space-x-1.5 ${activeTab === 'VALUES'
-            ? 'bg-[#2563EB] text-white shadow'
+            ? 'bg-[#E5FF8F] text-[#0A0A0A] shadow'
             : 'text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] hover:bg-slate-200 dark:hover:bg-[#111827]'
             }`}
         >
@@ -301,7 +301,7 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
         <button
           onClick={() => setActiveTab('COUNTS')}
           className={`py-1.5 px-3 rounded font-bold transition-all flex items-center justify-center space-x-1.5 ${activeTab === 'COUNTS'
-            ? 'bg-[#2563EB] text-white shadow'
+            ? 'bg-[#E5FF8F] text-[#0A0A0A] shadow'
             : 'text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] hover:bg-slate-200 dark:hover:bg-[#111827]'
             }`}
         >
@@ -339,18 +339,18 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
         <div
           onClick={() => setShowLowNetChangeOnly(!showLowNetChangeOnly)}
           className={`p-2 rounded border cursor-pointer transition-all space-y-0.5 ${showLowNetChangeOnly
-            ? 'bg-[#2563EB]/15 border-[#2563EB]/50 text-[#2563EB] dark:text-blue-400'
-            : 'bg-white dark:bg-[#0D131F] border-slate-200 dark:border-[#1E293B] hover:border-[#2563EB]/40 text-slate-800 dark:text-[#F8FAFC]'
+            ? 'bg-[#E5FF8F]/15 border-[#E5FF8F]/50 text-[#E5FF8F]'
+            : 'bg-white dark:bg-[#0D131F] border-slate-200 dark:border-[#1E293B] hover:border-[#E5FF8F]/40 text-slate-800 dark:text-[#F8FAFC]'
             }`}
           title="Filter wallets that pass through funds without holding (Smurfing / Layering mules)"
         >
-          <div className="flex items-center space-x-1 text-[#2563EB]">
+          <div className="flex items-center space-x-1 text-[#E5FF8F]">
             <TrendingDown className="h-3 w-3" />
             <span className="uppercase tracking-wider font-semibold">Low Net</span>
           </div>
           <div className="font-bold text-[11px] flex items-center justify-between">
             <span>{totals.lowNetCount} Mules</span>
-            {showLowNetChangeOnly && <Check className="h-3 w-3 text-[#2563EB]" />}
+            {showLowNetChangeOnly && <Check className="h-3 w-3 text-[#E5FF8F]" />}
           </div>
           <div className="text-slate-400 dark:text-[#94A3B8] text-[9px]">Rapid Transit</div>
         </div>
@@ -367,7 +367,7 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
             placeholder="Filter by wallet or tag..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded pl-7 pr-2 py-1 text-[11px] text-slate-800 dark:text-[#F8FAFC] placeholder-slate-400 dark:placeholder-[#64748B] focus:outline-none focus:border-[#2563EB]"
+            className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded pl-7 pr-2 py-1 text-[11px] text-slate-800 dark:text-[#F8FAFC] placeholder-slate-400 dark:placeholder-[#64748B] focus:outline-none focus:border-[#E5FF8F]"
           />
           {searchQuery && (
             <button
@@ -386,7 +386,7 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
               key={lim}
               onClick={() => setDisplayLimit(lim)}
               className={`px-1.5 py-0.5 rounded transition-colors ${displayLimit === lim
-                ? 'bg-[#2563EB] text-white font-bold'
+                ? 'bg-[#E5FF8F] text-[#0A0A0A] font-bold'
                 : 'bg-slate-100 dark:bg-[#111827] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
                 }`}
             >
@@ -402,10 +402,10 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
       <div className="p-2.5 bg-slate-50 dark:bg-[#090D16] border-b border-slate-200 dark:border-[#1E293B] space-y-2">
         <div className="flex items-center justify-between text-[11px]">
           <span className="text-slate-800 dark:text-[#F8FAFC] font-semibold flex items-center space-x-1">
-            <Sliders className="h-3.5 w-3.5 text-[#2563EB]" />
+            <Sliders className="h-3.5 w-3.5 text-[#E5FF8F]" />
             <span>Entities with Highest {activeTab === 'VALUES' ? 'Volume' : 'Connections'}</span>
           </span>
-          <span className="text-[#2563EB] font-bold">Top {percentileCutoff}%</span>
+          <span className="text-[#E5FF8F] font-bold">Top {percentileCutoff}%</span>
         </div>
 
         {/* Range Slider matching IBM i2 Frame 180s */}
@@ -418,7 +418,7 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
             step="5"
             value={percentileCutoff}
             onChange={(e) => handleSliderChange(Number(e.target.value))}
-            className="w-full accent-[#2563EB] cursor-pointer h-1.5 bg-slate-200 dark:bg-[#1E293B] rounded-lg"
+            className="w-full accent-[#E5FF8F] cursor-pointer h-1.5 bg-slate-200 dark:bg-[#1E293B] rounded-lg"
           />
           <span className="text-[10px] text-slate-500 dark:text-[#94A3B8]">100%</span>
         </div>
@@ -427,7 +427,7 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
         <div className="flex items-center space-x-1.5 pt-1">
           <button
             onClick={() => handleHighlightTopN(10)}
-            className="flex-1 py-1 px-2 rounded bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-bold text-[10px] flex items-center justify-center space-x-1 transition-colors"
+            className="flex-1 py-1 px-2 rounded bg-[#E5FF8F] hover:bg-[#EDFFB1] text-[#0A0A0A] font-bold text-[10px] flex items-center justify-center space-x-1 transition-colors"
           >
             <Sparkles className="h-3 w-3 text-white" />
             <span>Highlight Top 10</span>
@@ -480,7 +480,7 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
                 key={entity.id}
                 onClick={() => onSelectEntity(entity.id)}
                 className={`p-2 rounded border transition-all cursor-pointer group ${isSelected
-                  ? 'bg-blue-50 dark:bg-[#2563EB]/20 border-[#2563EB] shadow-md'
+                  ? 'bg-[#E5FF8F]/10 border-[#E5FF8F] shadow-md'
                   : 'bg-white dark:bg-[#0D131F] hover:bg-slate-50 dark:hover:bg-[#111827] border-slate-200 dark:border-[#1E293B]'
                   }`}
               >
@@ -492,7 +492,7 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
                     </span>
                     <span className="font-bold text-slate-800 dark:text-[#E2E8F0] truncate max-w-[140px]" title={entity.address}>
                       {entity.vaspName ? (
-                        <span className="text-[#2563EB] dark:text-blue-400 font-bold">{entity.vaspName}</span>
+                        <span className="text-[#E5FF8F] font-bold">{entity.vaspName}</span>
                       ) : (
                         `${entity.address.slice(0, 6)}...${entity.address.slice(-4)}`
                       )}
@@ -506,7 +506,7 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
                       </span>
                     )}
                     {entity.isConsolidation && !entity.isFlaggedAml && (
-                      <span className="text-[9px] px-1 py-0.2 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800/50 font-bold uppercase">
+                      <span className="text-[9px] px-1 py-0.2 rounded bg-[#E5FF8F]/10 text-[#E5FF8F] border border-[#E5FF8F]/30 font-bold uppercase">
                         CONSOL
                       </span>
                     )}
@@ -527,7 +527,7 @@ export const EntityCentralityPanel: React.FC<EntityCentralityPanelProps> = ({
                     className={`h-full transition-all ${entity.isFlaggedAml
                       ? 'bg-rose-500'
                       : entity.isConsolidation
-                        ? 'bg-[#2563EB]'
+                        ? 'bg-[#E5FF8F]'
                         : 'bg-emerald-500'
                       }`}
                     style={{ width: `${Math.max(activeTab === 'VALUES' ? volumeShare : linkShare, 4)}%` }}

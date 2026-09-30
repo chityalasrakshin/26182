@@ -31,6 +31,8 @@ interface NavbarProps {
   onSwitchRole?: (role: 'supervisor' | 'investigator') => void;
   hasActiveTarget?: boolean;
   recentAnalysesCount?: number;
+  isExpanded?: boolean;
+  onToggleExpanded?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -41,6 +43,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSwitchRole,
   hasActiveTarget = false,
   recentAnalysesCount = 0,
+  isExpanded = false,
+  onToggleExpanded,
 }) => {
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
 
@@ -90,24 +94,25 @@ export const Navbar: React.FC<NavbarProps> = ({
   ];
 
   return (
-    <aside className="fixed top-0 left-0 bottom-0 w-[68px] z-50 bg-[#161616] border-r border-[#2A2A2A] flex flex-col justify-between items-center py-4 select-none">
+    <aside className={`fixed top-0 left-0 bottom-0 z-50 ${isExpanded ? 'w-[248px]' : 'w-[68px]'} bg-[#161616]/55 backdrop-blur-2xl border-r border-white/[0.08] shadow-[12px_0_40px_rgba(0,0,0,0.22)] flex flex-col justify-between py-4 select-none transition-[width] duration-300 ease-out`}>
       {/* Top: Brand Logo / Mark */}
-      <div className="flex flex-col items-center space-y-5">
+      <div className={`flex flex-col space-y-5 ${isExpanded ? 'w-full px-3' : 'items-center'}`}>
         <button
           type="button"
           onClick={() => onSelectTab('WORKSPACE')}
-          className="relative group flex items-center justify-center"
-          title="SETU Law Enforcement Console"
+          className={`relative group flex items-center ${isExpanded ? 'justify-start gap-3 px-2' : 'justify-center'}`}
+          title="SETU.so Law Enforcement Console"
         >
-          <div className="h-11 w-11 rounded-2xl bg-[#1A1A1A] border border-[#2A2A2A] group-hover:border-[#E5FF8F] flex items-center justify-center transition-all shadow-[0_0_20px_rgba(0,0,0,0.5)]">
+          <div className="h-11 w-11 shrink-0 rounded-2xl bg-white/[0.04] border border-white/[0.10] group-hover:border-[#E5FF8F] flex items-center justify-center transition-all shadow-[0_0_20px_rgba(0,0,0,0.28)]">
             <Shield className="h-5 w-5 text-[#E5FF8F]" />
           </div>
+          {isExpanded && <span className="text-white font-bold tracking-tight">SETU.so</span>}
 
           {/* Floating Brand Tooltip */}
           <div className="absolute left-[76px] top-1/2 -translate-y-1/2 hidden group-hover:flex items-center z-50 pointer-events-none">
             <div className="bg-[#1A1A1A] text-[#FFFFFF] text-xs font-mono px-3 py-1.5 rounded-lg border border-[#2A2A2A] shadow-xl whitespace-nowrap">
               <div className="font-sans font-bold text-sm text-[#FFFFFF] flex items-center gap-1.5">
-                <span>SETU</span>
+                <span>SETU.so</span>
                 <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#2A2A2A] text-[#E5FF8F] font-mono font-bold">
                   v2.4
                 </span>
@@ -118,10 +123,10 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         {/* Divider */}
-        <div className="w-8 h-[1px] bg-[#2A2A2A]" />
+        <div className={`${isExpanded ? 'w-full' : 'w-8'} h-px bg-white/[0.10]`} />
 
         {/* Center: Nav Icon Stack */}
-        <nav className="flex flex-col items-center space-y-2.5">
+        <nav className={`flex flex-col space-y-2.5 ${isExpanded ? 'w-full' : 'items-center'}`}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -129,14 +134,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             return (
               <div
                 key={item.id}
-                className="relative"
+                className={`relative ${isExpanded ? 'w-full' : ''}`}
                 onMouseEnter={() => setHoveredTab(item.id)}
                 onMouseLeave={() => setHoveredTab(null)}
               >
                 <button
                   type="button"
                   onClick={() => onSelectTab(item.id)}
-                  className={`h-11 w-11 rounded-xl flex items-center justify-center transition-all ${
+                  className={`h-11 rounded-xl flex items-center transition-all ${isExpanded ? 'w-full justify-start gap-3 px-3' : 'w-11 justify-center'} ${
                     isActive
                       ? 'bg-[#E5FF8F] text-[#0A0A0A] font-bold shadow-[0_0_18px_rgba(229,255,143,0.35)]'
                       : 'text-[#9A9A9A] hover:text-[#FFFFFF] hover:bg-[#1A1A1A] hover:border hover:border-[#2A2A2A]'
@@ -144,6 +149,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   aria-label={item.label}
                 >
                   <Icon className="h-5 w-5 stroke-[2.2]" />
+                  {isExpanded && <span className="text-xs font-semibold tracking-tight">{item.label}</span>}
 
                   {item.badge && !isActive && (
                     <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#E5FF8F]"></span>
@@ -177,7 +183,19 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* Bottom Pinned Controls */}
-      <div className="flex flex-col items-center space-y-3 w-full px-2">
+      <div className={`flex flex-col space-y-3 ${isExpanded ? 'w-full px-3' : 'items-center w-full px-2'}`}>
+        {onToggleExpanded && (
+          <button
+            type="button"
+            onClick={onToggleExpanded}
+            className={`h-10 rounded-xl bg-white/[0.035] hover:bg-white/[0.08] text-[#9A9A9A] hover:text-[#FFFFFF] border border-white/[0.09] flex items-center transition-all ${isExpanded ? 'w-full justify-between px-3' : 'w-10 justify-center'}`}
+            title={isExpanded ? 'Collapse navigation' : 'Expand navigation'}
+            aria-label={isExpanded ? 'Collapse navigation' : 'Expand navigation'}
+          >
+            <span className="text-lg leading-none">{isExpanded ? '‹' : '›'}</span>
+            {isExpanded && <span className="text-[11px] font-mono uppercase tracking-wider">Collapse panel</span>}
+          </button>
+        )}
         {onOpenCaseIntake && (
           <button
             type="button"

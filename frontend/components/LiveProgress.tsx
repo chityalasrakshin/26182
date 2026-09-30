@@ -6,6 +6,7 @@ import { AnalysisStatus } from '../lib/types';
 
 interface LiveProgressProps {
   status: AnalysisStatus;
+  compact?: boolean;
 }
 
 interface PipelineStage {
@@ -47,7 +48,7 @@ const STAGES: PipelineStage[] = [
   },
 ];
 
-export const LiveProgress: React.FC<LiveProgressProps> = ({ status }) => {
+export const LiveProgress: React.FC<LiveProgressProps> = ({ status, compact = false }) => {
   // Simulation / replay state for demoing the synchronized 1 -> 2 -> 3 -> 4 sequence
   const [simulatedStage, setSimulatedStage] = useState<number | null>(null);
 
@@ -94,16 +95,16 @@ export const LiveProgress: React.FC<LiveProgressProps> = ({ status }) => {
   }, [simulatedStage]);
 
   return (
-    <div className="bg-[#161616] border border-[#2A2A2A] rounded-2xl p-5 md:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.5)] space-y-6 transition-all">
+    <div className={`${compact ? 'bg-[#161616] border-t border-[#2A2A2A] p-2.5 md:p-3 space-y-2' : 'bg-[#161616] border border-[#2A2A2A] rounded-2xl p-5 md:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.5)] space-y-6'} transition-all`}>
       {/* Top Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#2A2A2A]">
+      <div className={`flex flex-wrap items-center justify-between gap-2 border-b border-[#2A2A2A] ${compact ? 'pb-2' : 'pb-4'}`}>
         <div className="flex items-center gap-3">
-          <div className="w-7 h-7 rounded-lg bg-[#E5FF8F]/10 border border-[#E5FF8F]/20 flex items-center justify-center">
-            <Activity className="h-4 w-4 text-[#E5FF8F]" />
+          <div className={`${compact ? 'w-6 h-6' : 'w-7 h-7'} rounded-lg bg-[#E5FF8F]/10 border border-[#E5FF8F]/20 flex items-center justify-center`}>
+            <Activity className={`${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} text-[#E5FF8F]`} />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-xs uppercase font-bold text-[#FFFFFF] tracking-wider">
+              <span className={`${compact ? 'text-[10px]' : 'text-xs'} font-mono uppercase font-bold text-[#FFFFFF] tracking-wider`}>
                 Investigation Pipeline Status
               </span>
               <span
@@ -136,7 +137,7 @@ export const LiveProgress: React.FC<LiveProgressProps> = ({ status }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-4 font-mono text-xs text-[#9A9A9A]">
+        <div className={`flex items-center font-mono text-[#9A9A9A] ${compact ? 'gap-2 text-[10px]' : 'gap-4 text-xs'}`}>
           <div className="hidden sm:flex items-center gap-3">
             <span>
               Observed Tx: <strong className="text-[#FFFFFF]">{status.num_transactions || 0}</strong>
@@ -159,14 +160,14 @@ export const LiveProgress: React.FC<LiveProgressProps> = ({ status }) => {
           </div>
 
           {/* Replay Sequence Button for testing/demoing the synchronized animation */}
-          <button
+          {!compact && <button
             onClick={handleReplay}
             title="Replay 4-step pipeline synchronization animation"
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#1A1A1A] hover:bg-[#222222] border border-[#2A2A2A] hover:border-[#E5FF8F]/50 text-[#9A9A9A] hover:text-[#E5FF8F] text-[11px] transition-all"
           >
             <RotateCcw className="w-3 h-3" />
             <span>{simulatedStage !== null ? 'Replaying...' : 'Replay Animation'}</span>
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -179,7 +180,7 @@ export const LiveProgress: React.FC<LiveProgressProps> = ({ status }) => {
         - Completed step pops into solid accent fill with bold dark number
         - Geometrically aligned with the 4 pipeline steps below
       */}
-      <div className="w-full pt-2 pb-1">
+      <div className={`w-full ${compact ? 'pt-0 pb-0' : 'pt-2 pb-1'}`}>
         <div className="grid grid-cols-4 gap-3 relative items-center">
           {STAGES.map((stage, idx) => {
             const isDone = currentIndex > idx || isCompleted;
@@ -218,7 +219,7 @@ export const LiveProgress: React.FC<LiveProgressProps> = ({ status }) => {
                 {/* Circular Numbered Node (1, 2, 3, 4) */}
                 <div className="relative z-10 flex flex-col items-center group">
                   <div
-                    className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all duration-300 ${
+                    className={`${compact ? 'w-7 h-7 sm:w-8 sm:h-8' : 'w-9 h-9 sm:w-10 sm:h-10'} relative rounded-full flex items-center justify-center transition-all duration-300 ${
                       isStepFailed
                         ? 'bg-[#93000a]/20 border-2 border-[#FF5C5C] text-[#FF5C5C] shadow-[0_0_18px_rgba(255,92,92,0.4)]'
                         : isDone
@@ -253,7 +254,7 @@ export const LiveProgress: React.FC<LiveProgressProps> = ({ status }) => {
 
                     {/* Step Number (1, 2, 3, 4) */}
                     <span
-                      className={`font-mono text-sm select-none transition-all ${
+                      className={`${compact ? 'text-xs' : 'text-sm'} font-mono select-none transition-all ${
                         isDone
                           ? 'font-black text-[#0A0A0A]'
                           : isCurrent
@@ -275,7 +276,7 @@ export const LiveProgress: React.FC<LiveProgressProps> = ({ status }) => {
         PIPELINE STEP CARDS 
         Aligned 1:1 with the 4 nodes above in matching grid columns.
       */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 font-mono">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 font-mono ${compact ? 'gap-1.5' : 'gap-3'}`}>
         {STAGES.map((stage, idx) => {
           const isDone = currentIndex > idx || isCompleted;
           const isCurrent = currentIndex === idx && !isCompleted && !isFailed;
@@ -285,7 +286,7 @@ export const LiveProgress: React.FC<LiveProgressProps> = ({ status }) => {
           return (
             <div
               key={stage.key}
-              className={`p-3.5 rounded-xl border text-left transition-all duration-300 relative flex flex-col justify-between ${
+              className={`${compact ? 'p-2 rounded-lg' : 'p-3.5 rounded-xl'} border text-left transition-all duration-300 relative flex flex-col justify-between ${
                 isStepFailed
                   ? 'bg-[#1A1A1A] border-[#FF5C5C]/60 shadow-[0_0_16px_rgba(255,92,92,0.15)] text-[#FFFFFF]'
                   : isDone
@@ -297,7 +298,7 @@ export const LiveProgress: React.FC<LiveProgressProps> = ({ status }) => {
             >
               <div>
                 {/* Step Header Badge & Status Tag */}
-                <div className="flex items-center justify-between mb-2">
+                <div className={`flex items-center justify-between ${compact ? 'mb-1' : 'mb-2'}`}>
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                       isDone
@@ -326,21 +327,21 @@ export const LiveProgress: React.FC<LiveProgressProps> = ({ status }) => {
                 </div>
 
                 {/* Title and Subtitle */}
-                <div className="font-bold text-xs text-[#FFFFFF] tracking-tight">
+                <div className={`${compact ? 'text-[11px]' : 'text-xs'} font-bold text-[#FFFFFF] tracking-tight`}>
                   {stage.title}
                 </div>
-                <div className="text-[10px] text-[#E5FF8F]/80 font-medium mb-1">
+                {!compact && <div className="text-[10px] text-[#E5FF8F]/80 font-medium mb-1">
                   {stage.subtitle}
-                </div>
+                </div>}
 
                 {/* Description */}
-                <div className="text-[11px] text-[#9A9A9A] leading-tight mt-1">
+                {!compact && <div className="text-[11px] text-[#9A9A9A] leading-tight mt-1">
                   {stage.desc}
-                </div>
+                </div>}
               </div>
 
               {/* Progress Bottom Bar Indicator on the card */}
-              <div className="mt-3 pt-2 border-t border-[#2A2A2A]/60 flex items-center justify-between text-[10px]">
+              <div className={`${compact ? 'mt-1 pt-1' : 'mt-3 pt-2'} border-t border-[#2A2A2A]/60 flex items-center justify-between text-[10px]`}>
                 <span className="text-[#9A9A9A]/80">Status:</span>
                 <span
                   className={`font-semibold ${

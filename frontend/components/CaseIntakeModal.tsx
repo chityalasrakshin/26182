@@ -116,7 +116,7 @@ export const CaseIntakeModal: React.FC<CaseIntakeModalProps> = ({
       // 1. Create Case
       const newCase = await api.createCase({
         title: finalTitle,
-        description: description.trim() || 'Initiated via SETU LEA Workstation Intake.',
+        description: description.trim() || 'Initiated via SETU.so LEA Workstation Intake.',
         suspect_address: suspectAddress.trim(),
         chain: effectiveChain,
         priority,

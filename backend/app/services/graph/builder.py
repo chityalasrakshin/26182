@@ -409,12 +409,34 @@ class TransactionGraphBuilder:
                         traceable_amount=traceable_amt,
                         unclassified_amount=unclassified_amt,
                         taint_ratio=taint_ratio
+                        ,direction="outgoing" if u == root_wallet or hop_val >= 1 else "incoming"
+                        ,block_number=data.get("block_number")
+                        ,transaction_count=int(data.get("transaction_count", 1))
                     )
                 )
             )
 
         for node, data in self.graph.nodes(data=True):
             stats = node_stats.get(node, {"inflow": 0.0, "outflow": 0.0, "tx_count": 0})
+            role = data.get("role", "EXTERNAL")
+            raw_category = str(data.get("category") or data.get("entity") or "").lower()
+            raw_confidence = data.get("vasp_confidence")
+            try:
+                normalized_confidence = float(raw_confidence) if raw_confidence not in (None, "") else None
+            except (TypeError, ValueError):
+                normalized_confidence = None
+            if node == root_wallet or role == "INPUT_WALLET":
+                entity_type = "target"
+            elif data.get("is_vasp") or role == "KNOWN_VASP":
+                entity_type = "vasp" if data.get("vasp_name") else "exchange"
+            elif data.get("is_bridge") or role == "BRIDGE_PROTOCOL":
+                entity_type = "bridge"
+            elif data.get("is_contract"):
+                entity_type = "contract"
+            elif "mixer" in raw_category or "tornado" in raw_category:
+                entity_type = "mixer"
+            else:
+                entity_type = "wallet"
             nodes.append(
                 GraphNode(
                     data=GraphNodeData(
@@ -431,6 +453,13 @@ class TransactionGraphBuilder:
                         tx_count=stats["tx_count"],
                         total_inflow=stats["inflow"],
                         total_outflow=stats["outflow"]
+                        ,entity_type=entity_type
+                        ,risk_level=str(data.get("risk_level", "low")).lower()
+                        ,risk_score=float(data.get("risk_score", 0.0) or 0.0)
+                        ,attribution=(
+                            {"provider": data.get("vasp_name", "VASP Registry"), "confidence": normalized_confidence, "evidenceCount": stats["tx_count"]}
+                            if data.get("is_vasp") else None
+                        )
                     )
                 )
             )
@@ -450,4 +479,12 @@ class TransactionGraphBuilder:
             "taint_summary": taint_summary_dict
         }
 
-        return GraphData(nodes=nodes, edges=edges, stats=summary_stats)
+        metadata = {
+            "targetAddress": root_wallet,
+            "blockchain": detect_blockchain(root_wallet),
+            "totalNodes": len(nodes),
+            "totalEdges": len(edges),
+            "totalTransactions": sum(e.data.transaction_count for e in edges),
+            "maxHop": summary_stats["max_hop_reached"],
+        }
+        return GraphData(nodes=nodes, edges=edges, stats=summary_stats, metadata=metadata)

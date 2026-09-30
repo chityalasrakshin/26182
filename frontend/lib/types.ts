@@ -40,6 +40,11 @@ export interface GraphNodeData {
   chain?: string | null;
   is_bridge?: boolean;
   bridge_protocol?: string | null;
+  entity_type?: 'target' | 'wallet' | 'exchange' | 'vasp' | 'mixer' | 'contract' | 'bridge' | 'sanctioned' | 'unknown';
+  risk_level?: 'low' | 'medium' | 'high' | 'critical' | string;
+  risk_score?: number;
+  attribution?: { provider: string; confidence: number; evidenceCount: number };
+  balance?: { asset: string; value: number };
 }
 
 export interface GraphNode {
@@ -68,6 +73,9 @@ export interface GraphEdgeData {
   traceable_amount?: number | null;
   unclassified_amount?: number | null;
   taint_ratio?: number | null;
+  direction?: 'incoming' | 'outgoing' | string;
+  block_number?: number | null;
+  transaction_count?: number;
 }
 
 export interface GraphEdge {
@@ -100,6 +108,56 @@ export interface GraphData {
     total_amount_usd?: number;
     taint_summary?: TaintSummary;
   };
+  metadata?: {
+    targetAddress: string;
+    blockchain: string;
+    totalNodes: number;
+    totalEdges: number;
+    totalTransactions: number;
+    maxHop: number;
+  };
+  paths?: InvestigationPath[];
+}
+
+export interface InvestigationPath {
+  id?: string;
+  nodeIds: string[];
+  edgeIds?: string[];
+  totalAmount?: number;
+  asset?: string;
+  riskLevel?: string;
+}
+
+export interface VaspEndpoint {
+  name: string;
+  address: string;
+  chain: string;
+  category?: string | null;
+  confidence: number | string;
+  association_status: string;
+  source_url?: string | null;
+}
+
+export interface PathHop {
+  hop: number;
+  amount: number;
+  token: string;
+  timestamp: string | null;
+  from_address: string;
+  to_address: string;
+  tx_hash: string;
+  is_cross_chain?: boolean;
+  bridge_protocol?: string | null;
+}
+
+export interface OrderedPath {
+  path_id?: string | number;
+  total_hops: number;
+  total_amount: number;
+  token: string;
+  address_path: string[];
+  hops: PathHop[];
+  endpoint: VaspEndpoint;
 }
 
 export interface Attribution {
@@ -179,7 +237,7 @@ export interface TraceStatus {
   job_id: string;
   address: string;
   chain: string;
-  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
   max_depth: number;
   current_depth: number;
   started_at: string;
@@ -195,6 +253,8 @@ export interface TraceStatus {
   is_cached?: boolean;
   error_message?: string | null;
   summary?: string | null;
+  progress?: number;
+  error?: { code: string; message: string } | null;
 }
 
 export interface VASPAddress {

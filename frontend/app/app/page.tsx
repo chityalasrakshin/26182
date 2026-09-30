@@ -73,6 +73,7 @@ export default function InvestigationAppPage() {
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [transactions, setTransactions] = useState<NormalizedTransaction[]>([]);
   const [recentAnalyses, setRecentAnalyses] = useState<AnalysisStatus[]>([]);
+  const [isNavExpanded, setIsNavExpanded] = useState<boolean>(false);
 
   // Auth & Role state
   const [currentUser, setCurrentUser] = useState<UserAuth | null>(null);
@@ -93,6 +94,7 @@ export default function InvestigationAppPage() {
   const [copied, setCopied] = useState<boolean>(false);
 
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const traceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const activeWsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -101,6 +103,7 @@ export default function InvestigationAppPage() {
 
     return () => {
       if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
+      if (traceTimeoutRef.current) clearTimeout(traceTimeoutRef.current);
       if (activeWsRef.current) activeWsRef.current.close();
     };
   }, []);
@@ -197,6 +200,49 @@ export default function InvestigationAppPage() {
         setActiveJobId(traceJobId);
         // Connect live WebSocket stream
         connectTraceStreaming(traceJobId, walletAddress);
+
+        // The trace job is the authoritative source for graph readiness. The
+        // legacy analysis worker is polled separately for enrichment cards.
+        let tracePollInFlight = false;
+        const pollTrace = async () => {
+          if (tracePollInFlight) return;
+          tracePollInFlight = true;
+          try {
+            const traceStatus = await api.getTraceStatus(traceJobId!);
+            const status = String(traceStatus.status || '').toLowerCase();
+            if (status === 'completed') {
+              if (traceTimeoutRef.current) clearTimeout(traceTimeoutRef.current);
+              const traceGraph = await api.getTraceGraph(traceJobId!);
+              setGraphData(traceGraph);
+              setIsLoading(false);
+              setIsStreaming(false);
+              setAnalysisError(null);
+              return true;
+            }
+            if (status === 'failed') {
+              if (traceTimeoutRef.current) clearTimeout(traceTimeoutRef.current);
+              setIsLoading(false);
+              setIsStreaming(false);
+              setAnalysisError(traceStatus.error?.message || traceStatus.error_message || 'Trace failed. Please retry.');
+              return true;
+            }
+          } catch (traceErr) {
+            console.error('Trace status polling error:', traceErr);
+          } finally {
+            tracePollInFlight = false;
+          }
+          return false;
+        };
+        const tracePollTimer = setInterval(async () => {
+          if (await pollTrace()) clearInterval(tracePollTimer);
+        }, 1000);
+        if (await pollTrace()) clearInterval(tracePollTimer);
+        traceTimeoutRef.current = setTimeout(() => {
+          clearInterval(tracePollTimer);
+          setIsLoading(false);
+          setIsStreaming(false);
+          setAnalysisError('Graph generation is taking longer than expected.');
+        }, 60000);
       }
 
       // 2. Start Full Ingestion Analysis
@@ -211,8 +257,8 @@ export default function InvestigationAppPage() {
 
           if (current.status === 'COMPLETED') {
             if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
-            setIsLoading(false);
-            setIsStreaming(false);
+            // Trace completion controls graph loading; analysis completion only
+            // controls secondary investigation data.
 
             const [gData, attrs, evs, txs] = await Promise.all([
               api.getAnalysisGraph(analysisId).catch(() => null),
@@ -221,7 +267,10 @@ export default function InvestigationAppPage() {
               api.getAnalysisTransactions(analysisId).catch(() => []),
             ]);
 
-            if (gData && gData.nodes && gData.nodes.length > 0) {
+            // The async trace graph is the authoritative graph for Graph Studio.
+            // The legacy analysis graph may have different aggregation/scope and
+            // must not replace it after trace completion.
+            if (!traceJobId && gData && gData.nodes && gData.nodes.length > 0) {
               setGraphData(gData);
             }
             setAttributions(attrs);
@@ -230,8 +279,10 @@ export default function InvestigationAppPage() {
             loadRecentCases();
           } else if (current.status === 'FAILED') {
             if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
-            setIsLoading(false);
-            setIsStreaming(false);
+            if (!traceJobId) {
+              setIsLoading(false);
+              setIsStreaming(false);
+            }
             setAnalysisError(current.error_message || 'Transaction analysis pipeline failed for target address.');
           }
         } catch (pollErr) {
@@ -316,8 +367,10 @@ export default function InvestigationAppPage() {
             });
           } else if (event.event === 'EDGE_ADDED') {
             const d = event.data;
-            const src = (d.source || '').toLowerCase();
-            const tgt = (d.target || '').toLowerCase();
+            // TraceOrchestrator emits from_address/to_address; accept the
+            // Cytoscape source/target aliases as well for compatibility.
+            const src = (d.source || d.from_address || '').toLowerCase();
+            const tgt = (d.target || d.to_address || '').toLowerCase();
             if (!src || !tgt) return;
 
             setGraphData((prev) => {
@@ -336,19 +389,24 @@ export default function InvestigationAppPage() {
                   asset_symbol: d.asset_symbol || 'ETH',
                   amount: Number(d.amount || 0),
                   timestamp: new Date().toISOString(),
-                  hop: event.hop,
+                  hop: d.hop ?? event.hop,
                 },
               };
 
               return {
                 nodes: prev?.nodes || [],
                 edges: [...existingEdges, newEdge],
-                stats: prev?.stats || {
+                stats: {
+                  ...(prev?.stats || {}),
                   root_wallet: rootAddress,
                   total_nodes: prev?.nodes?.length || 0,
                   total_edges: existingEdges.length + 1,
+                  max_hop_reached: Math.max(Number(prev?.stats?.max_hop_reached || 0), Number(d.hop ?? event.hop ?? 0)),
+                  taint_summary: {
+                    ...(prev?.stats?.taint_summary || {}),
+                    total_transactions: Number(prev?.stats?.taint_summary?.total_transactions || 0) + 1,
+                  },
                   vasp_nodes_found: 0,
-                  max_hop_reached: event.hop,
                 },
               };
             });
@@ -419,24 +477,32 @@ export default function InvestigationAppPage() {
         onSwitchRole={handleSwitchRole}
         hasActiveTarget={!!analysisStatus || isStreaming}
         recentAnalysesCount={recentAnalyses.length}
+        isExpanded={isNavExpanded}
+        onToggleExpanded={() => setIsNavExpanded((expanded) => !expanded)}
       />
 
-      <div className="pl-[68px] flex-1 flex flex-col min-h-screen">
+      <div className={`${isNavExpanded ? 'pl-[248px]' : 'pl-[68px]'} flex-1 flex flex-col min-h-screen transition-[padding] duration-300 ease-out`}>
         <TopBar
           activeTab={activeTab}
           currentUser={currentUser}
           onSwitchRole={handleSwitchRole}
           onOpenCaseIntake={() => setShowCaseIntakeModal(true)}
+          workspaceSearch={activeTab === 'WORKSPACE' ? (
+            <WalletSearch
+              onAnalyze={handleStartAnalysis}
+              isLoading={isLoading || isStreaming}
+              compact
+            />
+          ) : null}
         />
 
         <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-          {/* Page Header */}
+          {/* Page Header (workspace has its own focused trace landing content) */}
+          {activeTab !== 'WORKSPACE' && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 select-none pb-1">
             <div>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-[#FFFFFF] tracking-tight">
-                {activeTab === 'WORKSPACE' ? (
-                  <>Target Case <span className="text-[#E5FF8F]">Intelligence</span></>
-                ) : activeTab === 'CASES_AUDIT' ? (
+                {activeTab === 'CASES_AUDIT' ? (
                   <>Cases &amp; Statutory <span className="text-[#E5FF8F]">Register</span></>
                 ) : activeTab === 'RECENT_INVESTIGATIONS' ? (
                   <>Recent Target <span className="text-[#E5FF8F]">Investigations</span></>
@@ -474,6 +540,7 @@ export default function InvestigationAppPage() {
               </button>
             </div>
           </div>
+          )}
 
           {/* TAB: CASES & AUDIT TRAIL */}
           {activeTab === 'CASES_AUDIT' && (
@@ -488,10 +555,21 @@ export default function InvestigationAppPage() {
           {/* TAB: TARGET CASE WORKSPACE */}
           {activeTab === 'WORKSPACE' && (
             <>
-              <WalletSearch
-                onAnalyze={handleStartAnalysis}
-                isLoading={isLoading || isStreaming}
-              />
+              {/* Investigation result cards stay at the top of the workspace. */}
+              {analysisStatus && (
+                <KpiStatRow
+                  attributions={attributions}
+                  riskAssessment={analysisStatus?.risk_assessment}
+                  graphData={graphData}
+                  totalVolumeInr={analysisStatus?.total_volume_inr}
+                />
+              )}
+
+              {analysisStatus && analysisStatus.status !== 'COMPLETED' && (
+                <section className="overflow-hidden rounded-2xl border border-[#2A2A2A] bg-[#161616] shadow-[0_8px_30px_rgba(0,0,0,0.35)]">
+                  <LiveProgress status={analysisStatus} compact />
+                </section>
+              )}
 
               {analysisError && (
                 <div className="bg-[#FF5C5C]/10 border border-[#FF5C5C]/30 text-[#FF5C5C] p-4 rounded-2xl flex items-center justify-between font-mono text-xs shadow-sm">
@@ -513,11 +591,16 @@ export default function InvestigationAppPage() {
                 </div>
               )}
 
+              {!analysisStatus && !isStreaming && (
+                <WalletSearch
+                  onAnalyze={handleStartAnalysis}
+                  isLoading={isLoading}
+                />
+              )}
+
               {/* 2. ACTIVE CASE OVERVIEW & FORENSIC PIPELINE STATUS */}
               {analysisStatus && (
                 <section className="bg-[#161616] rounded-2xl p-5 md:p-6 border border-[#2A2A2A] space-y-4 shadow-[0_4px_24px_rgba(0,0,0,0.3)]">
-                  <LiveProgress status={analysisStatus} />
-
                   {/* Active Target Identity & Action Strip */}
                   <div className="bg-[#1A1A1A] p-4 rounded-xl flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 border border-[#2A2A2A]">
                     <div className="space-y-1.5">
@@ -667,16 +750,6 @@ export default function InvestigationAppPage() {
                 </section>
               )}
 
-              {/* 3. KPI Stat Row (3 Accent #E5FF8F Cards) */}
-              {analysisStatus && (
-                <KpiStatRow
-                  attributions={attributions}
-                  riskAssessment={analysisStatus?.risk_assessment}
-                  graphData={graphData}
-                  totalVolumeInr={analysisStatus?.total_volume_inr}
-                />
-              )}
-
               {/* 4. Suspect Target Overview (Full Width) */}
               {analysisStatus && (
                 <WalletOverview
@@ -726,12 +799,11 @@ export default function InvestigationAppPage() {
             />
           )}
 
-          {/* TAB: FULL-SCREEN GRAPH STUDIO */}
+          {/* TAB: GRAPH STUDIO (embedded by default; presentation modes are user-controlled) */}
           {activeTab === 'GRAPH_STUDIO' && (
             <div className="space-y-4">
               <GraphCanvas
                 graphData={graphData}
-                isFullScreenView={true}
                 transactions={transactions}
                 onPivotTarget={(addr) => handleStartAnalysis(addr, 3)}
                 activeJobId={activeJobId}
@@ -789,21 +861,6 @@ export default function InvestigationAppPage() {
           <VASPRegistryModal onClose={() => setShowRegistryModal(false)} />
         )}
 
-        {/* LEA Institutional Footer */}
-        <footer className="w-full bg-[#161616] py-4 border-t border-[#2A2A2A] mt-auto">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs font-mono text-[#9A9A9A]">
-            <div className="flex items-center gap-3">
-              <span className="text-[#E5FF8F] font-semibold">SETU FORENSIC KERNEL</span>
-              <span>•</span>
-              <span>RESTRICTED LAW ENFORCEMENT ACCESS ONLY</span>
-              <span>•</span>
-              <span className="hidden md:inline">SESSION: SEC-TLS1.3-FIPS-140</span>
-            </div>
-            <div className="text-[11px] text-[#666666]">
-              © 2026 Financial Intelligence Unit &amp; Cyber Operations Command. All rights reserved.
-            </div>
-          </div>
-        </footer>
       </div>
     </div>
   );

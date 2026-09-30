@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'SETU — Forensic Operations Dashboard',
+  title: 'SETU.so — Forensic Operations Dashboard',
   description: 'SETU Cybersecurity and blockchain intelligence workstation for tracing cryptocurrency fund flows and attributing suspect wallets to Virtual Asset Service Providers.',
 };
 
