@@ -20,3 +20,18 @@ services:
         value: .
       - key: MAX_HOPS
         value: "3"
+
+  - type: web
+    name: setu-frontend
+    env: node
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+      - key: NODE_ENV
+        value: production
