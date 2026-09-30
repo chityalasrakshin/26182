@@ -127,11 +127,18 @@ cryptotrace/
 │   │   └── page.tsx         # Executive landing page
 │   ├── components/          # Cyber-forensic UI suite (Graph, Ledger, Notice, Triage)
 │   └── lib/                 # API client, types, WebSocket streams
+├── docs/                    # Technical, statutory, and UI specifications
+│   ├── API.md               # REST API reference
+│   ├── ARCHITECTURE.md      # Full architecture specification
+│   ├── DEPLOYMENT.md        # Cloud PaaS & Docker deployment guide
+│   ├── UI_SPECIFICATION.md  # Dark-themed UI operations design system
+│   └── ...                  # Methodology, Model Card, VASP Registry
+├── scripts/                 # Ingestion, synthetic datasets & migrations
 ├── data/
 │   ├── cache/transactions/  # 353 verified on-chain JSON records for 0ms demo execution
-│   └── reference/           # VASP directory and FIU-IND compliance mappings
+│   └── vasp/                # VASP directory and FIU-IND compliance mappings
 ├── tests/
-│   └── unit/                # 117+ unit & integration test suites
+│   └── unit/                # 230+ unit & integration test suites
 ├── DEMO_SCRIPT.md           # 5-minute evaluator demonstration guide
 └── README.md                # System documentation
 ```

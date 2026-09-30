@@ -12,6 +12,7 @@ Given a suspect cryptocurrency wallet, CryptoTrace traces its transaction graph 
 - Attribution Methodology & Scoring: [docs/METHODOLOGY.md](docs/METHODOLOGY.md)
 - ML Model Card & Forensic Evaluation: [docs/MODEL_CARD.md](docs/MODEL_CARD.md)
 - System Boundaries & Assumptions: [docs/LIMITATIONS.md](docs/LIMITATIONS.md)
+- UI Design & Operations Dashboard Specification: [docs/UI_SPECIFICATION.md](docs/UI_SPECIFICATION.md)
 
 ## Non-Negotiable Operating Rules
 1. **Preserve Production Integrations:** Maintain compatibility across FastAPI backend, Next.js dashboard, Neo4j/NetworkX graph analysis, and SQLite/PostgreSQL persistence.
