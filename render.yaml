@@ -18,6 +18,8 @@ services:
         value: sqlite+aiosqlite:///./data/crypto_trace.db
       - key: PYTHONPATH
         value: .
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: MAX_HOPS
         value: "3"
 
