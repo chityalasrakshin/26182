@@ -4,15 +4,20 @@ import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import dynamic from 'next/dynamic';
 import * as THREE from 'three';
 import { GraphData } from '../lib/types';
-import { RotateCcw, Sparkles, Lock, Unlock, Play, Pause } from 'lucide-react';
+import {
+  RotateCcw,
+  Sparkles,
+  Lock,
+  CheckCircle2,
+} from 'lucide-react';
 
 // Dynamically import react-force-graph-3d to disable SSR
 const ForceGraph3D = dynamic(() => import('react-force-graph-3d'), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-full flex items-center justify-center font-mono text-xs text-slate-500 dark:text-slate-400">
+    <div className="w-full h-full flex items-center justify-center font-mono text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-[#05080E]">
       <div className="flex items-center space-x-2">
-        <div className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
+        <div className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-ping" />
         <span>Initializing 3D Forensic Engine...</span>
       </div>
     </div>
@@ -26,6 +31,19 @@ export interface FocusedPath3D {
   totalVolume: number;
   hopDistance: number;
   destinationName?: string;
+}
+
+interface BuildStep {
+  type: 'REVEAL_ROOT' | 'FLOW_EDGE_AND_NODE' | 'FLOW_EDGE_ONLY' | 'REVEAL_NODE';
+  nodeId?: string;
+  edgeId?: string;
+  sourceId?: string;
+  targetId?: string;
+  amount?: number;
+  token?: string;
+  label?: string;
+  hop?: number;
+  description: string;
 }
 
 interface GraphCanvas3DProps {
@@ -44,6 +62,8 @@ interface GraphCanvas3DProps {
   minAmount: number;
   riskFilter: 'ALL' | 'LOW' | 'MEDIUM' | 'HIGH';
   viewMode: 'NETWORK' | 'FUND_FLOW' | 'TIMELINE' | 'EVIDENCE';
+  highlightedNodeIds?: Set<string> | null;
+  highlightedEdgeIds?: Set<string> | null;
   onFitRef?: React.MutableRefObject<(() => void) | null>;
   onResetRef?: React.MutableRefObject<(() => void) | null>;
   onZoomInRef?: React.MutableRefObject<(() => void) | null>;
@@ -51,14 +71,13 @@ interface GraphCanvas3DProps {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Deterministic 3D Spatial Layout Engine (Zero Jitter, Pure Stationary Nodes)
+// Deterministic 3D Spatial Layout Engine (Zero Jitter, Stationary Nodes)
 // ─────────────────────────────────────────────────────────────────────────────
 function applyDeterministicLayout(nodes: any[], layoutMode: string) {
   if (nodes.length === 0) return;
 
   if (layoutMode === 'flow') {
     // True Left-to-Right Directional Flow
-    // Hop 0 (Target) on the far left, cascading rightward to Hop 1, Hop 2, and VASP endpoints
     const hopGroups = new Map<number, any[]>();
     nodes.forEach((n) => {
       const h = n.isRoot ? 0 : Math.min(Math.max(n.hop ?? 1, 1), 3);
@@ -87,14 +106,12 @@ function applyDeterministicLayout(nodes: any[], layoutMode: string) {
       } else {
         const radius = Math.min(170, 35 + count * 10);
         group.forEach((node, i) => {
-          // Spread in an open ellipse across Y and Z
           const angle = (i / count) * 2 * Math.PI;
           const y = Math.sin(angle) * radius;
           const z = Math.cos(angle) * (radius * 0.7);
           node.x = x;
           node.y = y;
           node.z = z;
-          // Pin coordinates so nodes stay 100% stationary!
           node.fx = x;
           node.fy = y;
           node.fz = z;
@@ -102,7 +119,6 @@ function applyDeterministicLayout(nodes: any[], layoutMode: string) {
       }
     });
   } else if (layoutMode === 'radial') {
-    // Concentric 3D Spheres Expanding from Center
     const hopRadii: Record<number, number> = {
       0: 0,
       1: 120,
@@ -126,7 +142,6 @@ function applyDeterministicLayout(nodes: any[], layoutMode: string) {
         const r = hopRadii[hop] || 250;
         const count = group.length;
         group.forEach((node, i) => {
-          // Golden ratio spherical distribution
           const phi = Math.acos(-1 + (2 * i) / count);
           const theta = Math.sqrt(count * Math.PI) * phi;
           const x = r * Math.sin(phi) * Math.cos(theta);
@@ -138,7 +153,6 @@ function applyDeterministicLayout(nodes: any[], layoutMode: string) {
       }
     });
   } else if (layoutMode === 'i2-peeling') {
-    // Top-to-Bottom Peeling Chain Waterfall
     const hopGroups = new Map<number, any[]>();
     nodes.forEach((n) => {
       const h = n.isRoot ? 0 : Math.min(Math.max(n.hop ?? 1, 1), 3);
@@ -174,7 +188,6 @@ function applyDeterministicLayout(nodes: any[], layoutMode: string) {
       const y = Math.sin(angle) * dist;
       const z = ((idx % 5) - 2) * 25;
       node.x = x; node.y = y; node.z = z;
-      // Fixed so they don't wander endlessly
       node.fx = x; node.fy = y; node.fz = z;
     });
   }
@@ -251,7 +264,8 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
   selectedChain,
   minAmount,
   riskFilter,
-  viewMode,
+  highlightedNodeIds,
+  highlightedEdgeIds,
   onFitRef,
   onResetRef,
   onZoomInRef,
@@ -262,7 +276,23 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [SpriteTextClass, setSpriteTextClass] = useState<any>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const [isPhysicsActive, setIsPhysicsActive] = useState<boolean>(false);
+
+  // Progressive Animation Engine States
+  const [visibleNodeIds, setVisibleNodeIds] = useState<Set<string>>(new Set());
+  const [visibleLinkIds, setVisibleLinkIds] = useState<Set<string>>(new Set());
+  const [activeEdgeId, setActiveEdgeId] = useState<string | null>(null);
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [isAnimating, setIsAnimating] = useState<boolean>(false);
+  const [showFinishedToast, setShowFinishedToast] = useState<boolean>(false);
+  const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
+  const [totalStepsCount, setTotalStepsCount] = useState<number>(0);
+  const [currentStepDescription, setCurrentStepDescription] = useState<string>('');
+
+  const animTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Tracks the wallet address for which the graph build animation was already completed
+  const builtAddressRef = useRef<string | null>(null);
 
   // Dynamically load SpriteText on client
   useEffect(() => {
@@ -289,9 +319,9 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
   // ─────────────────────────────────────────────────────────────────────────────
   // Transform, Layout & Filter Data into 3D Stationary Format
   // ─────────────────────────────────────────────────────────────────────────────
-  const { nodes3D, links3D } = useMemo(() => {
+  const { nodes3D, links3D, rootNodeId } = useMemo(() => {
     if (!graphData?.nodes || graphData.nodes.length === 0) {
-      return { nodes3D: [], links3D: [] };
+      return { nodes3D: [], links3D: [], rootNodeId: null };
     }
 
     const rawNodes = graphData.nodes;
@@ -299,6 +329,8 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
 
     // Map & normalize nodes
     const nodeMap = new Map<string, any>();
+    let detectedRootId: string | null = null;
+
     rawNodes.forEach((n: any) => {
       const d = n.data || n;
       const nodeId = (d.id || d.address || '').toLowerCase();
@@ -308,7 +340,12 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
         d.role === 'INPUT_WALLET' ||
         d.is_root ||
         d.hop === 0 ||
-        nodeId === rootAddress.toLowerCase();
+        (rootAddress && nodeId === rootAddress.toLowerCase());
+
+      if (isRoot) {
+        detectedRootId = nodeId;
+      }
+
       const isVasp = d.is_vasp || d.role === 'KNOWN_VASP';
       const isBridge = d.role === 'BRIDGE_PROTOCOL' || Boolean(d.bridge_protocol);
       const hop = d.hop ?? (isRoot ? 0 : 1);
@@ -390,7 +427,6 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
         txCount: d.tx_count || 0,
         role: d.role || roleType,
         riskLevel: d.risk_level || (tag === 'sanctioned' ? 'CRITICAL' : 'LOW'),
-        // Payload preserved exactly for inspector drawer
         data: {
           id: d.id || d.address,
           label: d.label || d.id || d.address,
@@ -451,7 +487,6 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
         taintRatio,
         traceableAmount: d.traceable_amount ? Number(d.traceable_amount) : null,
         unclassifiedAmount: d.unclassified_amount ? Number(d.unclassified_amount) : null,
-        // Edge data payload preserved for inspector drawer
         data: {
           id: edgeId,
           source: d.source,
@@ -475,12 +510,12 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
     });
 
     const nodeArray = Array.from(nodeMap.values());
-    // Apply deterministic initial coordinates and pin them so nodes stay stationary!
     applyDeterministicLayout(nodeArray, layoutMode);
 
     return {
       nodes3D: nodeArray,
       links3D: validLinks,
+      rootNodeId: detectedRootId,
     };
   }, [
     graphData,
@@ -495,12 +530,253 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
   ]);
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Damped OrbitControls & Auto-Fit Camera Framing
+  // Topological BFS Flow Sequence Generator
   // ─────────────────────────────────────────────────────────────────────────────
+  const generateFlowSteps = useCallback((nodes: any[], links: any[], rId: string | null): BuildStep[] => {
+    if (nodes.length === 0) return [];
+
+    const steps: BuildStep[] = [];
+    const root = (rId || (rootAddress ? rootAddress.toLowerCase() : null) || nodes[0].id).toLowerCase();
+    const nodeMap = new Map<string, any>();
+    nodes.forEach((n) => nodeMap.set(n.id, n));
+
+    const discoveredNodes = new Set<string>();
+    const discoveredEdges = new Set<string>();
+
+    // Step 0: Target Wallet Initialized
+    if (nodeMap.has(root)) {
+      discoveredNodes.add(root);
+      const rn = nodeMap.get(root);
+      steps.push({
+        type: 'REVEAL_ROOT',
+        nodeId: root,
+        label: rn.rawAddress,
+        description: `Target Wallet: ${rn.rawAddress.slice(0, 6)}...${rn.rawAddress.slice(-4)}`,
+      });
+    }
+
+    const queue: string[] = Array.from(discoveredNodes);
+    const outgoing = new Map<string, any[]>();
+    links.forEach((l) => {
+      const s = (l.source?.id || l.source || '').toLowerCase();
+      if (!outgoing.has(s)) outgoing.set(s, []);
+      outgoing.get(s)!.push(l);
+    });
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const edges = outgoing.get(current) || [];
+      edges.sort((a, b) => (b.amount || 0) - (a.amount || 0));
+
+      for (const e of edges) {
+        if (discoveredEdges.has(e.id)) continue;
+        discoveredEdges.add(e.id);
+
+        const targetId = (e.target?.id || e.target || '').toLowerCase();
+        const tgtNode = nodeMap.get(targetId);
+        const amtStr = `${Number(e.amount || 0).toFixed(2)} ${e.tokenSymbol || 'ETH'}`;
+
+        if (tgtNode && !discoveredNodes.has(targetId)) {
+          discoveredNodes.add(targetId);
+          queue.push(targetId);
+
+          const destName = tgtNode.vaspName || (tgtNode.isRoot ? 'TARGET' : `Hop ${tgtNode.hop || 1}`);
+          steps.push({
+            type: 'FLOW_EDGE_AND_NODE',
+            nodeId: targetId,
+            edgeId: e.id,
+            sourceId: current,
+            targetId,
+            amount: e.amount,
+            token: e.tokenSymbol,
+            hop: tgtNode.hop,
+            description: `${current.slice(0, 6)}... ➔ ${tgtNode.rawAddress.slice(0, 6)}... (${amtStr}) [${destName}]`,
+          });
+        } else {
+          steps.push({
+            type: 'FLOW_EDGE_ONLY',
+            edgeId: e.id,
+            sourceId: current,
+            targetId,
+            amount: e.amount,
+            token: e.tokenSymbol,
+            description: `Connecting ${current.slice(0, 6)}... ➔ ${targetId.slice(0, 6)}... (${amtStr})`,
+          });
+        }
+      }
+    }
+
+    nodes.forEach((n) => {
+      if (!discoveredNodes.has(n.id)) {
+        discoveredNodes.add(n.id);
+        steps.push({
+          type: 'REVEAL_NODE',
+          nodeId: n.id,
+          label: n.rawAddress,
+          hop: n.hop,
+          description: `Discovered Counterparty: ${n.rawAddress.slice(0, 6)}...${n.rawAddress.slice(-4)}`,
+        });
+      }
+    });
+
+    links.forEach((l) => {
+      if (!discoveredEdges.has(l.id)) {
+        discoveredEdges.add(l.id);
+        const s = (l.source?.id || l.source || '').toLowerCase();
+        const t = (l.target?.id || l.target || '').toLowerCase();
+        steps.push({
+          type: 'FLOW_EDGE_ONLY',
+          edgeId: l.id,
+          sourceId: s,
+          targetId: t,
+          amount: l.amount,
+          token: l.tokenSymbol,
+          description: `Inter-hop flow: ${s.slice(0, 6)}... ➔ ${t.slice(0, 6)}...`,
+        });
+      }
+    });
+
+    return steps;
+  }, [rootAddress]);
+
+  // Execute Animation Step
+  const runNextStep = useCallback((stepIdx: number, allSteps: BuildStep[]) => {
+    if (stepIdx >= allSteps.length) {
+      // Completed animation
+      setIsAnimating(false);
+      setActiveEdgeId(null);
+      setActiveNodeId(null);
+      setShowFinishedToast(true);
+
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => {
+        setShowFinishedToast(false);
+      }, 1800);
+
+      setTimeout(() => {
+        fgRef.current?.zoomToFit(500, 75);
+      }, 150);
+      return;
+    }
+
+    const step = allSteps[stepIdx];
+    setCurrentStepIndex(stepIdx);
+    setCurrentStepDescription(step.description);
+
+    // Natural real-time step speed (~260ms) so each connection is clearly visible
+    const stepDelay = 260;
+
+    if (step.type === 'REVEAL_ROOT' && step.nodeId) {
+      setVisibleNodeIds(new Set([step.nodeId]));
+      setActiveNodeId(step.nodeId);
+      setActiveEdgeId(null);
+
+      animTimerRef.current = setTimeout(() => {
+        runNextStep(stepIdx + 1, allSteps);
+      }, stepDelay);
+    } else if (step.type === 'FLOW_EDGE_AND_NODE' && step.edgeId && step.nodeId) {
+      // 1. Edge connection animates with bright photon particles
+      setVisibleLinkIds((prev) => new Set([...Array.from(prev), step.edgeId!]));
+      setActiveEdgeId(step.edgeId);
+
+      // 2. Target node materializes with glowing halo
+      const subDelay = 110;
+      animTimerRef.current = setTimeout(() => {
+        setVisibleNodeIds((prev) => new Set([...Array.from(prev), step.nodeId!]));
+        setActiveNodeId(step.nodeId!);
+
+        if (stepIdx % 4 === 0) {
+          fgRef.current?.zoomToFit(400, 80);
+        }
+
+        animTimerRef.current = setTimeout(() => {
+          runNextStep(stepIdx + 1, allSteps);
+        }, stepDelay - subDelay);
+      }, subDelay);
+    } else if (step.type === 'FLOW_EDGE_ONLY' && step.edgeId) {
+      setVisibleLinkIds((prev) => new Set([...Array.from(prev), step.edgeId!]));
+      setActiveEdgeId(step.edgeId);
+
+      animTimerRef.current = setTimeout(() => {
+        runNextStep(stepIdx + 1, allSteps);
+      }, stepDelay);
+    } else if (step.type === 'REVEAL_NODE' && step.nodeId) {
+      setVisibleNodeIds((prev) => new Set([...Array.from(prev), step.nodeId!]));
+      setActiveNodeId(step.nodeId);
+
+      animTimerRef.current = setTimeout(() => {
+        runNextStep(stepIdx + 1, allSteps);
+      }, stepDelay);
+    }
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Trigger Real-Time Animation ONLY when a new wallet address is entered
+  // ─────────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const currentTarget =
+      rootAddress && rootAddress !== '0x...' ? rootAddress.toLowerCase() : '';
+
+    if (!currentTarget || nodes3D.length === 0) {
+      if (!currentTarget) builtAddressRef.current = null;
+      return;
+    }
+
+    // If this exact wallet address has already been built:
+    // DO NOT animate again! Keep all nodes visible immediately!
+    if (builtAddressRef.current === currentTarget) {
+      setVisibleNodeIds(new Set(nodes3D.map((n) => n.id)));
+      setVisibleLinkIds(new Set(links3D.map((l) => l.id)));
+      setIsAnimating(false);
+      return;
+    }
+
+    // A NEW wallet address was entered!
+    builtAddressRef.current = currentTarget;
+
+    if (animTimerRef.current) clearTimeout(animTimerRef.current);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setShowFinishedToast(false);
+
+    const steps = generateFlowSteps(nodes3D, links3D, rootNodeId);
+    setTotalStepsCount(steps.length);
+
+    if (steps.length <= 1) {
+      setVisibleNodeIds(new Set(nodes3D.map((n) => n.id)));
+      setVisibleLinkIds(new Set(links3D.map((l) => l.id)));
+      setIsAnimating(false);
+      return;
+    }
+
+    // Begin animated step-by-step real-time construction
+    setIsAnimating(true);
+    setCurrentStepIndex(0);
+    setVisibleNodeIds(new Set());
+    setVisibleLinkIds(new Set());
+
+    animTimerRef.current = setTimeout(() => {
+      runNextStep(0, steps);
+    }, 180);
+
+    return () => {
+      if (animTimerRef.current) clearTimeout(animTimerRef.current);
+    };
+  }, [rootAddress, nodes3D, links3D, rootNodeId, generateFlowSteps, runNextStep]);
+
+  // When changing layout modes (e.g. to Radial, Flow, Force, i2-peeling):
+  // Re-fit the camera cleanly without re-running any building animations!
+  useEffect(() => {
+    if (!fgRef.current) return;
+    const timer = setTimeout(() => {
+      fgRef.current?.zoomToFit(500, 80);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [layoutMode]);
+
+  // Orbit controls setup
   useEffect(() => {
     if (!fgRef.current) return;
     const fg = fgRef.current;
-
     const controls = fg.controls();
     if (controls) {
       controls.enableDamping = true;
@@ -511,14 +787,22 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
       controls.minDistance = 25;
       controls.maxDistance = 3500;
     }
+  }, []);
 
-    // Auto-fit camera framing with comfortable margin
-    const timer = setTimeout(() => {
-      fg.zoomToFit(500, 85);
-    }, 250);
+  // Compute active nodes & links currently revealed
+  const displayNodes = useMemo(() => {
+    if (!isAnimating) {
+      return nodes3D;
+    }
+    return nodes3D.filter((n) => visibleNodeIds.has(n.id));
+  }, [nodes3D, visibleNodeIds, isAnimating]);
 
-    return () => clearTimeout(timer);
-  }, [nodes3D, layoutMode]);
+  const displayLinks = useMemo(() => {
+    if (!isAnimating) {
+      return links3D;
+    }
+    return links3D.filter((l) => visibleLinkIds.has(l.id));
+  }, [links3D, visibleLinkIds, isAnimating]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Expose Micro-tools (Zoom In, Zoom Out, Reset, Fit) to Floating Controls
@@ -586,7 +870,6 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
         onUpdateFocusedPath(null);
       }
 
-      // Smooth camera transition to focus node
       const distance = 140;
       const distRatio = 1 + distance / Math.hypot(node.x || 1, node.y || 1, node.z || 1);
       fgRef.current?.cameraPosition(
@@ -613,7 +896,6 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
     onUpdateFocusedPath(null);
   }, [onSelectElement, onUpdateFocusedPath]);
 
-  // Handle Dragging: updates pinned coordinates so node stays where user moves it
   const handleNodeDrag = useCallback((node: any) => {
     node.fx = node.x;
     node.fy = node.y;
@@ -621,24 +903,25 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
   }, []);
 
   const handleNodeDragEnd = useCallback((node: any) => {
-    // Lock in new position
     node.fx = node.x;
     node.fy = node.y;
     node.fz = node.z;
   }, []);
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Custom 3D Node Mesh & Clean Billboarding Labels (Mind Map Constellation Style)
+  // Custom 3D Node Mesh & Billboarding Labels
   // ─────────────────────────────────────────────────────────────────────────────
   const nodeThreeObject = useCallback(
     (node: any) => {
       const group = new THREE.Group();
       const isPathActive = focusedPath !== null;
       const isInPath = isPathActive ? focusedPath.nodeIds.has(node.id) : true;
-      const opacity = isInPath ? 1.0 : 0.15;
-      const isDimmed = isPathActive && !isInPath;
+      const isHighlighted = highlightedNodeIds ? highlightedNodeIds.has(node.id) : true;
+      const isDimmed = (isPathActive && !isInPath) || (highlightedNodeIds && !isHighlighted);
+      const opacity = isDimmed ? 0.15 : 1.0;
       const isHovered = hoveredNodeId === node.id;
       const isSelected = selectedElement?.type === 'NODE' && selectedElement.data?.id === node.id;
+      const isJustSpawned = isAnimating && activeNodeId === node.id;
 
       let primaryMesh: THREE.Mesh;
       let haloColor = 0x3b82f6;
@@ -646,13 +929,13 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
 
       switch (node.tag) {
         case 'target': {
-          nodeRadius = 6.2; // Modest, elegant size (1.4x of regular nodes)
+          nodeRadius = 6.2;
           haloColor = 0xef4444;
           const geo = new THREE.SphereGeometry(nodeRadius, 24, 24);
           const mat = new THREE.MeshStandardMaterial({
             color: isDimmed ? 0x475569 : 0xef4444,
-            emissive: isDimmed ? 0x000000 : 0xb91c1c,
-            emissiveIntensity: isDimmed ? 0 : 0.9,
+            emissive: isDimmed ? 0x000000 : isJustSpawned ? 0xff4444 : 0xb91c1c,
+            emissiveIntensity: isDimmed ? 0 : isJustSpawned ? 1.5 : 0.9,
             roughness: 0.2,
             metalness: 0.7,
             transparent: true,
@@ -668,8 +951,8 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
           const geo = new THREE.SphereGeometry(nodeRadius, 22, 22);
           const mat = new THREE.MeshStandardMaterial({
             color: isDimmed ? 0x475569 : 0x10b981,
-            emissive: isDimmed ? 0x000000 : 0x059669,
-            emissiveIntensity: isDimmed ? 0 : 0.8,
+            emissive: isDimmed ? 0x000000 : isJustSpawned ? 0x10f9a1 : 0x059669,
+            emissiveIntensity: isDimmed ? 0 : isJustSpawned ? 1.4 : 0.8,
             roughness: 0.25,
             metalness: 0.6,
             transparent: true,
@@ -685,8 +968,8 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
           const geo = new THREE.SphereGeometry(nodeRadius, 20, 20);
           const mat = new THREE.MeshStandardMaterial({
             color: isDimmed ? 0x475569 : 0xa855f7,
-            emissive: isDimmed ? 0x000000 : 0x581c87,
-            emissiveIntensity: isDimmed ? 0 : 0.85,
+            emissive: isDimmed ? 0x000000 : isJustSpawned ? 0xd875ff : 0x581c87,
+            emissiveIntensity: isDimmed ? 0 : isJustSpawned ? 1.4 : 0.85,
             roughness: 0.15,
             metalness: 0.8,
             transparent: true,
@@ -702,8 +985,8 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
           const geo = new THREE.SphereGeometry(nodeRadius, 20, 20);
           const mat = new THREE.MeshStandardMaterial({
             color: isDimmed ? 0x475569 : 0xdc2626,
-            emissive: isDimmed ? 0x000000 : 0x7f1d1d,
-            emissiveIntensity: isDimmed ? 0 : 0.95,
+            emissive: isDimmed ? 0x000000 : isJustSpawned ? 0xff2222 : 0x7f1d1d,
+            emissiveIntensity: isDimmed ? 0 : isJustSpawned ? 1.5 : 0.95,
             roughness: 0.35,
             metalness: 0.6,
             transparent: true,
@@ -719,8 +1002,8 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
           const geo = new THREE.SphereGeometry(nodeRadius, 20, 20);
           const mat = new THREE.MeshStandardMaterial({
             color: isDimmed ? 0x475569 : 0x818cf8,
-            emissive: isDimmed ? 0x000000 : 0x4338ca,
-            emissiveIntensity: isDimmed ? 0 : 0.85,
+            emissive: isDimmed ? 0x000000 : isJustSpawned ? 0xa1aaff : 0x4338ca,
+            emissiveIntensity: isDimmed ? 0 : isJustSpawned ? 1.4 : 0.85,
             roughness: 0.3,
             metalness: 0.6,
             transparent: true,
@@ -745,12 +1028,14 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
                   : 0x94a3b8,
             emissive: isDimmed
               ? 0x000000
-              : isHop1
-                ? 0x1d4ed8
-                : isDarkMode
-                  ? 0x1e293b
-                  : 0x475569,
-            emissiveIntensity: isDimmed ? 0 : isHop1 ? 0.6 : 0.25,
+              : isJustSpawned
+                ? 0x60a5fa
+                : isHop1
+                  ? 0x1d4ed8
+                  : isDarkMode
+                    ? 0x1e293b
+                    : 0x475569,
+            emissiveIntensity: isDimmed ? 0 : isJustSpawned ? 1.4 : isHop1 ? 0.6 : 0.25,
             roughness: 0.35,
             metalness: 0.4,
             transparent: true,
@@ -763,20 +1048,33 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
 
       group.add(primaryMesh);
 
-      // Luminous celestial glow halo (matching reference Mind Map aesthetic)
+      // Active Node Spawn Beacon Flare (ring ripple when node is created)
+      if (isJustSpawned) {
+        const beaconGeo = new THREE.RingGeometry(nodeRadius * 1.3, nodeRadius * 2.1, 24);
+        const beaconMat = new THREE.MeshBasicMaterial({
+          color: 0x00ff9d,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.85,
+        });
+        const beaconMesh = new THREE.Mesh(beaconGeo, beaconMat);
+        group.add(beaconMesh);
+      }
+
+      // Luminous celestial glow halo
       if (!isDimmed) {
         const auraGeo = new THREE.SphereGeometry(nodeRadius * 1.45, 16, 16);
         const auraMat = new THREE.MeshBasicMaterial({
-          color: haloColor,
+          color: isJustSpawned ? 0x00ff9d : haloColor,
           transparent: true,
-          opacity: isSelected ? 0.45 : isHovered ? 0.35 : 0.22,
+          opacity: isJustSpawned ? 0.6 : isSelected ? 0.45 : isHovered ? 0.35 : 0.22,
           side: THREE.BackSide,
           blending: THREE.AdditiveBlending,
         });
         group.add(new THREE.Mesh(auraGeo, auraMat));
       }
 
-      // Minimal, clean label (single-word badge, no giant white boxes)
+      // Billboarding labels
       if (SpriteTextClass && !isDimmed) {
         let labelText = '';
 
@@ -796,8 +1094,7 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
           labelText = `H${node.hop}`;
         }
 
-        // If hovered or selected, show address snippet as well
-        if (isHovered || isSelected) {
+        if (isHovered || isSelected || isJustSpawned) {
           const shortAddr = `${node.rawAddress.slice(0, 5)}...${node.rawAddress.slice(-3)}`;
           labelText = `${labelText} (${shortAddr})`;
         }
@@ -807,8 +1104,16 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
         sprite.textHeight = 2.4;
         sprite.fontFace = 'JetBrains Mono, monospace';
         sprite.fontWeight = '700';
-        sprite.backgroundColor = isDarkMode ? 'rgba(5, 8, 14, 0.8)' : 'rgba(255, 255, 255, 0.9)';
-        sprite.borderColor = isDarkMode ? 'rgba(30, 41, 59, 0.8)' : 'rgba(203, 213, 225, 0.85)';
+        sprite.backgroundColor = isJustSpawned
+          ? 'rgba(0, 255, 157, 0.25)'
+          : isDarkMode
+            ? 'rgba(5, 8, 14, 0.8)'
+            : 'rgba(255, 255, 255, 0.9)';
+        sprite.borderColor = isJustSpawned
+          ? '#00FF9D'
+          : isDarkMode
+            ? 'rgba(30, 41, 59, 0.8)'
+            : 'rgba(203, 213, 225, 0.85)';
         sprite.borderWidth = 0.3;
         sprite.borderRadius = 2.5;
         sprite.padding = 1.2;
@@ -818,18 +1123,26 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
 
       return group;
     },
-    [SpriteTextClass, focusedPath, isDarkMode, hoveredNodeId, selectedElement]
+    [SpriteTextClass, focusedPath, highlightedNodeIds, isDarkMode, hoveredNodeId, selectedElement, activeNodeId, isAnimating]
   );
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Dynamic Link Color & Width Mapping (Taint & Path Highlighting)
+  // Dynamic Link Color & Width Mapping (Real-Time Flow Highlight)
   // ─────────────────────────────────────────────────────────────────────────────
   const linkColor = useCallback(
     (link: any) => {
+      if (link.id === activeEdgeId) {
+        return '#00FF9D';
+      }
+
       const isPathActive = focusedPath !== null;
       if (isPathActive) {
         const inPath = focusedPath.edgeIds.has(link.id);
         return inPath ? '#6EFFC3' : isDarkMode ? 'rgba(51, 65, 85, 0.12)' : 'rgba(148, 163, 184, 0.12)';
+      }
+
+      if (highlightedEdgeIds && !highlightedEdgeIds.has(link.id)) {
+        return isDarkMode ? 'rgba(51, 65, 85, 0.12)' : 'rgba(148, 163, 184, 0.12)';
       }
 
       if (link.isCrossChain) return '#A855F7';
@@ -843,20 +1156,24 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
 
       return isDarkMode ? '#475569' : '#94A3B8';
     },
-    [focusedPath, isDarkMode]
+    [activeEdgeId, focusedPath, highlightedEdgeIds, isDarkMode]
   );
 
   const linkWidth = useCallback(
     (link: any) => {
+      if (link.id === activeEdgeId) return 3.8;
       const isPathActive = focusedPath !== null;
       const inPath = isPathActive && focusedPath.edgeIds.has(link.id);
-      return inPath ? 2.2 : 1.4;
+      return inPath ? 2.4 : 1.4;
     },
-    [focusedPath]
+    [activeEdgeId, focusedPath]
   );
 
   const linkDirectionalParticles = useCallback(
     (link: any) => {
+      if (link.id === activeEdgeId) {
+        return 8;
+      }
       const isPathActive = focusedPath !== null;
       if (isPathActive) {
         return focusedPath.edgeIds.has(link.id) ? 3 : 0;
@@ -866,12 +1183,52 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
       }
       return 1;
     },
-    [focusedPath]
+    [activeEdgeId, focusedPath]
+  );
+
+  const linkDirectionalParticleSpeed = useCallback(
+    (link: any) => {
+      if (link.id === activeEdgeId) return 0.035;
+      return 0.007;
+    },
+    [activeEdgeId]
   );
 
   return (
     <div ref={containerRef} className="w-full h-full relative overflow-hidden bg-white dark:bg-[#05080E]">
-      {/* Floating Action Strip (Mind Map Controls) */}
+      {/* ───────────────────────────────────────────────────────────────────────────── */}
+      {/* REAL-TIME INITIAL GRAPH BUILDING POP-UP (Only when wallet address is entered)  */}
+      {/* ───────────────────────────────────────────────────────────────────────────── */}
+      {isAnimating && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center space-x-3 px-4 py-2 rounded-xl bg-white/95 dark:bg-[#0D131F]/95 border border-blue-500/40 dark:border-blue-500/30 backdrop-blur-md shadow-2xl text-xs font-mono">
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
+          </span>
+          <span className="font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wide text-[11px] shrink-0">
+            Building Graph
+          </span>
+          <span className="text-slate-300 dark:text-[#334155] shrink-0">|</span>
+          <span className="text-slate-700 dark:text-[#E2E8F0] font-medium truncate max-w-sm shrink-0">
+            {currentStepDescription}
+          </span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-[#1E293B] text-slate-500 dark:text-[#94A3B8] font-bold shrink-0">
+            {currentStepIndex + 1}/{totalStepsCount}
+          </span>
+        </div>
+      )}
+
+      {/* Completion Toast (Shows briefly for 1.8s, then fades away completely) */}
+      {showFinishedToast && !isAnimating && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center space-x-2 px-4 py-2 rounded-xl bg-white/95 dark:bg-[#0D131F]/95 border border-emerald-500/40 backdrop-blur-md shadow-xl text-xs font-mono animate-fade-out">
+          <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+          <span className="font-semibold text-slate-800 dark:text-[#F8FAFC]">
+            Graph Built · {nodes3D.length} Nodes · {links3D.length} Transfers
+          </span>
+        </div>
+      )}
+
+      {/* Floating Action Strip (Camera Controls) */}
       <div className="absolute top-3 right-3 z-10 flex items-center space-x-1.5 p-1 rounded-lg bg-white/95 dark:bg-[#0D131F]/90 border border-slate-200 dark:border-[#1E293B] backdrop-blur-md shadow-lg text-[11px] font-mono text-slate-600 dark:text-[#94A3B8]">
         <button
           onClick={() => {
@@ -899,7 +1256,7 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
 
         <div className="px-2 py-1 flex items-center space-x-1 text-slate-500 dark:text-[#64748B]">
           <Lock className="h-3 w-3 text-emerald-500" />
-          <span className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400">Fixed Nodes</span>
+          <span className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400">Fixed Layout</span>
         </div>
       </div>
 
@@ -907,7 +1264,7 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
         ref={fgRef}
         width={dimensions.width}
         height={dimensions.height}
-        graphData={{ nodes: nodes3D, links: links3D }}
+        graphData={{ nodes: displayNodes, links: displayLinks }}
         backgroundColor={isDarkMode ? '#05080E' : '#FFFFFF'}
         nodeThreeObject={nodeThreeObject}
         nodeThreeObjectExtend={false}
@@ -926,28 +1283,29 @@ export const GraphCanvas3D: React.FC<GraphCanvas3DProps> = ({
         onNodeDragEnd={handleNodeDragEnd}
         linkColor={linkColor}
         linkWidth={linkWidth}
-        // Explicit 3D Directional Arrows pointing from source to target
         linkDirectionalArrowLength={4.2}
         linkDirectionalArrowRelPos={0.92}
         linkDirectionalArrowColor={linkColor}
-        // Animated photon particles traveling in direction of fund flow
         linkDirectionalParticles={linkDirectionalParticles}
-        linkDirectionalParticleSpeed={0.007}
-        linkDirectionalParticleWidth={1.8}
+        linkDirectionalParticleSpeed={linkDirectionalParticleSpeed}
+        linkDirectionalParticleWidth={2.0}
         linkDirectionalParticleColor={(link: any) =>
-          link.isCrossChain
-            ? '#A855F7'
-            : link.taintRatio >= 0.8
-              ? '#F43F5E'
-              : link.taintRatio >= 0.4
-                ? '#F59E0B'
-                : '#6EFFC3'
+          link.id === activeEdgeId
+            ? '#00FF9D'
+            : link.isCrossChain
+              ? '#A855F7'
+              : link.taintRatio >= 0.8
+                ? '#F43F5E'
+                : link.taintRatio >= 0.4
+                  ? '#F59E0B'
+                  : '#6EFFC3'
         }
-        cooldownTicks={0} // Zero ongoing physics drift: nodes are locked solid!
+        cooldownTicks={0}
         enableNodeDrag={true}
         showNavInfo={false}
       />
     </div>
   );
 };
+
 export default GraphCanvas3D;

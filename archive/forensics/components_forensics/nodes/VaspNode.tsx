@@ -5,7 +5,7 @@ import { Handle, Position, NodeProps } from '@xyflow/react';
 import { Building2, Copy, Check, ShieldCheck } from 'lucide-react';
 import { VaspNodeData } from '../types';
 
-export const VaspNode: React.FC<NodeProps<any>> = ({ data, selected, targetPosition = Position.Left, sourcePosition = Position.Right }) => {
+export const VaspNode: React.FC<any> = ({ data, selected, targetPosition = Position.Left, sourcePosition = Position.Right }) => {
   const nodeData = data as VaspNodeData;
   const [copied, setCopied] = useState(false);
 

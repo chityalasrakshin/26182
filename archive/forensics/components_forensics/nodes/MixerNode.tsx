@@ -5,7 +5,7 @@ import { Handle, Position, NodeProps } from '@xyflow/react';
 import { Layers, Copy, Check, Shuffle, ExternalLink } from 'lucide-react';
 import { MixerNodeData } from '../types';
 
-export const MixerNode: React.FC<NodeProps<any>> = ({ data, selected, targetPosition = Position.Left, sourcePosition = Position.Right }) => {
+export const MixerNode: React.FC<any> = ({ data, selected, targetPosition = Position.Left, sourcePosition = Position.Right }) => {
   const nodeData = data as MixerNodeData;
   const [copied, setCopied] = useState(false);
 

@@ -90,7 +90,7 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
   // Determine active displayed node data
   const nodeData = selectedNode?.data || selectedNode || null;
   const activeAddress = nodeData?.address || nodeData?.fullAddress || nodeData?.id || targetAddress;
-  const isRoot = !nodeData || nodeData.role === 'INPUT_WALLET' || nodeData.is_root || nodeData.isRoot || nodeData.hop === 0;
+  const isRoot = !nodeData || nodeData.role === 'INPUT_WALLET' || nodeData.is_root || nodeData.isRoot || nodeData.hop === 0 || (!!targetAddress && activeAddress?.toLowerCase() === targetAddress?.toLowerCase());
 
   const chain = detectChain(activeAddress || '');
   const rawCat = (
@@ -142,22 +142,33 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
     rawCat.includes('anonymiz')
   );
 
-  // 1. Resolve exact entity identity (Zero attribution bleed-over)
-  const entityIdentity = 
+  // 1. Resolve direct entity identity without counterparty attribution bleed-over
+  const explicitEntityName = 
     nodeData?.entity_name || 
     nodeData?.entityName || 
     (isRoot ? (analysisStatus?.entity_name || analysisStatus?.entity_label) : null) ||
     (nodeData?.label && !nodeData.label.includes('0x') && !nodeData.label.startsWith('[TARGET]') && !nodeData.label.startsWith('Hop-') ? nodeData.label : null);
 
-  // 2. Resolve display name strictly for the entity card title
-  const displayTitle = 
-    entityIdentity || 
-    (nodeData?.role === 'KNOWN_VASP' ? (nodeData?.vasp_name || nodeData?.vaspName) : null) ||
-    (isRoot 
-      ? (isSanctioned ? 'Sanctioned Threat Actor' : isExploit ? 'Exploit Drainer Entity' : 'Unknown Suspect Wallet') 
-      : 'External Counterparty');
+  const explicitVaspName = nodeData?.vasp_name || nodeData?.vaspName || null;
 
-  // 3. Isolated nearest downstream VASP attribution
+  // 2. Resolve display name strictly for the entity card title
+  // Disallow attributions[0]?.vasp_name from populating the primary label of the target entity card (isRoot === true)
+  const targetFallback = isSanctioned 
+    ? 'Sanctioned Threat Actor' 
+    : isExploit 
+    ? 'Exploit / Drainer Wallet' 
+    : 'Suspect Target Wallet';
+
+  const displayTitle = isRoot 
+    ? (explicitEntityName || explicitVaspName || targetFallback)
+    : (explicitEntityName || explicitVaspName || (nodeData?.role === 'KNOWN_VASP' ? 'Known VASP Entity' : 'External Counterparty'));
+
+  // Backward compatibility aliases
+  const entityIdentity = explicitEntityName;
+  const entityName = explicitEntityName;
+  const vaspName = displayTitle;
+
+  // 3. Isolated nearest downstream VASP attribution strictly inside the VASP Attribution & Jurisdiction sub-card
   const topAttribution = attributions && attributions.length > 0 ? attributions[0] : null;
 
   const rawRiskScore = analysisStatus?.risk_assessment?.composite_risk_score ?? analysisStatus?.risk_assessment?.score;
@@ -618,7 +629,7 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
                   <div className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                     <span className="font-mono text-[10px] font-bold text-emerald-800 uppercase tracking-wider">
-                      Nearest Identified VASP
+                      VASP Attribution &amp; Jurisdiction
                     </span>
                   </div>
                   <span className="font-mono font-bold text-[10px] px-2 py-0.5 rounded-full text-emerald-700 bg-emerald-100 border border-emerald-300">
@@ -680,7 +691,7 @@ export const InspectorSidebar: React.FC<InspectorSidebarProps> = ({
                   </div>
                   <div>
                     <h4 className="font-bold text-xs text-[#0F172A]">
-                      {nodeData?.role === 'KNOWN_VASP' ? (nodeData?.vasp_name || nodeData?.vaspName || displayTitle) : (topAttribution?.vasp_name || 'Unattributed Entity')}
+                      {nodeData?.role === 'KNOWN_VASP' ? (nodeData?.vasp_name || nodeData?.vaspName || 'Known VASP Entity') : (topAttribution?.vasp_name || 'Unattributed Entity')}
                     </h4>
                     <p className="text-[11px] text-[#64748B] mt-0.5">
                       {topAttribution?.summary || (attributions.length > 0 ? 'Designated compliance reporting entity.' : 'No recognized VASP cluster matched on-chain.')}

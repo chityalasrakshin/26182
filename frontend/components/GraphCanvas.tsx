@@ -1,54 +1,33 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import cytoscape from 'cytoscape';
-import dagre from 'cytoscape-dagre';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
-  Maximize2,
-  Minimize2,
   ZoomIn,
   ZoomOut,
   RotateCcw,
+  Maximize2,
+  Minimize2,
   SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
-  ShieldCheck,
+  Sparkles,
+  Share2,
   ExternalLink,
+  ShieldCheck,
   Copy,
   Check,
   X,
-  Layers,
-  ArrowRight,
-  TrendingUp,
-  Activity,
-  Filter,
-  Eye,
   Network,
-  Share2,
-  Coins,
-  Scale,
-  Sparkles,
-  AlertTriangle,
-  Clock,
   Box,
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import { GraphData, GraphNode, GraphEdge, NormalizedTransaction } from '../lib/types';
+import { GraphData, NormalizedTransaction } from '../lib/types';
 import { SankeyFlowView } from './SankeyFlowView';
 import { TimelineReplayBar } from './TimelineReplayBar';
 import { EntityCentralityPanel } from './EntityCentralityPanel';
 import { TemporalHistogramBar } from './TemporalHistogramBar';
 
 const GraphCanvas3D = dynamic(() => import('./GraphCanvas3D'), { ssr: false });
-
-// Register dagre layout plugin safely
-if (typeof window !== 'undefined') {
-  try {
-    cytoscape.use(dagre);
-  } catch (e) {
-    // Already registered
-  }
-}
 
 type LayoutType = 'flow' | 'force' | 'hierarchical' | 'radial' | 'i2-peeling';
 type ViewMode = 'NETWORK' | 'FUND_FLOW' | 'TIMELINE' | 'EVIDENCE';
@@ -66,415 +45,17 @@ interface GraphCanvasProps {
   className?: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Compute proportional edge width from transaction amount */
-const edgeWidthFromAmount = (amount: number): number =>
-  Math.max(1.5, Math.min(6, Math.log10(amount + 1) * 1.8));
-
-/** Opacity by hop (farther = more transparent) */
-const hopOpacity = (hop: number): number => {
-  if (hop <= 0) return 1;
-  if (hop === 1) return 1;
-  if (hop === 2) return 0.85;
-  return 0.7;
-};
-
-function buildNodeElement(n: any): cytoscape.ElementDefinition {
-  const d = n.data || n;
-  const nodeId = d.id || d.address;
-  const isRoot = d.role === 'INPUT_WALLET' || d.is_root || d.isRoot || d.hop === 0;
-  const isVasp = d.is_vasp || d.isVasp || d.role === 'KNOWN_VASP';
-  const isBridge = d.role === 'BRIDGE_PROTOCOL' || Boolean(d.bridge_protocol);
-  const hop = d.hop ?? 1;
-  const nodeChain = (d.chain || 'ethereum').toLowerCase();
-
-  const rawCat = (d.category || d.entity || d.entity_name || d.label || d.role || d.vasp_name || '').toLowerCase();
-  const isSanctioned = Boolean(
-    d.is_sanctioned ||
-    d.isSanctioned ||
-    d.sanctions_program ||
-    d.sanctionsProgram ||
-    d.tag === 'sanctioned' ||
-    rawCat.includes('sanction') ||
-    rawCat.includes('ofac') ||
-    rawCat.includes('sdn')
-  );
-
-  const isExploit = Boolean(
-    !isSanctioned && (
-      d.is_exploit ||
-      (d as any).isExploit ||
-      d.role === 'EXPLOIT_ENTITY' ||
-      rawCat.includes('exploit') ||
-      rawCat.includes('drainer') ||
-      rawCat.includes('hack') ||
-      rawCat.includes('heist')
-    )
-  );
-
-  let nodeTag: 'target' | 'exchange' | 'mixer' | 'sanctioned' | 'exploit' | 'bridge' | 'unknown' = 'unknown';
-  if (isSanctioned) {
-    nodeTag = 'sanctioned';
-  } else if (isExploit) {
-    nodeTag = 'exploit';
-  } else if (isRoot) {
-    nodeTag = 'target';
-  } else if (isBridge) {
-    nodeTag = 'bridge';
-  } else if (
-    isVasp ||
-    rawCat.includes('exchange') ||
-    rawCat.includes('binance') ||
-    rawCat.includes('okx') ||
-    rawCat.includes('vasp') ||
-    rawCat.includes('coinbase') ||
-    rawCat.includes('wazirx') ||
-    rawCat.includes('bybit') ||
-    rawCat.includes('kraken') ||
-    rawCat.includes('gate.io')
-  ) {
-    nodeTag = 'exchange';
-  } else if (
-    rawCat.includes('mixer') ||
-    rawCat.includes('tornado') ||
-    rawCat.includes('tumbler') ||
-    rawCat.includes('anonymizer')
-  ) {
-    nodeTag = 'mixer';
-  }
-
-  const shortAddr = `${nodeId.slice(0, 6)}...${nodeId.slice(-4)}`;
-  const entityTitle = d.entity_name || (d as any).entityName || d.label || (isSanctioned ? 'OFAC SANCTIONED' : isExploit ? 'EXPLOIT DRAINER' : null);
-
-  const isTreasury = d.role === 'COLD_TREASURY' || rawCat.includes('treasury') || rawCat.includes('cold');
-  const isLiquidity = d.role === 'EXCHANGE_LIQUIDITY' || rawCat.includes('liquidity');
-
-  const confNum = typeof d.vasp_confidence === 'number'
-    ? d.vasp_confidence
-    : typeof d.vasp_confidence === 'string' && !isNaN(parseFloat(d.vasp_confidence))
-      ? parseFloat(d.vasp_confidence)
-      : null;
-  const confDisplay = confNum !== null
-    ? `${confNum.toFixed(1)}%`
-    : d.vasp_confidence
-      ? String(d.vasp_confidence)
-      : '73.0%';
-
-  const label = isRoot
-    ? isSanctioned
-      ? `🚨 TARGET (SANCTIONED)\n${entityTitle ? entityTitle + '\n' : ''}${shortAddr}`
-      : isExploit
-        ? `⚠️ TARGET (EXPLOIT)\n${entityTitle ? entityTitle + '\n' : ''}${shortAddr}`
-        : entityTitle && !entityTitle.includes('0x')
-          ? `[TARGET: ${entityTitle}]\n${shortAddr}`
-          : `TARGET SUSPECT\n${shortAddr}`
-    : isSanctioned
-      ? `🚨 ${entityTitle || 'SANCTIONED'}\n${shortAddr}`
-      : isExploit
-        ? `⚠️ ${entityTitle || 'EXPLOIT'}\n${shortAddr}`
-        : isBridge
-        ? `[Bridge: ${d.bridge_protocol || 'Bridge'}]\n${shortAddr}`
-        : isTreasury
-          ? `Cold Treasury\n${shortAddr}`
-          : isLiquidity
-            ? `Exchange Liquidity\n${shortAddr}`
-            : nodeTag === 'exchange' || isVasp
-              ? `${d.vasp_name?.toUpperCase() || 'TETHER VASP'}\nCONF: ${confDisplay}`
-              : nodeTag === 'mixer'
-                ? `Mixer Gateway\n${shortAddr}`
-                : hop === 1
-                  ? `Hop-1 Layer (${shortAddr})`
-                  : `${shortAddr}\nHop ${hop}`;
-
-  return {
-    group: 'nodes',
-    classes: `tag-${nodeTag} chain-${nodeChain} ${isRoot ? 'is-root tag-target' : ''} ${isSanctioned ? 'is-sanctioned tag-sanctioned' : ''} ${isExploit ? 'is-exploit tag-exploit' : ''} ${isVasp || nodeTag === 'exchange' ? 'is-vasp tag-exchange' : ''} ${isBridge ? 'is-bridge tag-bridge' : ''} ${isTreasury ? 'node-treasury' : ''} ${isLiquidity ? 'node-liquidity' : ''} ${hop === 1 ? 'hop-1' : ''}`.trim(),
-    data: {
-      id: nodeId,
-      label: label,
-      isRoot: isRoot,
-      isSanctioned: isSanctioned,
-      entityName: entityTitle,
-      category: d.category || (isSanctioned ? 'sanctioned' : nodeTag),
-      riskLevel: isSanctioned ? 'CRITICAL' : (d.risk_level || d.riskLevel || 'LOW'),
-      sanctionsProgram: d.sanctions_program || d.sanctionsProgram,
-      isMixer: nodeTag === 'mixer',
-      isVasp: isVasp || nodeTag === 'exchange',
-      isBridge: isBridge,
-      bridgeProtocol: d.bridge_protocol,
-      chain: nodeChain,
-      tag: isSanctioned ? 'sanctioned' : nodeTag,
-      vaspName: d.vasp_name,
-      vaspConfidence: d.vasp_confidence || 95,
-      hop: hop,
-      addressType: d.address_type || 'hot_wallet',
-      fullAddress: nodeId,
-      totalInflow: d.total_inflow || 0,
-      totalOutflow: d.total_outflow || 0,
-      txCount: d.tx_count || 0,
-      role: d.role || (isRoot ? 'TARGET' : isSanctioned ? 'SANCTIONED' : isVasp ? 'VASP' : isBridge ? 'BRIDGE' : hop <= 3 ? 'INTERMEDIARY' : 'EXTERNAL'),
-      nodeOpacity: hopOpacity(hop),
-    },
-  };
-}
-
-
-function buildEdgeElement(e: any, edgeId: string): cytoscape.ElementDefinition {
-  const d = e.data || e;
-  const src = d.source;
-  const tgt = d.target;
-  const amt = Number(d.amount || 0);
-  const sym = (d.asset_symbol || d.token_symbol || 'ETH').toUpperCase();
-  const isCrossChain = Boolean(d.is_cross_chain);
-  const bridgeProto = d.bridge_protocol || '';
-
-  const amountUsd = d.amount_usd ? Number(d.amount_usd) : null;
-  const amountInr = d.amount_inr ? Number(d.amount_inr) : null;
-  const taintRatio = d.taint_ratio != null ? Number(d.taint_ratio) : null;
-  const traceableAmount = d.traceable_amount != null ? Number(d.traceable_amount) : null;
-
-  const amtStr = amt > 0 ? `${amt >= 1000 ? (amt / 1000).toFixed(1) + 'k' : amt.toFixed(2)} ${sym}` : '';
-  const inrStr = amountInr ? `₹${amountInr >= 100000 ? (amountInr / 100000).toFixed(1) + 'L' : amountInr.toFixed(0)}` : '';
-  const label = isCrossChain
-    ? `[Bridge: ${bridgeProto || 'Cross-Chain'}] ${amtStr}`
-    : inrStr ? `${amtStr}\n${inrStr}` : amtStr;
-
-  let taintClass = '';
-  if (taintRatio !== null) {
-    if (taintRatio >= 0.8) taintClass = 'taint-high';
-    else if (taintRatio >= 0.4) taintClass = 'taint-medium';
-    else if (taintRatio > 0) taintClass = 'taint-low';
-  }
-
-  return {
-    group: 'edges',
-    classes: `${isCrossChain ? 'is-cross-chain' : ''} ${taintClass}`.trim(),
-    data: {
-      id: edgeId,
-      source: src,
-      target: tgt,
-      label: label,
-      amount: amt,
-      edgeWidth: isCrossChain ? 3.5 : edgeWidthFromAmount(amt),
-      tokenSymbol: sym,
-      txHash: d.tx_hash || '',
-      timestamp: d.timestamp || '',
-      hop: d.hop || 1,
-      isCrossChain: isCrossChain,
-      bridgeProtocol: bridgeProto,
-      sourceChain: d.source_chain,
-      targetChain: d.target_chain,
-      amountUsd: amountUsd,
-      amountInr: amountInr,
-      unitPriceUsd: d.unit_price_usd || null,
-      unitPriceInr: d.unit_price_inr || null,
-      taintRatio: taintRatio,
-      traceableAmount: traceableAmount,
-      unclassifiedAmount: d.unclassified_amount || null,
-    },
-  };
-}
-
-function getLayoutConfig(
-  layoutMode: LayoutType,
-  nodeCount: number,
-  spacingScale: number,
-  rootId?: string
-) {
-  switch (layoutMode) {
-    case 'i2-peeling':
-      return {
-        name: 'dagre',
-        rankDir: 'LR',
-        nodeSep: nodeCount > 80 ? 60 : Math.round(90 * spacingScale),
-        rankSep: nodeCount > 80 ? 180 : Math.round(260 * spacingScale),
-        edgeSep: nodeCount > 80 ? 30 : 50,
-        ranker: 'longest-path',
-        animate: true,
-        animationDuration: 400,
-        animationEasing: 'ease-out-cubic' as any,
-        fit: true,
-        padding: 60,
-      };
-    case 'flow':
-      return {
-        name: 'dagre',
-        rankDir: 'LR',
-        nodeSep: nodeCount > 80 ? 80 : Math.round(120 * spacingScale),
-        rankSep: nodeCount > 80 ? 140 : Math.round(200 * spacingScale),
-        edgeSep: nodeCount > 80 ? 25 : 40,
-        ranker: 'network-simplex',
-        animate: true,
-        animationDuration: 400,
-        animationEasing: 'ease-out-cubic' as any,
-        fit: true,
-        padding: 50,
-      };
-    case 'force': {
-      const densityGravity = nodeCount > 100 ? 0.8 : nodeCount > 50 ? 0.5 : 0.25;
-      const densityRepulsion = nodeCount > 100 ? 600000 : nodeCount > 50 ? 1000000 : 2000000;
-      const densityEdgeLen = nodeCount > 100 ? 100 : nodeCount > 50 ? 140 : 180;
-      return {
-        name: 'cose',
-        animate: 'end',
-        animationDuration: 500,
-        animationEasing: 'ease-out-cubic' as any,
-        randomize: false,
-        componentSpacing: nodeCount > 100 ? 80 : 160,
-        nodeOverlap: 50,
-        idealEdgeLength: () => densityEdgeLen,
-        nodeRepulsion: () => densityRepulsion,
-        edgeElasticity: () => 80,
-        gravity: densityGravity,
-        numIter: nodeCount > 100 ? 200 : 350,
-        fit: true,
-        padding: 50,
-        nestingFactor: 1.2,
-      };
-    }
-    case 'hierarchical':
-      return {
-        name: 'breadthfirst',
-        directed: true,
-        roots: rootId ? [`#${rootId}`] : undefined,
-        spacingFactor: nodeCount > 80 ? 1.4 : 2.0 * spacingScale,
-        avoidOverlap: true,
-        animate: true,
-        animationDuration: 400,
-        fit: true,
-        padding: 50,
-        maximal: false,
-      };
-    case 'radial':
-      return {
-        name: 'concentric',
-        concentric: (node: any) => 4 - (node.data('hop') || 1),
-        levelWidth: () => 1,
-        minNodeSpacing: nodeCount > 80 ? 50 : Math.round(120 * spacingScale),
-        animate: true,
-        animationDuration: 400,
-        fit: true,
-        padding: 50,
-        startAngle: 0,
-        sweep: 2 * Math.PI,
-        equidistant: false,
-      };
-  }
-}
-
-function applyFilters(
-  cy: cytoscape.Core,
-  selectedHops: Set<number>,
-  selectedEntityTypes: Set<string>,
-  selectedToken: string,
-  selectedChain: string,
-  minAmount: number,
-  viewMode: ViewMode
-) {
-  cy.batch(() => {
-    const validNodeIds = new Set<string>();
-
-    cy.nodes().forEach((n) => {
-      const d = n.data();
-      const isRoot = d.isRoot || d.role === 'INPUT_WALLET' || d.hop === 0;
-      const hop = d.hop ?? 1;
-      const nodeChain = (d.chain || 'ethereum').toLowerCase();
-      const isBridge = d.isBridge || d.role === 'BRIDGE_PROTOCOL';
-      const isVasp = d.isVasp;
-
-      // Chain filter (root stays visible)
-      if (selectedChain !== 'ALL' && nodeChain !== selectedChain.toLowerCase() && !isRoot) {
-        n.addClass('filter-hidden');
-        return;
-      }
-
-      // Hop filter
-      if (!isRoot && !selectedHops.has(hop)) {
-        n.addClass('filter-hidden');
-        return;
-      }
-
-      // Entity type filter
-      let entityType = 'EXTERNAL';
-      if (isRoot || d.isSanctioned || d.tag === 'sanctioned') entityType = 'TARGET';
-      else if (isVasp) entityType = 'VASP';
-      else if (isBridge) entityType = 'BRIDGE';
-      else if (hop >= 1 && hop <= 3) entityType = 'INTERMEDIARY';
-
-
-      if (!selectedEntityTypes.has(entityType) && !isBridge) {
-        n.addClass('filter-hidden');
-        return;
-      }
-
-      // View Mode Filtering
-      if (viewMode === 'EVIDENCE' && !isRoot && !isVasp && !isBridge && hop > 2) {
-        n.addClass('filter-hidden');
-        return;
-      }
-
-      validNodeIds.add(n.id());
-      n.removeClass('filter-hidden');
-    });
-
-    cy.edges().forEach((e) => {
-      const d = e.data();
-      const src = e.source().id();
-      const tgt = e.target().id();
-
-      if (!validNodeIds.has(src) || !validNodeIds.has(tgt)) {
-        e.addClass('filter-hidden');
-        return;
-      }
-
-      const amt = Number(d.amount || 0);
-      const sym = (d.tokenSymbol || 'ETH').toUpperCase();
-
-      // Token filter
-      if (selectedToken !== 'ALL' && sym !== selectedToken) {
-        e.addClass('filter-hidden');
-        return;
-      }
-
-      // Min amount filter
-      if (minAmount > 0 && amt < minAmount) {
-        e.addClass('filter-hidden');
-        return;
-      }
-
-      e.removeClass('filter-hidden');
-    });
-  });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────────────────────────
-
 export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   graphData,
   isFullScreenView = false,
   transactions,
   onPivotTarget,
-  activeJobId,
-  isStreaming = false,
-  streamingHop = 1,
   onSelectNode,
   className = '',
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const cyRef = useRef<cytoscape.Core | null>(null);
-  const focusedPathRef = useRef<boolean>(false);
-  const lastRootRef = useRef<string | null>(null);
-  const streamingLayoutTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // View & Layout State
+  // View & Layout State (Pure 3D Graph)
   const [layoutMode, setLayoutMode] = useState<LayoutType>('flow');
   const [viewMode, setViewMode] = useState<ViewMode>('NETWORK');
-  const [dimensionMode, setDimensionMode] = useState<'2D' | '3D'>('2D');
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
 
@@ -495,10 +76,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   const [timeRange, setTimeRange] = useState<string>('ALL');
   const [riskFilter, setRiskFilter] = useState<RiskFilterType>('ALL');
 
-  // IBM i2 Enterprise Insight Analysis Tools State
+  // Forensic Analysis Tools State
   const [showCentralityPanel, setShowCentralityPanel] = useState<boolean>(false);
   const [selectedTemporalHour, setSelectedTemporalHour] = useState<number | null>(null);
   const [showHistogramBar, setShowHistogramBar] = useState<boolean>(true);
+
+  // Highlight filters for 3D view
+  const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string> | null>(null);
+  const [highlightedEdgeIds, setHighlightedEdgeIds] = useState<Set<string> | null>(null);
 
   // Inspection & Path Focus State
   const [selectedElement, setSelectedElement] = useState<any>(null);
@@ -513,13 +98,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
   const [copied, setCopied] = useState<boolean>(false);
 
-  // Sync ref with state for use in closure-captured event handlers
-  const updateFocusedPath = useCallback((val: typeof focusedPath) => {
-    focusedPathRef.current = val !== null;
-    setFocusedPath(val);
-  }, []);
-
-  // Fullscreen keyboard listener (Escape) and graph resize triggers
+  // Fullscreen keyboard listener (Escape)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isFullScreen) {
@@ -530,1001 +109,81 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullScreen]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (cyRef.current) {
-        cyRef.current.resize();
-        cyRef.current.fit(undefined, 30);
-      }
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [isFullScreen]);
-
-  // Compute Root Target Wallet from data
+  // Derived Target Node & Graph Metrics
   const rootNode = useMemo(() => {
-    if (!graphData?.nodes) return null;
-    return graphData.nodes.find(
-      (n: any) => (n.data?.role === 'INPUT_WALLET' || n.data?.is_root || n.data?.hop === 0)
-    )?.data || null;
+    if (!graphData?.nodes || graphData.nodes.length === 0) return null;
+    return (
+      graphData.nodes.find((n: any) => {
+        const d = n.data || n;
+        return d.role === 'INPUT_WALLET' || d.is_root || d.isRoot || d.hop === 0;
+      }) || graphData.nodes[0]
+    );
   }, [graphData]);
 
-  const rootAddress = rootNode?.address || rootNode?.id || graphData?.stats?.root_wallet || '0x...';
+  const rootAddress = useMemo(() => {
+    if (!rootNode) return '0x...';
+    const d = (rootNode as any).data || rootNode;
+    return d.id || d.address || '0x...';
+  }, [rootNode]);
 
-  // Compute Aggregate Live Metrics from Graph Data
   const graphMetrics = useMemo(() => {
-    if (!graphData?.nodes) {
-      return {
-        totalNodes: 0,
-        totalTransfers: 0,
-        maxHops: 3,
-        vaspEndpoints: 0,
-        totalObservedVolume: 0,
-        primaryToken: 'USDT',
-        tokensAvailable: ['ALL'],
-        chainsAvailable: ['ALL'],
-      };
-    }
+    const nodes = graphData?.nodes || [];
+    const edges = graphData?.edges || [];
 
-    const totalNodes = graphData.nodes.length;
-    const totalTransfers = graphData.edges?.length || 0;
-    const vaspEndpoints = graphData.nodes.filter((n: any) => n.data?.is_vasp || n.data?.role === 'KNOWN_VASP').length;
-    const maxHops = Math.max(...graphData.nodes.map((n: any) => n.data?.hop || 0), 3);
+    let totalVol = 0;
+    const tokenSet = new Set<string>();
+    const chainSet = new Set<string>();
 
-    let totalVolume = 0;
-    const tokens = new Set<string>(['ALL']);
-    const chains = new Set<string>(['ALL']);
-
-    graphData.nodes?.forEach((n: any) => {
-      const c = n.data?.chain;
-      if (c) chains.add(c.toLowerCase());
+    edges.forEach((e: any) => {
+      const d = e.data || e;
+      totalVol += Number(d.amount || 0);
+      const sym = (d.asset_symbol || d.token_symbol || 'ETH').toUpperCase();
+      tokenSet.add(sym);
+      if (d.source_chain) chainSet.add(d.source_chain.toLowerCase());
+      if (d.target_chain) chainSet.add(d.target_chain.toLowerCase());
     });
 
-    graphData.edges?.forEach((e: any) => {
-      const amt = Number(e.data?.amount || 0);
-      totalVolume += amt;
-      const sym = e.data?.asset_symbol || e.data?.token_symbol || 'ETH';
-      if (sym) tokens.add(sym.toUpperCase());
+    nodes.forEach((n: any) => {
+      const d = n.data || n;
+      if (d.chain) chainSet.add(d.chain.toLowerCase());
     });
 
     return {
-      totalNodes,
-      totalTransfers,
-      maxHops,
-      vaspEndpoints,
-      totalObservedVolume: totalVolume,
-      primaryToken: tokens.has('USDT') ? 'USDT' : 'ETH',
-      tokensAvailable: Array.from(tokens),
-      chainsAvailable: Array.from(chains),
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      totalVolume: totalVol,
+      tokensAvailable: ['ALL', ...Array.from(tokenSet)],
+      chainsAvailable: ['ALL', ...Array.from(chainSet)],
+      primaryToken: Array.from(tokenSet)[0] || 'ETH',
     };
   }, [graphData]);
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // CYTOSCAPE GRAPH LIFECYCLE — REDESIGNED
-  // ═══════════════════════════════════════════════════════════════════════════
-  useEffect(() => {
-    if (!containerRef.current || !graphData || !graphData.nodes || graphData.nodes.length === 0) {
-      return;
-    }
-
-    const currentRoot = (graphData.stats?.root_wallet || graphData.nodes.find(
-      (n: any) => (n.data?.role === 'INPUT_WALLET' || n.data?.is_root || n.data?.hop === 0)
-    )?.data?.id || graphData.nodes[0]?.data?.id || '').toLowerCase();
-
-    // Incremental streaming / update for existing active investigation target
-    if (cyRef.current && lastRootRef.current === currentRoot) {
-      const cy = cyRef.current;
-      const existingNodeIds = new Set(cy.nodes().map((n) => n.id().toLowerCase()));
-      const existingEdgeIds = new Set(cy.edges().map((e) => e.id()));
-      const newElements: cytoscape.ElementDefinition[] = [];
-
-      graphData.nodes.forEach((n: any) => {
-        const d = n.data || n;
-        const id = (d.id || d.address || '').toLowerCase();
-        if (id && !existingNodeIds.has(id)) {
-          newElements.push(buildNodeElement(n));
-          existingNodeIds.add(id);
-        }
-      });
-
-      graphData.edges?.forEach((e: any, idx: number) => {
-        const d = e.data || e;
-        const edgeId = d.id || `edge-${idx}`;
-        const src = (d.source || '').toLowerCase();
-        const tgt = (d.target || '').toLowerCase();
-        if (edgeId && !existingEdgeIds.has(edgeId) && existingNodeIds.has(src) && existingNodeIds.has(tgt)) {
-          newElements.push(buildEdgeElement(e, edgeId));
-          existingEdgeIds.add(edgeId);
-        }
-      });
-
-      if (newElements.length > 0) {
-        cy.batch(() => {
-          cy.add(newElements);
-          applyFilters(cy, selectedHops, selectedEntityTypes, selectedToken, selectedChain, minAmount, viewMode);
-        });
-
-        // Throttle layout during live streaming: 300ms debounce prevents UI freezing
-        if (streamingLayoutTimerRef.current) clearTimeout(streamingLayoutTimerRef.current);
-        streamingLayoutTimerRef.current = setTimeout(() => {
-          if (!cyRef.current) return;
-          const visibleCount = cyRef.current.nodes(':visible').length;
-          const spacingScale = visibleCount > 40 ? 1.3 : visibleCount > 20 ? 1.1 : 1.0;
-          const cfg = getLayoutConfig(layoutMode, visibleCount, spacingScale, currentRoot);
-          cyRef.current.layout(cfg).run();
-        }, 300);
-      }
-      return;
-    }
-
-    // New investigation target: full initialization
-    if (cyRef.current) {
-      cyRef.current.destroy();
-      cyRef.current = null;
-    }
-    lastRootRef.current = currentRoot;
-
-    const elements: cytoscape.ElementDefinition[] = [];
-
-    graphData.nodes.forEach((n: any) => {
-      elements.push(buildNodeElement(n));
-    });
-
-    graphData.edges?.forEach((e: any, idx: number) => {
-      const edgeId = e.data?.id || `edge-${idx}`;
-      elements.push(buildEdgeElement(e, edgeId));
-    });
-
-    const vaspNodeIds = new Set(elements.filter(el => el.group === 'nodes' && (el.data?.isVasp || el.classes?.includes('tag-exchange'))).map(el => el.data?.id));
-    const riskNodeIds = new Set(elements.filter(el => el.group === 'nodes' && (el.data?.tag === 'mixer' || el.data?.tag === 'sanctioned')).map(el => el.data?.id));
-
-    elements.forEach(el => {
-      if (el.group === 'edges') {
-        if (vaspNodeIds.has(el.data?.target)) {
-          el.classes = (el.classes || '') + ' edge-to-vasp';
-        }
-        if (riskNodeIds.has(el.data?.target)) {
-          el.classes = (el.classes || '') + ' edge-to-risk';
-        }
-      }
-    });
-
-    const nodeCount = elements.filter(el => el.group === 'nodes').length;
-    const spacingScale = nodeCount > 40 ? 1.3 : nodeCount > 20 ? 1.1 : 1.0;
-    const layoutConfig = getLayoutConfig(layoutMode, nodeCount, spacingScale, currentRoot);
-
-    const isDarkMode = typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : false;
-    const baseTextColor = '#0F172A';
-    const dimTextColor = '#64748B';
-    const surfaceColor = '#FFFFFF';
-    const borderColor = '#CBD5E1';
-    const canvasBg = '#FFFFFF';
-
-    // Adaptive node sizing: scale down for dense graphs
-    const sizeScale = nodeCount > 120 ? 0.65 : nodeCount > 80 ? 0.75 : nodeCount > 40 ? 0.85 : 1.0;
-    const sz = (base: number) => Math.round(base * sizeScale);
-    const fs = (base: number) => Math.round(base * Math.max(sizeScale, 0.8) * 10) / 10;
-
-    const cy = cytoscape({
-      container: containerRef.current,
-      elements: elements,
-
-      // ── Global interaction config ──
-      minZoom: 0.15,
-      maxZoom: 4.0,
-      wheelSensitivity: 0.3,
-      boxSelectionEnabled: true,
-      selectionType: 'additive',
-      autoungrabify: false,
-
-      style: [
-        // ── Filter Hidden Style (0ms instant display toggle) ──
-        {
-          selector: '.filter-hidden',
-          style: {
-            'display': 'none',
-          },
-        },
-        // ────────────────── BASE NODE ──────────────────
-        {
-          selector: 'node',
-          style: {
-            'label': 'data(label)',
-            'color': baseTextColor,
-            'font-family': 'JetBrains Mono, ui-monospace, SFMono-Regular, monospace',
-            'font-size': `${fs(9)}px`,
-            'text-wrap': 'wrap',
-            'text-max-width': `${sz(110)}px`,
-            'text-valign': 'bottom',
-            'text-halign': 'center',
-            'text-margin-y': sz(8),
-            'background-color': surfaceColor,
-            'border-width': 2,
-            'border-color': borderColor,
-            'width': sz(56),
-            'height': sz(56),
-            'shape': 'ellipse',
-            'opacity': 'data(nodeOpacity)' as any,
-            'overlay-opacity': 0,
-            'overlay-padding': 6,
-            'transition-property': 'background-color, border-color, width, height, opacity, overlay-opacity',
-            'transition-duration': 200,
-          },
-        },
-        // ────────────────── TARGET / ROOT (Concentric Coral & Amber Rings - Chainalysis Reactor) ──────────────────
-        {
-          selector: 'node[tag = "target"], node.tag-target, node.is-root',
-          style: {
-            'background-color': '#FFFFFF',
-            'border-color': '#EF4444',
-            'border-width': 3.5,
-            'color': '#0F172A',
-            'width': sz(76),
-            'height': sz(76),
-            'font-weight': 'bold',
-            'font-size': `${fs(10)}px`,
-            'shape': 'ellipse',
-            'text-valign': 'bottom',
-            'text-margin-y': sz(10),
-            'opacity': 1,
-            'overlay-color': '#F59E0B',
-            'overlay-opacity': 0.25,
-            'overlay-padding': sz(8),
-          },
-        },
-        // ────────────────── EXCHANGE / VASP (Chainalysis Reactor Style) ──────────────────
-        {
-          selector: 'node[tag = "exchange"], node.tag-exchange, node.is-vasp',
-          style: {
-            'background-color': '#FFFFFF',
-            'border-color': '#0284C7',
-            'border-width': 3,
-            'color': '#0F172A',
-            'width': sz(76),
-            'height': sz(60),
-            'shape': 'roundrectangle',
-            'font-weight': 'bold',
-            'font-size': `${fs(10)}px`,
-            'text-valign': 'bottom',
-            'text-margin-y': sz(8),
-            'opacity': 1,
-          },
-        },
-        // ────────────────── MIXER / TUMBLER (Diamond) ──────────────────
-        {
-          selector: 'node[tag = "mixer"], node.tag-mixer',
-          style: {
-            'background-color': isDarkMode ? '#3b0764' : '#F3E8FF',
-            'border-color': isDarkMode ? '#a855f7' : '#9333EA',
-            'border-width': 3,
-            'color': isDarkMode ? '#d8b4fe' : '#6B21A8',
-            'width': sz(66),
-            'height': sz(58),
-            'shape': 'diamond',
-            'font-weight': 'bold',
-            'font-size': `${fs(10)}px`,
-            'text-valign': 'bottom',
-            'text-margin-y': sz(10),
-          },
-        },
-        // ────────────────── SANCTIONED / OFAC (Octagon) ──────────────────
-        {
-          selector: 'node[tag = "sanctioned"], node.tag-sanctioned, node.is-sanctioned',
-          style: {
-            'background-color': isDarkMode ? '#450a0a' : '#FEF2F2',
-            'border-color': isDarkMode ? '#ef4444' : '#DC2626',
-            'border-width': 4,
-            'color': isDarkMode ? '#fca5a5' : '#991B1B',
-            'width': sz(72),
-            'height': sz(64),
-            'shape': 'octagon',
-            'font-weight': 'bold',
-            'font-size': `${fs(10)}px`,
-            'text-valign': 'bottom',
-            'text-margin-y': sz(10),
-            'overlay-color': '#DC2626',
-            'overlay-opacity': 0.2,
-            'overlay-padding': sz(8),
-          },
-        },
-        // ────────────────── SANCTIONED ROOT TARGET ──────────────────
-        {
-          selector: 'node.is-root.is-sanctioned, node.is-root.tag-sanctioned, node.is-root[tag = "sanctioned"]',
-          style: {
-            'background-color': isDarkMode ? '#450a0a' : '#FEF2F2',
-            'border-color': '#DC2626',
-            'border-width': 5,
-            'color': isDarkMode ? '#fecaca' : '#7F1D1D',
-            'width': sz(88),
-            'height': sz(88),
-            'shape': 'octagon',
-            'font-weight': 'bold',
-            'font-size': `${fs(11)}px`,
-            'text-valign': 'bottom',
-            'text-margin-y': sz(12),
-            'opacity': 1,
-            'overlay-color': '#DC2626',
-            'overlay-opacity': 0.35,
-            'overlay-padding': sz(10),
-          },
-        },
-
-        // ────────────────── EXPLOIT DRAINER (Diamond) ──────────────────
-        {
-          selector: 'node[tag = "exploit"], node.tag-exploit, node.is-exploit',
-          style: {
-            'background-color': isDarkMode ? '#4c0519' : '#FFF1F2',
-            'border-color': isDarkMode ? '#f43f5e' : '#E11D48',
-            'border-width': 4,
-            'color': isDarkMode ? '#fda4af' : '#9F1239',
-            'width': sz(72),
-            'height': sz(64),
-            'shape': 'diamond',
-            'font-weight': 'bold',
-            'font-size': `${fs(10)}px`,
-            'text-valign': 'bottom',
-            'text-margin-y': sz(10),
-            'overlay-color': '#E11D48',
-            'overlay-opacity': 0.25,
-            'overlay-padding': sz(8),
-          },
-        },
-        // ────────────────── EXPLOIT ROOT TARGET ──────────────────
-        {
-          selector: 'node.is-root.is-exploit, node.is-root.tag-exploit, node.is-root[tag = "exploit"]',
-          style: {
-            'background-color': isDarkMode ? '#4c0519' : '#FFF1F2',
-            'border-color': '#E11D48',
-            'border-width': 5,
-            'color': isDarkMode ? '#ffe4e6' : '#881337',
-            'width': sz(88),
-            'height': sz(88),
-            'shape': 'diamond',
-            'font-weight': 'bold',
-            'font-size': `${fs(11)}px`,
-            'text-valign': 'bottom',
-            'text-margin-y': sz(12),
-            'opacity': 1,
-            'overlay-color': '#E11D48',
-            'overlay-opacity': 0.35,
-            'overlay-padding': sz(10),
-          },
-        },
-
-        // ────────────────── BRIDGE PROTOCOL (Hexagon) ──────────────────
-        {
-          selector: 'node[tag = "bridge"], node.tag-bridge, node.is-bridge, node[role = "BRIDGE_PROTOCOL"]',
-          style: {
-            'background-color': '#2e1065',
-            'border-color': '#a855f7',
-            'border-width': 3,
-            'border-style': 'dashed',
-            'color': '#d8b4fe',
-            'width': sz(70),
-            'height': sz(60),
-            'shape': 'hexagon',
-            'font-weight': 'bold',
-            'font-size': `${fs(10)}px`,
-            'text-valign': 'bottom',
-            'text-margin-y': sz(8),
-            'overlay-color': '#a855f7',
-            'overlay-opacity': 0.08,
-            'overlay-padding': sz(8),
-          },
-        },
-        // ── Chain Accents ──
-        {
-          selector: 'node.chain-solana:not(.is-root):not(.is-vasp):not(.is-bridge)',
-          style: {
-            'border-color': '#4cd6fb',
-            'background-color': surfaceColor,
-            'color': baseTextColor,
-          },
-        },
-        {
-          selector: 'node.chain-tron:not(.is-root):not(.is-vasp):not(.is-bridge)',
-          style: {
-            'border-color': '#ffb4ab',
-            'background-color': surfaceColor,
-            'color': baseTextColor,
-          },
-        },
-        {
-          selector: 'node.chain-bitcoin:not(.is-root):not(.is-vasp):not(.is-bridge)',
-          style: {
-            'border-color': '#ffd9dc',
-            'background-color': surfaceColor,
-            'color': baseTextColor,
-          },
-        },
-        // ────────────────── HOP 1 NODES ──────────────────
-        {
-          selector: 'node.hop-1, node[hop = 1]:not(.is-root):not(.is-vasp):not([tag = "mixer"]):not([tag = "sanctioned"])',
-          style: {
-            'shape': 'ellipse',
-            'border-color': '#3b82f6',
-            'background-color': isDarkMode ? '#1e293b' : '#f1f5f9',
-            'border-width': 2,
-            'color': isDarkMode ? '#93c5fd' : '#1d4ed8',
-            'width': sz(56),
-            'height': sz(56),
-            'font-size': `${fs(9)}px`,
-            'text-valign': 'bottom',
-            'text-margin-y': sz(8),
-          },
-        },
-        // ────────────────── COLD TREASURY ──────────────────
-        {
-          selector: 'node.node-treasury',
-          style: {
-            'shape': 'ellipse',
-            'border-color': '#14b8a6',
-            'background-color': isDarkMode ? '#042f2e' : '#f0fdfa',
-            'border-width': 2,
-            'color': isDarkMode ? '#5eead4' : '#0f766e',
-            'width': sz(52),
-            'height': sz(52),
-            'font-size': `${fs(9)}px`,
-            'text-valign': 'bottom',
-            'text-margin-y': sz(8),
-          },
-        },
-        // ────────────────── EXCHANGE LIQUIDITY ──────────────────
-        {
-          selector: 'node.node-liquidity',
-          style: {
-            'shape': 'ellipse',
-            'border-color': '#4cd6fb',
-            'background-color': surfaceColor,
-            'border-width': 2,
-            'color': dimTextColor,
-            'width': sz(52),
-            'height': sz(52),
-            'font-size': `${fs(9)}px`,
-            'text-valign': 'bottom',
-            'text-margin-y': sz(8),
-          },
-        },
-        // ────────────────── UNKNOWN / INTERMEDIARY ──────────────────
-        {
-          selector: 'node[tag = "unknown"]:not(.hop-1), node.tag-unknown:not(.hop-1)',
-          style: {
-            'background-color': surfaceColor,
-            'border-color': borderColor,
-            'border-width': 2,
-            'color': dimTextColor,
-            'width': sz(54),
-            'height': sz(54),
-            'shape': 'ellipse',
-            'font-size': `${fs(9)}px`,
-            'text-valign': 'bottom',
-            'text-margin-y': sz(8),
-          },
-        },
-        // ── Hop 2 color accent ──
-        {
-          selector: 'node[hop = 2].tag-unknown',
-          style: {
-            'border-color': '#8b5cf6',
-            'background-color': '#1e1b4b',
-            'color': '#e0e2eb',
-          },
-        },
-        // ── Hop 3 color accent ──
-        {
-          selector: 'node[hop = 3].tag-unknown',
-          style: {
-            'border-color': '#6366f1',
-            'background-color': '#1e1e38',
-            'color': '#bacbbf',
-          },
-        },
-
-        // ────────────────── BASE EDGE (Chainalysis Reactor Cyan Arrows & Amount Tags) ──────────────────
-        {
-          selector: 'edge',
-          style: {
-            'width': 2.5,
-            'line-color': '#38BDF8',
-            'target-arrow-color': '#0284C7',
-            'target-arrow-shape': 'triangle',
-            'arrow-scale': 1.05,
-            'curve-style': 'unbundled-bezier',
-            'control-point-step-size': nodeCount > 80 ? 30 : 45,
-            'label': nodeCount > 100 ? '' : 'data(label)',
-            'font-size': `${fs(8)}px`,
-            'font-family': 'JetBrains Mono, ui-monospace, SFMono-Regular, monospace',
-            'color': '#0F172A',
-            'text-rotation': 'autorotate',
-            'text-background-opacity': 0.98,
-            'text-background-color': '#FFFFFF',
-            'text-border-color': '#CBD5E1',
-            'text-border-width': 1,
-            'text-border-opacity': 1,
-            'text-background-padding': '3px',
-            'text-background-shape': 'roundrectangle',
-            'text-margin-y': -8,
-            'overlay-opacity': 0,
-            'transition-property': 'line-color, target-arrow-color, width, opacity',
-            'transition-duration': 200,
-          },
-        },
-        // ── Hop-1 dashed cyan curved edge (Target to Hop-1) ──
-        {
-          selector: 'edge[hop = 1], edge.hop-1',
-          style: {
-            'line-color': '#4cd6fb',
-            'target-arrow-color': '#4cd6fb',
-            'line-style': 'dashed',
-            'line-dash-pattern': [6, 4] as any,
-            'width': 2.5,
-          },
-        },
-        // ── Flow into VASP (Cyber-Mint curve with arrow) ──
-        {
-          selector: 'edge.edge-to-vasp',
-          style: {
-            'line-color': '#6effc3',
-            'target-arrow-color': '#6effc3',
-            'width': 3,
-            'z-index': 900,
-          },
-        },
-        // ── Flow into High Risk / Mixer / Peeling (Coral curve with arrow) ──
-        {
-          selector: 'edge.edge-to-risk',
-          style: {
-            'line-color': '#ffb4ab',
-            'target-arrow-color': '#ffb4ab',
-            'width': 2.5,
-            'z-index': 850,
-          },
-        },
-
-        // ────────────────── FIFO TAINT EDGE COLORING ──────────
-        {
-          selector: 'edge.taint-high',
-          style: {
-            'line-color': '#ffb4ab',
-            'target-arrow-color': '#ffb4ab',
-            'width': 3.5,
-            'z-index': 900,
-          },
-        },
-        {
-          selector: 'edge.taint-medium',
-          style: {
-            'line-color': '#ffd9dc',
-            'target-arrow-color': '#ffd9dc',
-            'width': 3,
-            'z-index': 850,
-          },
-        },
-        {
-          selector: 'edge.taint-low',
-          style: {
-            'line-color': '#6effc3',
-            'target-arrow-color': '#6effc3',
-            'z-index': 800,
-          },
-        },
-
-        // ────────────────── INTERACTIVE STATES ──────────────────
-
-        // Hover: node scale + glow
-        {
-          selector: 'node:active',
-          style: {
-            'overlay-opacity': 0.15,
-            'overlay-color': '#4cd6fb',
-            'overlay-padding': 10,
-          },
-        },
-
-        // Path Focus — highlighted path
-        {
-          selector: '.path-focused',
-          style: {
-            'line-color': '#6effc3',
-            'target-arrow-color': '#6effc3',
-            'width': 3.5,
-            'z-index': 999,
-            'label': 'data(label)',
-            'font-size': '9px',
-            'text-background-opacity': 0.95,
-          },
-        },
-        {
-          selector: 'node.path-focused',
-          style: {
-            'border-color': '#6effc3',
-            'border-width': 4,
-            'z-index': 999,
-            'overlay-color': '#6effc3',
-            'overlay-opacity': 0.15,
-            'overlay-padding': 10,
-          },
-        },
-        // Path Focus — dimmed elements
-        {
-          selector: '.path-dimmed',
-          style: {
-            'opacity': 0.15,
-          },
-        },
-        // Timeline replay — active edge
-        {
-          selector: '.replay-active-edge',
-          style: {
-            'line-color': '#6effc3',
-            'target-arrow-color': '#6effc3',
-            'width': 4.5,
-            'z-index': 1000,
-          },
-        },
-        // Timeline replay — active node
-        {
-          selector: 'node.replay-active-node',
-          style: {
-            'border-color': '#6effc3',
-            'border-width': 4,
-            'z-index': 1000,
-            'overlay-color': '#6effc3',
-            'overlay-opacity': 0.2,
-            'overlay-padding': 12,
-          },
-        },
-        // Selection
-        {
-          selector: ':selected',
-          style: {
-            'border-color': '#4cd6fb',
-            'border-width': 3.5,
-            'line-color': '#4cd6fb',
-            'target-arrow-color': '#4cd6fb',
-            'overlay-color': '#4cd6fb',
-            'overlay-opacity': 0.15,
-          },
-        },
-        // Hover highlight class (applied via JS)
-        {
-          selector: '.node-hover',
-          style: {
-            'border-width': 3.5,
-            'overlay-opacity': 0.15,
-            'overlay-color': '#4cd6fb',
-            'overlay-padding': 10,
-          },
-        },
-        {
-          selector: '.edge-hover',
-          style: {
-            'width': 3.5,
-            'line-color': '#4cd6fb',
-            'target-arrow-color': '#4cd6fb',
-            'z-index': 500,
-            'label': 'data(label)',
-            'font-size': '9px',
-            'text-background-opacity': 0.95,
-          },
-        },
-        {
-          selector: '.neighbor-dim',
-          style: {
-            'opacity': 0.25,
-          },
-        },
-        // ── IBM i2 Centrality Highlighting Rules ──
-        {
-          selector: 'node.i2-highlighted-node',
-          style: {
-            'border-color': '#ffb4ab',
-            'border-width': 4,
-            'overlay-color': '#ffb4ab',
-            'overlay-opacity': 0.25,
-            'overlay-padding': 12,
-            'z-index': 999,
-            'font-weight': 'bold',
-            'font-size': `${fs(11)}px`,
-            'opacity': 1,
-          },
-        },
-        {
-          selector: 'node.i2-highlighted-consol',
-          style: {
-            'border-color': '#4cd6fb',
-            'border-width': 4,
-            'overlay-color': '#4cd6fb',
-            'overlay-opacity': 0.25,
-            'overlay-padding': 12,
-            'z-index': 999,
-            'font-weight': 'bold',
-            'opacity': 1,
-          },
-        },
-        {
-          selector: 'edge.i2-highlighted-edge',
-          style: {
-            'line-color': '#ffb4ab',
-            'target-arrow-color': '#ffb4ab',
-            'width': 4,
-            'z-index': 998,
-            'opacity': 1,
-            'label': 'data(label)',
-            'font-size': '9px',
-            'font-weight': 'bold',
-            'text-background-opacity': 0.95,
-            'text-background-color': '#0b0e14',
-          },
-        },
-        {
-          selector: '.i2-dimmed',
-          style: {
-            'opacity': 0.15,
-          },
-        },
-        // ── Temporal Histogram Hour Active Rules ──
-        {
-          selector: 'edge.temporal-active-edge',
-          style: {
-            'line-color': '#6effc3',
-            'target-arrow-color': '#6effc3',
-            'width': 4.5,
-            'z-index': 1000,
-            'label': 'data(label)',
-            'font-size': '10px',
-            'font-weight': 'bold',
-            'text-background-opacity': 0.98,
-            'text-background-color': '#0b0e14',
-          },
-        },
-        {
-          selector: 'node.temporal-active-node',
-          style: {
-            'border-color': '#6effc3',
-            'border-width': 4,
-            'overlay-color': '#6effc3',
-            'overlay-opacity': 0.25,
-            'overlay-padding': 12,
-            'z-index': 1000,
-          },
-        },
-      ],
-      layout: layoutConfig,
-    });
-
-    // ─────────────────────────────────────────────────────────────────────
-    // 5. AUTO-FIT on layout completion
-    // ─────────────────────────────────────────────────────────────────────
-    cy.on('layoutstop', () => {
-      cy.fit(undefined, 60);
-    });
-
-    // ─────────────────────────────────────────────────────────────────────
-    // 6. HOVER EFFECTS — Highlight node + connected edges on hover
-    // ─────────────────────────────────────────────────────────────────────
-    cy.on('mouseover', 'node', (evt) => {
-      const node = evt.target;
-      // Don't interfere with path focus mode
-      if (focusedPathRef.current) return;
-      node.addClass('node-hover');
-      node.connectedEdges().addClass('edge-hover');
-      // Dim all other elements
-      cy.elements().not(node).not(node.connectedEdges()).not(node.neighborhood('node')).addClass('neighbor-dim');
-    });
-
-    cy.on('mouseout', 'node', (evt) => {
-      const node = evt.target;
-      node.removeClass('node-hover');
-      node.connectedEdges().removeClass('edge-hover');
-      cy.elements().removeClass('neighbor-dim');
-    });
-
-    cy.on('mouseover', 'edge', (evt) => {
-      if (focusedPathRef.current) return;
-      const edge = evt.target;
-      edge.addClass('edge-hover');
-    });
-
-    cy.on('mouseout', 'edge', (evt) => {
-      evt.target.removeClass('edge-hover');
-    });
-
-    // ─────────────────────────────────────────────────────────────────────
-    // 7. PATH FOCUS — Dijkstra shortest path from root to clicked node
-    // ─────────────────────────────────────────────────────────────────────
-    const highlightPathToNode = (targetNode: cytoscape.NodeSingular) => {
-      const targetId = targetNode.id();
-      const rootId = rootNode?.id || rootAddress;
-
-      if (!rootId || targetId === rootId) {
-        cy.elements().removeClass('path-focused path-dimmed');
-        updateFocusedPath(null);
-        return;
-      }
-
-      // Find shortest directed path using Dijkstra
-      const dijkstra = cy.elements().dijkstra({
-        root: `#${rootId}`,
-        directed: true,
-      });
-
-      const pathToTarget = dijkstra.pathTo(targetNode);
-
-      if (pathToTarget && pathToTarget.length > 0) {
-        cy.elements().addClass('path-dimmed').removeClass('path-focused');
-        pathToTarget.removeClass('path-dimmed').addClass('path-focused');
-
-        const nodeIds = new Set<string>();
-        const edgeIds = new Set<string>();
-        let volume = 0;
-
-        pathToTarget.forEach((el: any) => {
-          if (el.isNode && el.isNode()) {
-            nodeIds.add(el.id());
-          } else if (el.isEdge && el.isEdge()) {
-            edgeIds.add(el.id());
-            volume += Number(el.data('amount') || 0);
-          }
-        });
-
-        updateFocusedPath({
-          targetNodeId: targetId,
-          nodeIds,
-          edgeIds,
-          totalVolume: volume,
-          hopDistance: targetNode.data('hop') || 1,
-          destinationName: targetNode.data('vaspName'),
-        });
-      }
-    };
-
-    // ─────────────────────────────────────────────────────────────────────
-    // 8. EVENT HANDLERS
-    // ─────────────────────────────────────────────────────────────────────
-    cy.on('tap', 'node', (evt) => {
-      const node = evt.target;
-      setSelectedElement({
-        type: 'NODE',
-        data: node.data(),
-      });
-      onSelectNode?.(node.data());
-      highlightPathToNode(node);
-    });
-
-    cy.on('tap', 'edge', (evt) => {
-      const edge = evt.target;
-      setSelectedElement({
-        type: 'EDGE',
-        data: edge.data(),
-      });
-    });
-
-    cy.on('tap', (evt) => {
-      if (evt.target === cy) {
-        setSelectedElement(null);
-        onSelectNode?.(null);
-        cy.elements().removeClass('path-focused path-dimmed neighbor-dim node-hover edge-hover');
-        updateFocusedPath(null);
-      }
-    });
-
-    // Auto-focus primary fund flow in FUND_FLOW view
-    if (viewMode === 'FUND_FLOW') {
-      const topVaspNode = cy.nodes('.is-vasp, .tag-exchange, [tag = "exchange"]').first();
-      if (topVaspNode.length > 0) {
-        highlightPathToNode(topVaspNode);
-      }
-    }
-
-    applyFilters(cy, selectedHops, selectedEntityTypes, selectedToken, selectedChain, minAmount, viewMode);
-    cyRef.current = cy;
-
-    return () => {
-      if (streamingLayoutTimerRef.current) clearTimeout(streamingLayoutTimerRef.current);
-    };
-  }, [graphData]);
-
-  // 0ms Filter updates via batch class toggling — Zero canvas recreation, zero lag
-  useEffect(() => {
-    if (cyRef.current) {
-      applyFilters(
-        cyRef.current,
-        selectedHops,
-        selectedEntityTypes,
-        selectedToken,
-        selectedChain,
-        minAmount,
-        viewMode
-      );
-    }
-  }, [
-    selectedHops,
-    selectedEntityTypes,
-    selectedToken,
-    selectedChain,
-    minAmount,
-    viewMode,
-  ]);
-
-  // Smooth layout animation on mode toggle
-  useEffect(() => {
-    if (cyRef.current) {
-      const cy = cyRef.current;
-      const visibleCount = cy.nodes(':visible').length;
-      const spacingScale = visibleCount > 40 ? 1.3 : visibleCount > 20 ? 1.1 : 1.0;
-      const cfg = getLayoutConfig(layoutMode, visibleCount, spacingScale, rootAddress);
-      cy.layout(cfg).run();
-    }
-  }, [layoutMode, rootAddress]);
-
-  // Final fit and layout when streaming finishes
-  useEffect(() => {
-    if (!isStreaming && cyRef.current) {
-      const cy = cyRef.current;
-      const visibleCount = cy.nodes(':visible').length;
-      if (visibleCount > 0) {
-        const spacingScale = visibleCount > 40 ? 1.3 : visibleCount > 20 ? 1.1 : 1.0;
-        const cfg = getLayoutConfig(layoutMode, visibleCount, spacingScale, rootAddress);
-        cy.layout(cfg).run();
-      }
-    }
-  }, [isStreaming, rootAddress, layoutMode]);
-
-  // Cleanup on component unmount
-  useEffect(() => {
-    return () => {
-      if (cyRef.current) {
-        cyRef.current.destroy();
-        cyRef.current = null;
-      }
-    };
-  }, []);
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // CONTROLS
-  // ═══════════════════════════════════════════════════════════════════════════
-  const handleFit = () => {
-    if (dimensionMode === '3D' && fit3DRef.current) fit3DRef.current();
-    else cyRef.current?.fit(undefined, 60);
-  };
-  const handleZoomIn = () => {
-    if (dimensionMode === '3D' && zoomIn3DRef.current) zoomIn3DRef.current();
-    else {
-      const cy = cyRef.current;
-      if (cy) cy.animate({ zoom: { level: cy.zoom() * 1.3, position: cy.extent() as any }, duration: 200 });
-    }
-  };
-  const handleZoomOut = () => {
-    if (dimensionMode === '3D' && zoomOut3DRef.current) zoomOut3DRef.current();
-    else {
-      const cy = cyRef.current;
-      if (cy) cy.animate({ zoom: { level: cy.zoom() * 0.75, position: cy.extent() as any }, duration: 200 });
-    }
-  };
-  const handleReset = () => {
-    if (dimensionMode === '3D' && reset3DRef.current) reset3DRef.current();
-    else {
-      const cy = cyRef.current;
-      if (cy) {
-        cy.elements().removeClass('path-focused path-dimmed neighbor-dim node-hover edge-hover');
-        cy.animate({ fit: { eles: cy.elements(), padding: 60 }, duration: 300 });
-      }
-      updateFocusedPath(null);
-      setSelectedElement(null);
-    }
+  // Handle Copy to Clipboard
+  const handleCopy = (text: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
+  // Filter Toggle Handlers
   const toggleHopFilter = (hop: number) => {
     const next = new Set(selectedHops);
-    if (next.has(hop)) next.delete(hop);
-    else next.add(hop);
+    if (next.has(hop)) {
+      if (next.size > 1) next.delete(hop);
+    } else {
+      next.add(hop);
+    }
     setSelectedHops(next);
   };
 
   const toggleEntityType = (type: string) => {
     const next = new Set(selectedEntityTypes);
-    if (next.has(type)) next.delete(type);
-    else next.add(type);
+    if (next.has(type)) {
+      if (next.size > 1) next.delete(type);
+    } else {
+      next.add(type);
+    }
     setSelectedEntityTypes(next);
   };
 
@@ -1536,20 +195,38 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     setMinAmount(0);
     setTimeRange('ALL');
     setRiskFilter('ALL');
-    setViewMode('NETWORK');
-    setLayoutMode('flow');
-    handleReset();
+    setHighlightedNodeIds(null);
+    setHighlightedEdgeIds(null);
   };
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  // Micro-Tools Trigger Handlers
+  const handleFit = () => {
+    fit3DRef.current?.();
+  };
+  const handleZoomIn = () => {
+    zoomIn3DRef.current?.();
+  };
+  const handleZoomOut = () => {
+    zoomOut3DRef.current?.();
+  };
+  const handleReset = () => {
+    reset3DRef.current?.();
+    setFocusedPath(null);
+    setSelectedElement(null);
+    setHighlightedNodeIds(null);
+    setHighlightedEdgeIds(null);
+    onSelectNode?.(null);
   };
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RENDER
-  // ═══════════════════════════════════════════════════════════════════════════
+  const handleSelectElement = (el: any) => {
+    setSelectedElement(el);
+    if (el?.type === 'NODE') {
+      onSelectNode?.(el.data);
+    } else {
+      onSelectNode?.(null);
+    }
+  };
+
   return (
     <div
       className={`bg-white dark:bg-[#0D131F] ${
@@ -1560,27 +237,41 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             }`
       }`}
     >
-      {/* ========================================================================= */}
-      {/* 1. INVESTIGATION SUMMARY HEADER BAR */}
-      {/* ========================================================================= */}
+      {/* ───────────────────────────────────────────────────────────────────────────── */}
+      {/* 1. INVESTIGATION SUMMARY HEADER BAR                                           */}
+      {/* ───────────────────────────────────────────────────────────────────────────── */}
       <div className="p-3.5 border-b border-slate-200 dark:border-[#1E293B] bg-white/95 dark:bg-[#0D131F]/90 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
-        {/* Left: Graph Studio + PRO ENGINE badge + Target address */}
+        {/* Left: Graph Studio + 3D Engine badge + Target address */}
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-900/40 flex items-center justify-center text-[#2563EB] dark:text-[#3B82F6]">
-            <Network className="h-5 w-5" />
+            <Box className="h-5 w-5" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
-              <span className="font-bold text-slate-900 dark:text-[#F8FAFC] text-base tracking-wide font-sans">Graph Studio</span>
+              <span className="font-bold text-slate-900 dark:text-[#F8FAFC] text-base tracking-wide font-sans">
+                3D Forensic Studio
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                REAL-TIME FLOW ENGINE
+              </span>
             </div>
             <div className="flex items-center space-x-1.5 text-xs font-mono text-slate-500 dark:text-[#94A3B8] mt-0.5">
               <span>Target:</span>
-              <span className="text-slate-800 dark:text-[#E2E8F0] font-medium">{rootAddress && rootAddress !== '0x...' ? `${rootAddress.slice(0, 8)}...${rootAddress.slice(-4)}` : 'No active target'}</span>
-              {(rootNode?.category === 'exploit' || (rootNode as any)?.category === 'hack' || (rootNode as any)?.is_exploit || (rootNode as any)?.isExploit) ? (
+              <span className="text-slate-800 dark:text-[#E2E8F0] font-medium">
+                {rootAddress && rootAddress !== '0x...'
+                  ? `${rootAddress.slice(0, 8)}...${rootAddress.slice(-4)}`
+                  : 'No active target'}
+              </span>
+              {((rootNode as any)?.category === 'exploit' ||
+                (rootNode as any)?.category === 'hack' ||
+                (rootNode as any)?.is_exploit ||
+                (rootNode as any)?.isExploit) ? (
                 <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-rose-100 text-rose-700 border border-rose-200 animate-pulse">
                   EXPLOIT DRAINER
                 </span>
-              ) : (rootNode?.is_sanctioned || (rootNode as any)?.isSanctioned || (rootNode as any)?.tag === 'sanctioned') ? (
+              ) : ((rootNode as any)?.is_sanctioned ||
+                  (rootNode as any)?.isSanctioned ||
+                  (rootNode as any)?.tag === 'sanctioned') ? (
                 <span className="px-1.5 py-0.2 rounded text-[10px] font-bold uppercase bg-red-100 text-red-700 border border-red-200 animate-pulse">
                   OFAC SANCTIONED
                 </span>
@@ -1599,35 +290,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           </div>
         </div>
 
-
-        {/* Center/Right: 2D / 3D Dimension Switcher & View Mode Tabs */}
+        {/* Right: View Mode Tabs */}
         <div className="flex items-center space-x-2.5">
-          {/* Dimension Selector: 2D vs 3D */}
-          <div className="flex items-center bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded-lg p-1 font-mono text-xs">
-            <button
-              onClick={() => setDimensionMode('2D')}
-              className={`px-2.5 py-1 rounded-md font-semibold transition-all flex items-center space-x-1 ${
-                dimensionMode === '2D'
-                  ? 'bg-[#2563EB] text-white shadow-sm font-bold'
-                  : 'text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
-              }`}
-            >
-              <span>2D</span>
-            </button>
-            <button
-              onClick={() => setDimensionMode('3D')}
-              className={`px-2.5 py-1 rounded-md font-semibold transition-all flex items-center space-x-1.5 ${
-                dimensionMode === '3D'
-                  ? 'bg-[#2563EB] text-white shadow-sm font-bold'
-                  : 'text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
-              }`}
-            >
-              <Box className="h-3.5 w-3.5" />
-              <span>3D</span>
-            </button>
-          </div>
-
-          {/* Right: View Mode Tabs */}
           <div className="flex items-center bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded-lg p-1 font-mono text-xs">
             {(['NETWORK', 'FUND_FLOW', 'TIMELINE', 'EVIDENCE'] as ViewMode[]).map((mode) => (
               <button
@@ -1646,9 +310,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* 2. SUB-STRIP: LAYOUT & CHAIN CONTROLS */}
-      {/* ========================================================================= */}
+      {/* ───────────────────────────────────────────────────────────────────────────── */}
+      {/* 2. SUB-STRIP: LAYOUT & CHAIN CONTROLS                                         */}
+      {/* ───────────────────────────────────────────────────────────────────────────── */}
       <div className="px-4 py-2.5 border-b border-slate-200 dark:border-[#1E293B] bg-slate-50/80 dark:bg-[#111827]/80 backdrop-blur-md flex flex-wrap items-center justify-between gap-y-2 text-xs font-mono shrink-0">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           {/* LAYOUT Engine Selector */}
@@ -1743,76 +407,75 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* MAIN WORKSPACE BODY: (Left Panel + Cytoscape Canvas + Right Drawer) */}
-      {/* ========================================================================= */}
+      {/* ───────────────────────────────────────────────────────────────────────────── */}
+      {/* 3. MAIN WORKSPACE BODY: 3D Canvas + Slide-out Panels                          */}
+      {/* ───────────────────────────────────────────────────────────────────────────── */}
       <div className="flex-1 relative flex overflow-hidden w-full h-full">
-        {/* ======================================================================= */}
-        {/* 2. LEFT INVESTIGATION CONTROL PANEL (Slide-out) */}
-        {/* ======================================================================= */}
+        {/* Slide-out Left Filter Panel */}
         {isSidebarOpen && (
           <div
             className={`border-r border-slate-200 dark:border-[#1E293B] bg-white/95 dark:bg-[#0D131F]/95 backdrop-blur-md transition-all duration-300 flex flex-col z-20 overflow-y-auto ${
               isSidebarOpen ? 'w-64 min-w-[16rem]' : 'hidden'
             }`}
           >
-          {/* Collapse Header */}
-          <div className="p-2.5 border-b border-slate-200 dark:border-[#1E293B] flex items-center justify-between">
-            {isSidebarOpen ? (
+            <div className="p-2.5 border-b border-slate-200 dark:border-[#1E293B] flex items-center justify-between">
               <div className="flex items-center space-x-2 font-mono text-xs font-bold text-slate-800 dark:text-[#F8FAFC] uppercase">
                 <SlidersHorizontal className="h-3.5 w-3.5 text-[#2563EB]" />
                 <span>Investigation Filters</span>
               </div>
-            ) : (
-              <SlidersHorizontal className="h-4 w-4 text-slate-400 dark:text-[#64748B] mx-auto" />
-            )}
-            <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-1 rounded hover:bg-slate-100 dark:hover:bg-[#1E293B] text-slate-500 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] transition-colors"
-              title={isSidebarOpen ? 'Collapse Panel' : 'Expand Panel'}
-            >
-              {isSidebarOpen ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-            </button>
-          </div>
+              <button
+                onClick={() => setIsSidebarOpen(false)}
+                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-[#1E293B] text-slate-500 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC] transition-colors"
+                title="Collapse Panel"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            </div>
 
-          {isSidebarOpen && (
             <div className="p-3.5 space-y-4 text-xs">
-              {/* LAYOUT Engine Selector */}
+              {/* LAYOUT Selector */}
               <div>
                 <div className="text-[10px] font-mono uppercase text-slate-400 dark:text-[#64748B] font-bold mb-2 tracking-wider">
-                  Graph Layout
+                  3D Spatial Layout
                 </div>
                 <div className="grid grid-cols-2 gap-1.5 font-mono text-[11px]">
                   {[
-                    { id: 'i2-peeling', label: 'i2 Peeling' },
                     { id: 'flow', label: 'Flow (DAG)' },
-                    { id: 'force', label: 'Force (CoSE)' },
-                    { id: 'hierarchical', label: 'Hierarchical' },
+                    { id: 'i2-peeling', label: 'i2 Peeling' },
+                    { id: 'force', label: 'Force (Organic)' },
                     { id: 'radial', label: 'Radial' },
                   ].map((l) => (
                     <button
                       key={l.id}
                       onClick={() => setLayoutMode(l.id as LayoutType)}
-                      className={`px-2 py-1.5 rounded text-left flex items-center space-x-1.5 border transition-colors ${layoutMode === l.id
+                      className={`px-2 py-1.5 rounded text-left flex items-center space-x-1.5 border transition-colors ${
+                        layoutMode === l.id
                           ? 'bg-[#2563EB] text-white border-[#2563EB] font-bold shadow-sm'
                           : 'bg-slate-50 dark:bg-[#111827] border-slate-200 dark:border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
-                        }`}
+                      }`}
                     >
-                      <span className={`w-2 h-2 rounded-full ${layoutMode === l.id ? 'bg-white' : 'bg-transparent border border-slate-400 dark:border-[#64748B]'}`} />
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          layoutMode === l.id ? 'bg-white' : 'bg-transparent border border-slate-400 dark:border-[#64748B]'
+                        }`}
+                      />
                       <span>{l.label}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* HOPS Selection */}
+              {/* HOPS Depth */}
               <div>
                 <div className="text-[10px] font-mono uppercase text-slate-400 dark:text-[#64748B] font-bold mb-2 tracking-wider">
                   Hop Traversal Depth
                 </div>
                 <div className="space-y-1.5 font-mono text-[11px]">
                   {[1, 2, 3].map((hop) => (
-                    <label key={hop} className="flex items-center space-x-2 cursor-pointer text-slate-700 dark:text-[#E2E8F0] hover:text-slate-900 dark:hover:text-white">
+                    <label
+                      key={hop}
+                      className="flex items-center space-x-2 cursor-pointer text-slate-700 dark:text-[#E2E8F0] hover:text-slate-900 dark:hover:text-white"
+                    >
                       <input
                         type="checkbox"
                         checked={selectedHops.has(hop)}
@@ -1851,25 +514,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 </div>
               </div>
 
-              {/* BLOCKCHAIN NETWORK */}
-              <div>
-                <div className="text-[10px] font-mono uppercase text-slate-400 dark:text-[#64748B] font-bold mb-2 tracking-wider">
-                  Blockchain Network
-                </div>
-                <select
-                  value={selectedChain}
-                  onChange={(e) => setSelectedChain(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#2563EB]"
-                >
-                  {graphMetrics.chainsAvailable.map((c) => (
-                    <option key={c} value={c}>
-                      {c === 'ALL' ? 'All Networks' : c.toUpperCase()}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* TRANSACTION FILTERS: Token & Min Amount */}
+              {/* TRANSACTION FILTERS */}
               <div className="space-y-2.5 pt-2 border-t border-slate-200 dark:border-[#1E293B]">
                 <div className="text-[10px] font-mono uppercase text-slate-400 dark:text-[#64748B] font-bold tracking-wider">
                   Transaction Filters
@@ -1910,29 +555,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                       <button
                         key={preset}
                         onClick={() => setMinAmount(preset)}
-                        className={`flex-1 py-0.5 rounded text-[10px] font-mono border transition-colors ${minAmount === preset
+                        className={`flex-1 py-0.5 rounded text-[10px] font-mono border transition-colors ${
+                          minAmount === preset
                             ? 'bg-[#2563EB] text-white border-[#2563EB] font-bold'
                             : 'bg-slate-50 dark:bg-[#111827] border-slate-200 dark:border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
-                          }`}
+                        }`}
                       >
                         {preset === 0 ? 'All' : `${preset >= 1000 ? preset / 1000 + 'k' : preset}`}
                       </button>
                     ))}
                   </div>
-                </div>
-
-                <div>
-                  <label className="text-[11px] text-slate-500 dark:text-[#94A3B8] block mb-1">Time Horizon</label>
-                  <select
-                    value={timeRange}
-                    onChange={(e) => setTimeRange(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] rounded px-2 py-1.5 text-slate-800 dark:text-[#F8FAFC] font-mono text-xs focus:outline-none focus:border-[#2563EB]"
-                  >
-                    <option value="ALL">All Time</option>
-                    <option value="24H">Last 24 Hours</option>
-                    <option value="7D">Last 7 Days</option>
-                    <option value="30D">Last 30 Days</option>
-                  </select>
                 </div>
               </div>
 
@@ -1946,7 +578,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     <button
                       key={r}
                       onClick={() => setRiskFilter(r)}
-                      className={`py-1 rounded font-medium border transition-colors ${riskFilter === r
+                      className={`py-1 rounded font-medium border transition-colors ${
+                        riskFilter === r
                           ? r === 'HIGH'
                             ? 'bg-rose-600 text-white border-rose-500'
                             : r === 'MEDIUM'
@@ -1955,7 +588,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                                 ? 'bg-emerald-600 text-white border-emerald-500'
                                 : 'bg-[#2563EB] text-white border-[#2563EB]'
                           : 'bg-slate-50 dark:bg-[#111827] border-slate-200 dark:border-[#1E293B] text-slate-600 dark:text-[#94A3B8] hover:text-slate-900 dark:hover:text-[#F8FAFC]'
-                        }`}
+                      }`}
                     >
                       {r.charAt(0) + r.slice(1).toLowerCase()}
                     </button>
@@ -1963,7 +596,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 </div>
               </div>
 
-              {/* Clear Filters Action */}
               <div className="pt-3">
                 <button
                   onClick={handleClearFilters}
@@ -1974,23 +606,23 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 </button>
               </div>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
 
-        {/* ======================================================================= */}
-        {/* 3. CYTOSCAPE GRAPH CANVAS / SANKEY DUAL VIEW */}
-        {/* ======================================================================= */}
+        {/* Center Canvas Area: Sankey Flow vs 3D Forensic Canvas */}
         {viewMode === 'FUND_FLOW' ? (
           <div className="flex-1 bg-forensic-bg h-full overflow-hidden">
             <SankeyFlowView
               graphData={graphData}
               rootAddress={rootAddress}
               onSelectAddress={(addr) => {
-                const node = cyRef.current?.getElementById(addr);
-                if (node && node.length > 0) {
-                  node.select();
-                  setSelectedElement({ type: 'NODE', data: node.data() });
+                const node = graphData?.nodes?.find((n: any) => {
+                  const d = n.data || n;
+                  return (d.id || d.address || '').toLowerCase() === addr.toLowerCase();
+                });
+                if (node) {
+                  const d = (node as any).data || node;
+                  handleSelectElement({ type: 'NODE', data: d });
                 }
               }}
             />
@@ -1999,68 +631,65 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           <div className="flex-1 relative bg-forensic-bg h-full flex flex-col">
             {/* Tag Color Legend Overlay */}
             <div className="absolute top-3 left-3 z-10 flex flex-col gap-2 pointer-events-none">
-
-              {/* Overlay Legend */}
               <div className="flex items-center space-x-2.5 px-3 py-1.5 rounded-lg bg-white/95 dark:bg-[#0D131F]/95 backdrop-blur-md border border-slate-200 dark:border-[#1E293B] text-[10px] font-mono shadow-md pointer-events-auto animate-fade-in w-fit text-slate-800 dark:text-[#F8FAFC]">
-                <span className="text-slate-400 dark:text-[#64748B] uppercase font-bold text-[9px] tracking-wider">LEGEND:</span>
+                <span className="text-slate-400 dark:text-[#64748B] uppercase font-bold text-[9px] tracking-wider">
+                  LEGEND:
+                </span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2.5 h-2.5 bg-[#ef4444] inline-block shrink-0" style={{ clipPath: 'polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)' }} />
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444] inline-block shrink-0" />
                   <span className="text-rose-600 dark:text-[#ef4444] font-semibold">Target</span>
                 </span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2.5 h-2 rounded-[2px] bg-[#14b8a6] inline-block shrink-0" />
-                  <span className="text-teal-600 dark:text-[#14b8a6] font-semibold">Exchange</span>
+                  <span className="w-2.5 h-2.5 rounded-[2px] bg-[#10b981] inline-block shrink-0" />
+                  <span className="text-teal-600 dark:text-[#10b981] font-semibold">VASP</span>
                 </span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2.5 h-2.5 bg-[#a855f7] inline-block shrink-0" style={{ clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)' }} />
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#a855f7] inline-block shrink-0" />
                   <span className="text-purple-600 dark:text-[#a855f7] font-semibold">Mixer</span>
                 </span>
                 <span className="flex items-center space-x-1">
-                  <span className="w-2.5 h-2.5 bg-[#dc2626] inline-block shrink-0" style={{ clipPath: 'polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%)' }} />
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#dc2626] inline-block shrink-0" />
                   <span className="text-red-600 dark:text-[#dc2626] font-semibold">Sanctioned</span>
                 </span>
                 <span className="flex items-center space-x-1">
                   <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-[#94a3b8] inline-block shrink-0" />
-                  <span className="text-slate-500 dark:text-[#94a3b8] font-semibold">Unknown</span>
+                  <span className="text-slate-500 dark:text-[#94a3b8] font-semibold">Counterparty</span>
                 </span>
               </div>
             </div>
 
-            {/* Cytoscape Container (2D) & ForceGraph3D Container (3D) */}
+            {/* Pure 3D Forensic Graph Container */}
             <div
-              ref={containerRef}
-              className={`w-full flex-1 graph-canvas-grid relative ${
+              className={`w-full flex-1 relative overflow-hidden ${
                 isFullScreen ? 'h-full min-h-full' : 'min-h-[440px]'
-              } ${dimensionMode === '2D' ? 'block' : 'hidden'}`}
+              }`}
             >
-              {(!graphData || !graphData.nodes || graphData.nodes.length === 0) && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 bg-[#F8FAFC]/80 backdrop-blur-[1px] text-center p-6 select-none">
-                  <div className="w-14 h-14 rounded-2xl bg-white border border-[#E2E8F0] shadow-sm flex items-center justify-center text-[#0284C7] mb-3">
-                    <Network className="w-7 h-7 text-[#0284C7]" />
+              {(!graphData || !graphData.nodes || graphData.nodes.length === 0) ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 bg-[#F8FAFC]/80 dark:bg-[#05080E]/80 backdrop-blur-[1px] text-center p-6 select-none">
+                  <div className="w-14 h-14 rounded-2xl bg-white dark:bg-[#0D131F] border border-slate-200 dark:border-[#1E293B] shadow-sm flex items-center justify-center text-[#2563EB] mb-3">
+                    <Network className="w-7 h-7 text-[#2563EB]" />
                   </div>
-                  <h3 className="font-bold text-sm text-[#0F172A] tracking-tight">Awaiting Suspect Wallet Address</h3>
-                  <p className="text-xs text-[#64748B] mt-1 max-w-sm">
-                    Paste a suspect wallet address in the search console above and click Trace to begin transaction flow analysis.
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-[#F8FAFC] tracking-tight">
+                    Awaiting Suspect Wallet Address
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-[#94A3B8] mt-1 max-w-sm">
+                    Enter a suspect wallet address in the search console above and click Trace to begin transaction flow analysis.
                   </p>
                 </div>
-              )}
-            </div>
-
-            {dimensionMode === '3D' && (
-              <div
-                className={`w-full flex-1 relative overflow-hidden ${
-                  isFullScreen ? 'h-full min-h-full' : 'min-h-[440px]'
-                }`}
-              >
+              ) : (
                 <GraphCanvas3D
                   graphData={graphData}
                   rootAddress={rootAddress}
-                  isDarkMode={typeof document !== 'undefined' ? document.documentElement.classList.contains('dark') : true}
+                  isDarkMode={
+                    typeof document !== 'undefined'
+                      ? document.documentElement.classList.contains('dark')
+                      : true
+                  }
                   layoutMode={layoutMode}
                   selectedElement={selectedElement}
-                  onSelectElement={setSelectedElement}
+                  onSelectElement={handleSelectElement}
                   focusedPath={focusedPath as any}
-                  onUpdateFocusedPath={updateFocusedPath}
+                  onUpdateFocusedPath={setFocusedPath}
                   selectedHops={selectedHops}
                   selectedEntityTypes={selectedEntityTypes}
                   selectedToken={selectedToken}
@@ -2068,13 +697,15 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                   minAmount={minAmount}
                   riskFilter={riskFilter}
                   viewMode={viewMode}
+                  highlightedNodeIds={highlightedNodeIds}
+                  highlightedEdgeIds={highlightedEdgeIds}
                   onFitRef={fit3DRef}
                   onResetRef={reset3DRef}
                   onZoomInRef={zoomIn3DRef}
                   onZoomOutRef={zoomOut3DRef}
                 />
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Canvas Micro-Tools (Bottom Right Floating Bar) */}
             <div className="absolute bottom-4 right-4 z-10 flex items-center space-x-1 p-1 rounded-lg bg-white/95 dark:bg-[#0D131F]/90 border border-slate-200 dark:border-[#1E293B] backdrop-blur-md shadow-xl text-slate-600 dark:text-[#94A3B8]">
@@ -2102,7 +733,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               <button
                 onClick={handleFit}
                 className="w-7 h-7 rounded hover:bg-slate-100 dark:hover:bg-[#1E293B] hover:text-slate-900 dark:hover:text-white flex items-center justify-center transition-colors"
-                title="Auto Layout / Fit"
+                title="Auto-Fit View"
               >
                 <Sparkles className="h-4 w-4" />
               </button>
@@ -2115,7 +746,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               </button>
             </div>
 
-            {/* IBM i2 Temporal 24-Hour Hour-of-Day Histogram Filter Bar */}
+            {/* IBM i2 Temporal 24-Hour Histogram Bar */}
             {showHistogramBar && (
               <div className="p-2.5 border-t border-slate-200 dark:border-[#1E293B] bg-white/95 dark:bg-[#05080E]/95 z-20">
                 <TemporalHistogramBar
@@ -2124,95 +755,92 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                   selectedHour={selectedTemporalHour}
                   onFilterHourChange={(newHour: number | null) => {
                     setSelectedTemporalHour(newHour);
-                    if (!cyRef.current) return;
-                    const cy = cyRef.current;
-
-                    cy.elements().removeClass('temporal-active-edge temporal-active-node i2-dimmed');
-
-                    if (newHour === null) {
+                    if (newHour === null || !graphData?.edges) {
+                      setHighlightedNodeIds(null);
+                      setHighlightedEdgeIds(null);
                       return;
                     }
 
-                    cy.elements().addClass('i2-dimmed');
+                    const matchingEdgeIds = new Set<string>();
+                    const connectedNodeIds = new Set<string>();
 
-                    const matchingEdges = cy.edges().filter((e: any) => {
-                      const ts = e.data('timestamp');
+                    graphData.edges.forEach((e: any, idx: number) => {
+                      const d = e.data || e;
+                      const ts = d.timestamp;
                       let h = 17;
                       if (ts) {
-                        const d = new Date(ts);
-                        if (!isNaN(d.getTime())) h = d.getHours();
+                        const dt = new Date(ts);
+                        if (!isNaN(dt.getTime())) h = dt.getHours();
                       } else {
-                        const hash = e.data('txHash') || e.id();
+                        const hash = d.tx_hash || d.id || `edge-${idx}`;
                         let num = 0;
                         for (let i = 0; i < hash.length; i++) num += hash.charCodeAt(i);
                         h = num % 3 === 0 ? 17 : num % 24;
                       }
-                      return h === newHour;
+
+                      if (h === newHour) {
+                        const edgeId = d.id || `edge-3d-${idx}`;
+                        matchingEdgeIds.add(edgeId);
+                        const src = (d.source?.id || d.source || '').toLowerCase();
+                        const tgt = (d.target?.id || d.target || '').toLowerCase();
+                        if (src) connectedNodeIds.add(src);
+                        if (tgt) connectedNodeIds.add(tgt);
+                      }
                     });
 
-                    matchingEdges.removeClass('i2-dimmed').addClass('temporal-active-edge');
-                    const connectedNodes = matchingEdges.connectedNodes();
-                    connectedNodes.removeClass('i2-dimmed').addClass('temporal-active-node');
-
-                    if (matchingEdges.length > 0) {
-                      cy.animate({
-                        center: { eles: matchingEdges },
-                        duration: 300,
-                      });
-                    }
+                    setHighlightedEdgeIds(matchingEdgeIds);
+                    setHighlightedNodeIds(connectedNodeIds);
                   }}
                   onClearFilter={() => {
                     setSelectedTemporalHour(null);
-                    if (cyRef.current) {
-                      cyRef.current.elements().removeClass('temporal-active-edge temporal-active-node i2-dimmed');
-                    }
+                    setHighlightedNodeIds(null);
+                    setHighlightedEdgeIds(null);
                   }}
                   primaryToken={graphMetrics.primaryToken}
                 />
               </div>
             )}
 
-            {/* Timeline Time-Machine Replay Bar */}
+            {/* Timeline Replay Bar */}
             {transactions && transactions.length > 0 && !showHistogramBar && (
               <div className="p-3 border-t border-slate-200 dark:border-[#1E293B] bg-white/95 dark:bg-[#05080E]/95 z-10">
                 <TimelineReplayBar
                   transactions={transactions}
                   onStepChange={(tx) => {
-                    if (!cyRef.current || !tx) return;
-                    const cy = cyRef.current;
-                    cy.elements().removeClass('replay-active-edge replay-active-node path-dimmed');
+                    if (!tx) {
+                      setHighlightedNodeIds(null);
+                      setHighlightedEdgeIds(null);
+                      return;
+                    }
 
                     const src = (tx.from_address || '').toLowerCase();
                     const dst = (tx.to_address || '').toLowerCase();
+                    const nodeIds = new Set<string>();
+                    if (src) nodeIds.add(src);
+                    if (dst) nodeIds.add(dst);
 
-                    cy.elements().addClass('path-dimmed');
-
-                    const matchingNodes = cy.nodes().filter((n: any) => {
-                      const nid = n.id().toLowerCase();
-                      return nid === src || nid === dst;
+                    const edgeIds = new Set<string>();
+                    (graphData?.edges || []).forEach((e: any, idx: number) => {
+                      const d = e.data || e;
+                      const s = (d.source?.id || d.source || '').toLowerCase();
+                      const t = (d.target?.id || d.target || '').toLowerCase();
+                      const eid = d.id || `edge-3d-${idx}`;
+                      if (
+                        (s === src && t === dst) ||
+                        (d.tx_hash && d.tx_hash.toLowerCase() === tx.tx_hash.toLowerCase())
+                      ) {
+                        edgeIds.add(eid);
+                      }
                     });
 
-                    const matchingEdges = cy.edges().filter((e: any) => {
-                      const s = e.source().id().toLowerCase();
-                      const t = e.target().id().toLowerCase();
-                      return (s === src && t === dst) || (e.data('txHash') && e.data('txHash').toLowerCase() === tx.tx_hash.toLowerCase());
-                    });
-
-                    matchingNodes.removeClass('path-dimmed').addClass('replay-active-node');
-                    matchingEdges.removeClass('path-dimmed').addClass('replay-active-edge');
-
-                    if (matchingEdges.length > 0) {
-                      cy.animate({
-                        center: { eles: matchingEdges },
-                        duration: 250,
-                      });
-                    }
+                    setHighlightedNodeIds(nodeIds);
+                    setHighlightedEdgeIds(edgeIds);
                   }}
                 />
               </div>
             )}
 
-            {/* Active Path Focus Banner (Bottom Left of Canvas) */}
+            {/* Active Path Focus Banner */}
             {focusedPath && (
               <div className="absolute bottom-20 left-4 z-10 p-3 rounded-lg bg-white/95 dark:bg-[#0D131F]/95 border border-[#2563EB]/40 shadow-xl backdrop-blur-md font-mono text-xs max-w-md animate-fade-in">
                 <div className="flex items-center justify-between mb-1.5">
@@ -2221,10 +849,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     <span>PRIMARY FUND FLOW FOCUS</span>
                   </div>
                   <button
-                    onClick={() => {
-                      cyRef.current?.elements().removeClass('path-focused path-dimmed');
-                      updateFocusedPath(null);
-                    }}
+                    onClick={() => setFocusedPath(null)}
                     className="text-slate-400 dark:text-[#64748B] hover:text-slate-900 dark:hover:text-[#F8FAFC] p-0.5"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -2238,8 +863,15 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     </strong>
                   </div>
                   <div className="flex justify-between">
-                    <span>Hop Distance: <strong>{focusedPath.hopDistance} Hop(s)</strong></span>
-                    <span>Observable Flow: <strong className="text-[#2563EB]">{focusedPath.totalVolume.toFixed(2)} {graphMetrics.primaryToken}</strong></span>
+                    <span>
+                      Hop Distance: <strong>{focusedPath.hopDistance} Hop(s)</strong>
+                    </span>
+                    <span>
+                      Observable Flow:{' '}
+                      <strong className="text-[#2563EB]">
+                        {focusedPath.totalVolume.toFixed(2)} {graphMetrics.primaryToken}
+                      </strong>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2247,48 +879,45 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           </div>
         )}
 
-        {/* ======================================================================= */}
-        {/* 4. RIGHT FORENSIC INSPECTOR / CENTRALITY DRAWER */}
-        {/* ======================================================================= */}
+        {/* Right Drawer: Centrality Panel vs Element Forensic Details */}
         {showCentralityPanel ? (
           <div className="w-96 min-w-[22rem] border-l border-slate-200 dark:border-[#1E293B] bg-white dark:bg-[#0D131F] backdrop-blur-md z-30 flex flex-col animate-slide-left">
             <EntityCentralityPanel
               graphData={graphData}
               selectedNodeId={selectedElement?.data?.id}
               onSelectEntity={(nodeId) => {
-                const node = cyRef.current?.getElementById(nodeId);
-                if (node && node.length > 0) {
-                  cyRef.current?.animate({
-                    center: { eles: node },
-                    zoom: 1.5,
-                    duration: 350,
-                  });
-                  node.select();
-                  setSelectedElement({ type: 'NODE', data: node.data() });
+                const node = graphData?.nodes?.find((n: any) => {
+                  const d = n.data || n;
+                  return (d.id || d.address || '').toLowerCase() === nodeId.toLowerCase();
+                });
+                if (node) {
+                  const d = (node as any).data || node;
+                  handleSelectElement({ type: 'NODE', data: d });
                 }
               }}
               onHighlightEntities={(nodeIds) => {
-                if (!cyRef.current) return;
-                const cy = cyRef.current;
-                cy.elements().removeClass('i2-highlighted-node i2-highlighted-consol i2-highlighted-edge i2-dimmed');
-                if (nodeIds.length === 0) return;
-
+                if (nodeIds.length === 0) {
+                  setHighlightedNodeIds(null);
+                  setHighlightedEdgeIds(null);
+                  return;
+                }
                 const idSet = new Set(nodeIds.map((id) => id.toLowerCase()));
-                cy.elements().addClass('i2-dimmed');
+                setHighlightedNodeIds(idSet);
 
-                const highlightedNodes = cy.nodes().filter((n: any) => idSet.has(n.id().toLowerCase()));
-                highlightedNodes.removeClass('i2-dimmed').addClass('i2-highlighted-node');
-
-                const highlightedEdges = cy.edges().filter((e: any) => {
-                  const s = e.source().id().toLowerCase();
-                  const t = e.target().id().toLowerCase();
-                  return idSet.has(s) || idSet.has(t);
+                const edgeSet = new Set<string>();
+                (graphData?.edges || []).forEach((e: any, idx: number) => {
+                  const d = e.data || e;
+                  const s = (d.source?.id || d.source || '').toLowerCase();
+                  const t = (d.target?.id || d.target || '').toLowerCase();
+                  if (idSet.has(s) || idSet.has(t)) {
+                    edgeSet.add(d.id || `edge-3d-${idx}`);
+                  }
                 });
-                highlightedEdges.removeClass('i2-dimmed').addClass('i2-highlighted-edge');
+                setHighlightedEdgeIds(edgeSet);
               }}
               onClearHighlight={() => {
-                if (!cyRef.current) return;
-                cyRef.current.elements().removeClass('i2-highlighted-node i2-highlighted-consol i2-highlighted-edge i2-dimmed');
+                setHighlightedNodeIds(null);
+                setHighlightedEdgeIds(null);
               }}
               onClose={() => setShowCentralityPanel(false)}
             />
@@ -2303,7 +932,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                   <span>{selectedElement.type === 'NODE' ? 'Node Forensics' : 'Transfer Details'}</span>
                 </div>
                 <button
-                  onClick={() => setSelectedElement(null)}
+                  onClick={() => handleSelectElement(null)}
                   className="text-slate-400 dark:text-[#64748B] hover:text-slate-900 dark:hover:text-[#F8FAFC] p-1"
                 >
                   <X className="h-4 w-4" />
@@ -2313,9 +942,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               {/* NODE DETAILS */}
               {selectedElement.type === 'NODE' && (
                 <div className="space-y-3 font-mono text-[11px]">
-                  {/* Address Badge */}
                   <div>
-                    <div className="text-slate-400 dark:text-[#64748B] text-[10px] uppercase font-bold">Cryptocurrency Address</div>
+                    <div className="text-slate-400 dark:text-[#64748B] text-[10px] uppercase font-bold">
+                      Cryptocurrency Address
+                    </div>
                     <div className="flex items-center justify-between p-2 rounded bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] mt-1">
                       <span className="font-bold text-slate-800 dark:text-[#E2E8F0] break-all text-[11px]">
                         {selectedElement.data.fullAddress || selectedElement.data.id}
@@ -2330,7 +960,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     </div>
                   </div>
 
-                  {/* Entity Provenance if VASP */}
                   {selectedElement.data.isVasp && (
                     <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 text-[11px] space-y-1">
                       <div className="text-emerald-700 dark:text-emerald-400 font-bold">
@@ -2340,35 +969,47 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                         Provenance: Verified Proof of Reserves / Public Label
                       </div>
                       <div className="text-emerald-600 dark:text-emerald-400 text-[10px] font-bold">
-                        Confidence: {typeof selectedElement.data.vaspConfidence === 'number' || (!isNaN(Number(selectedElement.data.vaspConfidence)) && selectedElement.data.vaspConfidence !== '') ? `${selectedElement.data.vaspConfidence}%` : (selectedElement.data.vaspConfidence || '98%')} (HIGH)
+                        Confidence:{' '}
+                        {typeof selectedElement.data.vaspConfidence === 'number' ||
+                        (!isNaN(Number(selectedElement.data.vaspConfidence)) &&
+                          selectedElement.data.vaspConfidence !== '')
+                          ? `${selectedElement.data.vaspConfidence}%`
+                          : selectedElement.data.vaspConfidence || '98%'}{' '}
+                        (HIGH)
                       </div>
                     </div>
                   )}
 
-                  {/* Financial Flow Summary */}
                   <div className="p-3 rounded-lg bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] space-y-1.5 font-mono text-[11px]">
                     <div className="text-[10px] uppercase text-slate-400 dark:text-[#64748B] font-bold font-sans">
                       Topological Flow Metrics
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500 dark:text-[#94A3B8]">Hop Distance:</span>
-                      <span className="text-slate-800 dark:text-[#F8FAFC] font-bold">Hop {selectedElement.data.hop}</span>
+                      <span className="text-slate-800 dark:text-[#F8FAFC] font-bold">
+                        Hop {selectedElement.data.hop}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500 dark:text-[#94A3B8]">Total Inflow:</span>
-                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">{Number(selectedElement.data.totalInflow || 0).toFixed(2)}</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                        {Number(selectedElement.data.totalInflow || 0).toFixed(2)}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500 dark:text-[#94A3B8]">Total Outflow:</span>
-                      <span className="text-rose-600 dark:text-rose-400 font-bold">{Number(selectedElement.data.totalOutflow || 0).toFixed(2)}</span>
+                      <span className="text-rose-600 dark:text-rose-400 font-bold">
+                        {Number(selectedElement.data.totalOutflow || 0).toFixed(2)}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500 dark:text-[#94A3B8]">Transactions:</span>
-                      <span className="text-slate-800 dark:text-[#F8FAFC]">{selectedElement.data.txCount || 0} Transfers</span>
+                      <span className="text-slate-800 dark:text-[#F8FAFC]">
+                        {selectedElement.data.txCount || 0} Transfers
+                      </span>
                     </div>
                   </div>
 
-                  {/* Action Link & Pivot Trigger */}
                   <div className="space-y-2 pt-1">
                     <a
                       href={`https://etherscan.io/address/${selectedElement.data.fullAddress || selectedElement.data.id}`}
@@ -2397,7 +1038,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               {selectedElement.type === 'EDGE' && (
                 <div className="space-y-3 font-mono text-[11px]">
                   <div>
-                    <div className="text-slate-400 dark:text-[#64748B] text-[10px] uppercase font-bold">Transaction Hash</div>
+                    <div className="text-slate-400 dark:text-[#64748B] text-[10px] uppercase font-bold">
+                      Transaction Hash
+                    </div>
                     <div className="p-2 rounded bg-slate-50 dark:bg-[#111827] border border-slate-200 dark:border-[#1E293B] mt-1 font-bold text-slate-800 dark:text-[#E2E8F0] break-all">
                       {selectedElement.data.txHash || selectedElement.data.id}
                     </div>
@@ -2410,7 +1053,6 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                         {selectedElement.data.amount} {selectedElement.data.tokenSymbol}
                       </span>
                     </div>
-                    {/* Case 6: INR/USD Valuation */}
                     {selectedElement.data.amountUsd && (
                       <div className="flex justify-between">
                         <span className="text-slate-500 dark:text-[#94A3B8]">USD Value:</span>
@@ -2427,14 +1069,18 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                         </span>
                       </div>
                     )}
-                    {/* Case 2: FIFO Taint Ratio */}
                     {selectedElement.data.taintRatio != null && (
                       <div className="flex justify-between items-center">
                         <span className="text-slate-500 dark:text-[#94A3B8]">Taint Ratio:</span>
-                        <span className={`font-bold ${selectedElement.data.taintRatio >= 0.8 ? 'text-red-500 dark:text-red-400' :
-                            selectedElement.data.taintRatio >= 0.4 ? 'text-amber-500 dark:text-orange-400' :
-                              'text-emerald-500 dark:text-lime-400'
-                          }`}>
+                        <span
+                          className={`font-bold ${
+                            selectedElement.data.taintRatio >= 0.8
+                              ? 'text-red-500 dark:text-red-400'
+                              : selectedElement.data.taintRatio >= 0.4
+                                ? 'text-amber-500 dark:text-orange-400'
+                                : 'text-emerald-500 dark:text-lime-400'
+                          }`}
+                        >
                           {selectedElement.data.taintRatio >= 0.8 ? '🔴' : selectedElement.data.taintRatio >= 0.4 ? '🟡' : '🟢'}{' '}
                           {(selectedElement.data.taintRatio * 100).toFixed(1)}%
                         </span>
@@ -2443,7 +1089,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     {selectedElement.data.traceableAmount != null && (
                       <div className="flex justify-between">
                         <span className="text-slate-500 dark:text-[#94A3B8]">Traceable:</span>
-                        <span className="text-red-500 dark:text-red-300">{selectedElement.data.traceableAmount} {selectedElement.data.tokenSymbol}</span>
+                        <span className="text-red-500 dark:text-red-300">
+                          {selectedElement.data.traceableAmount} {selectedElement.data.tokenSymbol}
+                        </span>
                       </div>
                     )}
                     <div className="flex justify-between">
@@ -2452,7 +1100,11 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500 dark:text-[#94A3B8]">Timestamp:</span>
-                      <span className="text-slate-600 dark:text-[#94A3B8]">{selectedElement.data.timestamp ? new Date(selectedElement.data.timestamp).toLocaleString() : 'Recent'}</span>
+                      <span className="text-slate-600 dark:text-[#94A3B8]">
+                        {selectedElement.data.timestamp
+                          ? new Date(selectedElement.data.timestamp).toLocaleString()
+                          : 'Recent'}
+                      </span>
                     </div>
                   </div>
 
@@ -2477,7 +1129,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             </div>
 
             <div className="pt-3 border-t border-slate-200 dark:border-[#1E293B] text-[10px] text-slate-400 dark:text-[#64748B] font-mono text-center">
-              CRYPTOTRACE Financial Intelligence Core
+              CRYPTOTRACE 3D Forensic Engine
             </div>
           </div>
         ) : null}
@@ -2485,3 +1137,5 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     </div>
   );
 };
+
+export default GraphCanvas;

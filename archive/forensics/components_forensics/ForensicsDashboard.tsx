@@ -49,13 +49,13 @@ import {
 } from 'lucide-react';
 
 // Register custom node & edge types
-const nodeTypes = {
+const nodeTypes: any = {
   suspect: SuspectNode,
   mixer: MixerNode,
   vasp: VaspNode,
 };
 
-const edgeTypes = {
+const edgeTypes: any = {
   animatedFlow: AnimatedFlowEdge,
 };
 

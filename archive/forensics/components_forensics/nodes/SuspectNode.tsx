@@ -5,7 +5,7 @@ import { Handle, Position, NodeProps } from '@xyflow/react';
 import { ShieldAlert, AlertTriangle, Copy, Check, ExternalLink, ArrowUpRight, Flame } from 'lucide-react';
 import { SuspectNodeData } from '../types';
 
-export const SuspectNode: React.FC<NodeProps<any>> = ({ data, selected, targetPosition = Position.Left, sourcePosition = Position.Right }) => {
+export const SuspectNode: React.FC<any> = ({ data, selected, targetPosition = Position.Left, sourcePosition = Position.Right }) => {
   const nodeData = data as SuspectNodeData;
   const [copied, setCopied] = useState(false);
 

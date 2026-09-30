@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: false, // Prevents double-render issues with cytoscape canvas in dev
+  reactStrictMode: false,
   async rewrites() {
     return [
       {
