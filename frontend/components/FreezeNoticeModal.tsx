@@ -39,7 +39,7 @@ export const FreezeNoticeModal: React.FC<FreezeNoticeModalProps> = ({
       // Generate Verification QR Code
       const verificationPayload = JSON.stringify({
         statutory_authority: 'Section 91 CrPC / Section 94 BNSS',
-        ref_no: data.ref_number || `SUDARSHAN/LEA/2026/${analysisId.slice(0, 8)}`,
+        ref_no: data.ref_number || `SETU.SO/LEA/2026/${analysisId.slice(0, 8)}`,
         target_vasp: data.vasp_name,
         compliance_email: data.compliance_email,
         crime_ack: crimeNumber,

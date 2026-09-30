@@ -56,7 +56,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       {/* Left: Section Breadcrumb */}
       <div className="flex items-center space-x-3">
         <span className="text-[#9A9A9A] uppercase tracking-wider text-[11px] font-semibold">
-          NETRA CONSOLE
+          SETU.SO CONSOLE
         </span>
         <span className="text-[#2A2A2A]">/</span>
         <h2 className="text-[#FFFFFF] font-sans font-bold text-sm tracking-tight">

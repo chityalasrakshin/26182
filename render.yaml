@@ -1,5 +1,18 @@
 services:
   - type: web
+    name: cryptotrace-ui
+    env: node
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: https://sudarshan-backend.onrender.com/api/v1
+
+  - type: web
     name: sudarshan-backend
     env: python
     region: oregon

@@ -1187,6 +1187,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             'border-width': 0,
             'background-image': 'data(iconUrl)',
             'background-fit': 'contain',
+            'background-width': '80%',
+            'background-height': '80%',
             'background-clip': 'none',
             'background-opacity': 0.9,
           },
@@ -2710,7 +2712,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
             </div>
 
             <div className="pt-3 border-t border-slate-200 dark:border-[#1E293B] text-[10px] text-slate-400 dark:text-[#64748B] font-mono text-center">
-              NETRA Financial Intelligence Core
+              SETU.so Financial Intelligence Core
             </div>
           </div>
         ) : null}

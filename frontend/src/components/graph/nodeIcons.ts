@@ -30,8 +30,15 @@ export function getNodeIconifyName(entityType: string | undefined): string {
 }
 
 // Vendored SVGs keep graph icons available offline and avoid remote Iconify failures.
+const localGraphIconAssets: Record<GraphEntityType, string> = {
+  target: '/icons/graph/target.svg', wallet: '/icons/graph/wallet.svg',
+  exchange: '/icons/graph/exchange.svg', vasp: '/icons/graph/vasp.svg',
+  mixer: '/icons/graph/mixer.svg', bridge: '/icons/graph/bridge.svg',
+  contract: '/icons/graph/contract.svg', sanctioned: '/icons/graph/sanctioned.svg',
+  unknown: '/icons/graph/unknown.svg',
+};
+
 export function getNodeIconifyUrl(entityType: string | undefined, color = 'ffffff'): string {
   const key = (entityType || 'unknown') as GraphEntityType;
-  const assetKey = nodeIconifyNames[key] ? key : 'unknown';
-  return `/icons/graph/${assetKey}.svg`;
+  return localGraphIconAssets[key] || localGraphIconAssets.unknown;
 }
